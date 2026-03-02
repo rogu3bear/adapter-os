@@ -47,7 +47,7 @@ pub struct RegisterArgs {
     pub tier: Option<i32>,
 
     /// Control plane base URL
-    #[arg(long, default_value = "http://127.0.0.1:8080/api")]
+    #[arg(long, default_value = "http://127.0.0.1:18080")]
     pub base_url: String,
 }
 

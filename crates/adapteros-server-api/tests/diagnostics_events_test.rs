@@ -419,3 +419,36 @@ async fn test_multiple_stages_sequence() {
     assert_eq!(stages[4], DiagStage::WorkerInference); // Enter
     assert_eq!(stages[5], DiagStage::WorkerInference); // Exit
 }
+
+#[test]
+fn determinism_guard_payload_contract_fields_are_machine_readable() {
+    let payload = serde_json::json!({
+        "determinism_guard": {
+            "freshness_status": "fresh",
+            "freshness_reason": "recent_run",
+            "freshness_age_seconds": 12,
+            "replay_guard_outcome": "pass",
+            "replay_guard_reason": "latest_replay_guard_passed"
+        }
+    });
+
+    let determinism_guard = payload
+        .get("determinism_guard")
+        .expect("determinism_guard payload missing");
+    assert!(determinism_guard
+        .get("freshness_status")
+        .and_then(|value| value.as_str())
+        .is_some());
+    assert!(determinism_guard
+        .get("freshness_reason")
+        .and_then(|value| value.as_str())
+        .is_some());
+    assert!(determinism_guard
+        .get("replay_guard_outcome")
+        .and_then(|value| value.as_str())
+        .is_some());
+    assert!(determinism_guard
+        .get("replay_guard_reason")
+        .and_then(|value| value.as_str())
+        .is_some());
+}

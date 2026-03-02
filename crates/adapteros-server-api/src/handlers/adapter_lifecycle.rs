@@ -83,7 +83,7 @@ pub async fn load_adapter(
 
     // Use lifecycle manager if available to update state to 'loading'
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        let manager = lifecycle.lock().await;
+        let manager = lifecycle;
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
             use adapteros_lora_lifecycle::AdapterHeatState;
             // Update state to loading via lifecycle manager
@@ -158,13 +158,13 @@ pub async fn load_adapter(
 
     // Actually load the adapter using LifecycleManager if available
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        let mut manager = lifecycle.lock().await;
+        let manager = lifecycle;
 
         // Load adapter (updates internal state only)
-        if let Err(e) = manager.get_or_reload(&adapter_id) {
+        if let Err(e) = manager.get_or_reload_async(&adapter_id).await {
             tracing::error!(adapter_id = %adapter_id, error = %e, "Failed to load adapter via lifecycle manager");
             // Must drop the lock before awaiting
-            drop(manager);
+
             // Emit SSE lifecycle event for load failure
             state
                 .sse_manager
@@ -436,7 +436,7 @@ pub async fn unload_adapter(
 
     // Use lifecycle manager if available to update state to 'unloading'
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        let manager = lifecycle.lock().await;
+        let manager = lifecycle;
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
             use adapteros_lora_lifecycle::AdapterHeatState;
             // Update state to unloading via lifecycle manager
@@ -485,7 +485,7 @@ pub async fn unload_adapter(
 
     // Actually unload the adapter using LifecycleManager if available
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        let manager = lifecycle.lock().await;
+        let manager = lifecycle;
 
         // Get adapter index
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {

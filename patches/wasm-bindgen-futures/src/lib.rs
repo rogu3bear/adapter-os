@@ -53,6 +53,7 @@ use js_sys::Promise;
 use wasm_bindgen::__rt::panic_to_panic_error;
 use wasm_bindgen::prelude::*;
 
+#[cfg(target_arch = "wasm32")]
 mod queue;
 #[cfg_attr(docsrs, doc(cfg(feature = "futures-core-03-stream")))]
 #[cfg(feature = "futures-core-03-stream")]
@@ -61,6 +62,7 @@ pub mod stream;
 pub use js_sys;
 pub use wasm_bindgen;
 
+#[cfg(target_arch = "wasm32")]
 mod task {
     use cfg_if::cfg_if;
 
@@ -88,12 +90,28 @@ mod task {
 /// # Panics
 ///
 /// This function has the same panic behavior as `future_to_promise`.
+#[cfg(target_arch = "wasm32")]
 #[inline]
 pub fn spawn_local<F>(future: F)
 where
     F: Future<Output = ()> + 'static,
 {
     task::Task::spawn(future);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[inline]
+/// No-op `spawn_local` shim for non-wasm targets.
+///
+/// Shared code paths may call `spawn_local` in SSR/native builds where no JS
+/// microtask queue exists. In that case the future is intentionally dropped.
+pub fn spawn_local<F>(future: F)
+where
+    F: Future<Output = ()> + 'static,
+{
+    // SSR/non-wasm callers may still reference spawn_local from shared UI code.
+    // There is no JS microtask queue in this environment, so drop the future.
+    let _ = future;
 }
 
 struct Inner {

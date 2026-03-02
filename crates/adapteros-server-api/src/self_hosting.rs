@@ -1278,7 +1278,7 @@ mod tests {
         adapteros_db::sqlx::query(
             "INSERT OR IGNORE INTO tenants (id, name) VALUES ('system', 'System')",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .unwrap();
         let config = Arc::new(RwLock::new(crate::state::ApiConfig::default()));
@@ -1360,7 +1360,7 @@ mod tests {
             "UPDATE training_datasets SET tenant_id = 'system', dataset_type = 'training', validation_status = 'valid' WHERE id = ?",
         )
         .bind(&ds_id)
-        .execute(agent.state.db.pool())
+        .execute(agent.state.db.pool_result().expect("db pool available"))
         .await
         .unwrap();
 
@@ -1382,7 +1382,7 @@ mod tests {
 
         adapteros_db::sqlx::query("UPDATE training_dataset_versions SET validation_status = 'valid', trust_state = 'blocked', overall_trust_status = 'blocked' WHERE id = ?")
             .bind(&version_id)
-            .execute(agent.state.db.pool())
+            .execute(agent.state.db.pool_result().expect("db pool available"))
             .await
             .unwrap();
 

@@ -23,7 +23,7 @@ async fn setup_test_db_with_adapters(adapter_count: usize) -> adapteros_db::Db {
 
     // Create default tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('test-tenant', 'Test Tenant')")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("Failed to create tenant");
 
@@ -57,7 +57,7 @@ async fn setup_test_db_with_adapters(adapter_count: usize) -> adapteros_db::Db {
         .bind("cold")
         .bind(i as i64)
         .bind((i as i64) * 1024)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("Failed to insert adapter");
     }
@@ -76,7 +76,7 @@ async fn setup_test_db_with_adapters(adapter_count: usize) -> adapteros_db::Db {
         .bind(format!("User {}", i))
         .bind("$2b$12$...")
         .bind("admin")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("Failed to insert user");
     }
@@ -182,7 +182,7 @@ async fn test_query_plan_analysis() {
     let plan_rows =
         sqlx::query("EXPLAIN QUERY PLAN SELECT * FROM users WHERE email LIKE ? LIMIT 1")
             .bind("user%")
-            .fetch_all(db.pool())
+            .fetch_all(db.pool_result().unwrap())
             .await
             .expect("Failed to get query plan");
 
@@ -208,7 +208,7 @@ async fn test_query_plan_analysis() {
         "EXPLAIN QUERY PLAN SELECT * FROM adapters WHERE tenant_id = ? ORDER BY name ASC",
     )
     .bind("test-tenant")
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result().unwrap())
     .await
     .expect("Failed to get query plan");
 
@@ -232,7 +232,7 @@ async fn test_query_plan_analysis() {
         "EXPLAIN QUERY PLAN SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC",
     )
     .bind("test-tenant")
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result().unwrap())
     .await
     .expect("Failed to get query plan for composite index");
 
@@ -337,7 +337,7 @@ async fn test_optimized_query_pattern_performance() {
     // Non-optimized pattern: LIKE with leading wildcard
     let start = Instant::now();
     let _rows = sqlx::query("SELECT * FROM users WHERE email LIKE '%@aos.local' LIMIT 1")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result().unwrap())
         .await
         .expect("Failed to run non-optimized query");
     let non_optimized_time = start.elapsed();
@@ -355,7 +355,7 @@ async fn test_optimized_query_pattern_performance() {
     // Optimized pattern: Direct equality
     let start = Instant::now();
     let _rows = sqlx::query("SELECT * FROM users WHERE email = 'user0@aos.local' LIMIT 1")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result().unwrap())
         .await
         .expect("Failed to run optimized query");
     let optimized_time = start.elapsed();
@@ -441,7 +441,7 @@ async fn test_bulk_operation_with_index_rebuild() {
             "UPDATE adapters SET load_state = 'warm', activation_count = 0 WHERE adapter_id = ?",
         )
         .bind(format!("adapter-{}", i))
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("Failed to update adapter");
     }
@@ -492,7 +492,7 @@ async fn validate_tenant_scoped_adapter_listing_index() {
         "EXPLAIN QUERY PLAN SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC",
     )
     .bind("test-tenant")
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result().unwrap())
     .await
     .expect("Failed to get query plan");
 

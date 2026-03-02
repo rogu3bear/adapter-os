@@ -34,9 +34,11 @@ base64 = "0.22"
 hex = { workspace = true }
 # UUID for nonce generation
 uuid = { version = "1.10", features = ["v4"] }
+tempfile = { workspace = true }
+
 [dev-dependencies]
 tokio = { version = "1.35", features = ["full", "macros", "rt-multi-thread"] }
-tempfile = "3.8"
+
 [lib]
 name = "adapteros_boot"
 path = "src/lib.rs"

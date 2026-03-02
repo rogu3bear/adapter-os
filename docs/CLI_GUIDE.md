@@ -51,25 +51,24 @@ flowchart TB
 
 | Command | Purpose | Source |
 |---------|---------|--------|
-| `aosctl db migrate` | Run migrations | commands/db.rs |
-| `aosctl doctor` | Health check | commands/doctor.rs |
-| `aosctl preflight` | Preflight checks | commands/preflight.rs |
-| `aosctl models seed` | Seed models from dir | commands/models.rs |
-| `aosctl models list` | List models | commands/models.rs |
-| `aosctl adapter list` | List adapters | commands/adapters.rs |
-| `aosctl chat` | Interactive chat | commands/chat.rs |
-| `aosctl serve` | Start worker (UDS) | commands/serve.rs |
-| `aosctl train start` | Start training job | commands/train_cli.rs |
-| `aosctl train-docs` | Train on docs | commands/train_docs.rs |
-| `aosctl explain <code>` | Explain error code | commands/explain.rs |
+| `aosctl db migrate` | Run migrations | `crates/adapteros-cli/src/commands/db.rs` |
+| `aosctl doctor` | Health check | `crates/adapteros-cli/src/commands/doctor.rs` |
+| `aosctl preflight` | Preflight checks | `crates/adapteros-cli/src/commands/preflight.rs` |
+| `aosctl models seed` | Seed models from dir | `crates/adapteros-cli/src/commands/models.rs` |
+| `aosctl models list` | List models | `crates/adapteros-cli/src/commands/models.rs` |
+| `aosctl adapter list` | List adapters | `crates/adapteros-cli/src/commands/adapters.rs` |
+| `aosctl chat` | Interactive chat | `crates/adapteros-cli/src/commands/chat.rs` |
+| `aosctl serve` | Start worker (UDS) | `crates/adapteros-cli/src/commands/serve.rs` |
+| `aosctl train start` | Start training job | `crates/adapteros-cli/src/commands/train_cli.rs` |
+| `aosctl train-docs` | Train on docs | `crates/adapteros-cli/src/commands/train_docs.rs` |
+| `aosctl explain <code>` | Explain error code | `crates/adapteros-cli/src/commands/explain.rs` |
 
 ---
 
 ## Build
 
 ```bash
-cargo build --release -p adapteros-cli --features tui
-ln -sf target/release/aosctl ./aosctl
+./aosctl --rebuild --help
 ```
 
 ---

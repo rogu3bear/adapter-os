@@ -8,7 +8,7 @@ expression: "json!({ \"status\": login_fail_status.as_u16(), \"body\": login_fai
     "hint": "Authentication failed: verify credentials or check account status in admin panel",
     "message": "Invalid credentials",
     "request_id": "<redacted>",
-    "schema_version": "1.0.0"
+    "schema_version": "2.0.0"
   },
   "status": 401
 }

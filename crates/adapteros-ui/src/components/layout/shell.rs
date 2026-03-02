@@ -1,27 +1,22 @@
 //! Shell - Main Application Frame
 //!
-//! The top-level application shell with top bar, bottom taskbar, and main workspace.
+//! The top-level application shell with top bar, sidebar, and main workspace.
 //! Includes global keyboard shortcuts:
 //! - Ctrl+K / Cmd+K: Command Palette
 //! - Alt+1..Alt+8: Jump to workflow group
 
-use super::logical_rail::LogicalControlRail;
 use super::nav_registry::route_for_alt_shortcut;
 use super::sidebar::{provide_sidebar_context, SidebarNav};
-use super::taskbar::Taskbar;
 use super::topbar::TopBar;
 use crate::api::sse::{
     use_adapter_lifecycle_sse, use_health_lifecycle_sse, use_training_lifecycle_sse,
 };
-use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay};
 use crate::components::inference_banner::InferenceBanner;
 use crate::components::offline_banner::OfflineBanner;
 use crate::components::status_center::StatusCenterProvider;
-use crate::components::telemetry_overlay::TelemetryOverlay;
 use crate::components::workspace::Workspace;
 use crate::signals::{
-    provide_route_context, use_chat, use_route_context, use_search, use_settings, use_ui_profile,
-    DockState,
+    provide_route_context, use_route_context, use_search, use_settings, use_ui_profile,
 };
 use leptos::prelude::*;
 use leptos_router::components::Outlet;
@@ -35,6 +30,7 @@ thread_local! {
         RefCell::new(None);
 }
 
+#[cfg(target_arch = "wasm32")]
 fn register_shell_keydown_listener(listener: Closure<dyn FnMut(web_sys::KeyboardEvent)>) {
     SHELL_KEYDOWN_LISTENER.with(|slot| {
         let mut slot = slot.borrow_mut();
@@ -52,6 +48,10 @@ fn register_shell_keydown_listener(listener: Closure<dyn FnMut(web_sys::Keyboard
     });
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn register_shell_keydown_listener(_listener: Closure<dyn FnMut(web_sys::KeyboardEvent)>) {}
+
+#[cfg(target_arch = "wasm32")]
 fn clear_shell_keydown_listener() {
     SHELL_KEYDOWN_LISTENER.with(|slot| {
         let mut slot = slot.borrow_mut();
@@ -66,17 +66,19 @@ fn clear_shell_keydown_listener() {
     });
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn clear_shell_keydown_listener() {}
+
 /// Application shell with top bar, bottom taskbar, and main workspace.
 /// Uses Outlet to render the matched child route from ParentRoute.
 #[component]
 pub fn Shell() -> impl IntoView {
-    web_sys::console::log_1(&"[Shell] Rendering...".into());
+    #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
+    crate::debug_log!("[Shell] Rendering...");
     provide_sidebar_context();
     provide_route_context();
-    let (chat_state, chat_action) = use_chat();
     let search = use_search();
     let route_context = use_route_context();
-    web_sys::console::log_1(&"[Shell] Got chat context".into());
 
     // SSE lifecycle subscriptions — Shell is inside ProtectedRoute so these
     // only activate when the user is authenticated. The hooks dispatch into
@@ -87,75 +89,57 @@ pub fn Shell() -> impl IntoView {
 
     // Track route changes for contextual actions in Command Palette
     let location = use_location();
-    let dock_action = chat_action;
     Effect::new(move || {
         let Some(pathname) = location.pathname.try_get() else {
             return;
         };
         route_context.set_route(&pathname);
-        // Clear selection when route changes
         route_context.clear_selected();
-
-        // Auto-narrow dock on dashboard to give sparklines/charts room
-        if matches!(pathname.as_str(), "/" | "/dashboard")
-            && chat_state
-                .try_get()
-                .is_some_and(|s| s.dock_state == DockState::Docked)
-        {
-            dock_action.set_dock_state(DockState::Narrow);
-        }
 
         // Update document title based on current route
         let title = match pathname.as_str() {
             "/" | "/dashboard" => "Home",
-            "/adapters" => "Adapter Library",
-            "/update-center" => "Update Center",
-            "/training" => "Adapter Training",
-            "/chat" => "Prompt Studio",
-            "/models" => "Base Model Registry",
-            "/workers" => "Inference Engines",
-            "/monitoring" => "Activity Monitor",
-            "/settings" => "Control Room Settings",
-            "/documents" => "Document Library",
-            "/stacks" => "Adapter Stack",
-            "/datasets" => "Datasets",
-            "/collections" => "Collections",
-            "/routing" => "Routing",
-            "/repositories" => "Repositories",
-            "/reviews" => "Safety Queue",
-            "/policies" => "Safety Shield",
-            "/audit" => "Event Viewer",
+            "/adapters" => "Adapters",
+            "/update-center" => "Versions",
+            "/training" => "Build",
+            "/chat" => "Chat",
+            "/models" => "Models",
+            "/workers" => "Workers",
+            "/settings" => "Settings",
+            "/documents" => "Files",
+            "/policies" => "Policies",
+            "/audit" => "Audit Log",
             "/admin" => "Admin",
-            "/agents" => "Automation Agents",
-            "/runs" => "System Restore Points",
-            "/diff" => "Diff Viewer",
+            "/runs" => "Execution Records",
+            "/user" => "Settings",
             "/welcome" => "Welcome",
-            "/system" => "Kernel",
-            _ if pathname.starts_with("/training/") => "Training Detail",
-            _ if pathname.starts_with("/runs/") => "Restore Point Detail",
-            _ if pathname.starts_with("/reviews/") => "Safety Queue Detail",
-            _ if pathname.starts_with("/collections/") => "Collection Detail",
+            "/system" => "System",
+            _ if pathname.starts_with("/chat/") => "Chat Session",
+            _ if pathname.starts_with("/training/") => "Build Details",
+            _ if pathname.starts_with("/runs/") => "Execution Record Detail",
             _ if pathname.starts_with("/adapters/") => "Adapter Detail",
-            _ if pathname.starts_with("/stacks/") => "Adapter Stack Detail",
-            _ if pathname.starts_with("/workers/") => "Inference Engine Detail",
-            _ if pathname.starts_with("/models/") => "Base Model Detail",
-            _ if pathname.starts_with("/documents/") => "Document Detail",
-            _ if pathname.starts_with("/datasets/") => "Dataset Detail",
-            _ if pathname.starts_with("/repositories/") => "Repository Detail",
+            _ if pathname.starts_with("/workers/") => "Worker Detail",
+            _ if pathname.starts_with("/models/") => "Model Details",
+            _ if pathname.starts_with("/documents/") => "File Details",
             _ => "AdapterOS",
         };
-        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-            document.set_title(&format!("{} \u{2014} AdapterOS", title));
-        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                document.set_title(&format!("{} \u{2014} AdapterOS", title));
+            }
 
-        // Clear panic overlay on navigation (it's outside Leptos, so we call JS directly)
-        if let Some(window) = web_sys::window() {
-            if let Some(document) = window.document() {
-                if let Some(overlay) = document.get_element_by_id("aos-panic-overlay") {
-                    let _ = overlay.class_list().remove_1("visible");
+            // Clear panic overlay on navigation (it's outside Leptos, so we call JS directly)
+            if let Some(window) = web_sys::window() {
+                if let Some(document) = window.document() {
+                    if let Some(overlay) = document.get_element_by_id("aos-panic-overlay") {
+                        let _ = overlay.class_list().remove_1("visible");
+                    }
                 }
             }
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = title;
     });
 
     // Get UI profile for alt shortcuts
@@ -235,7 +219,11 @@ pub fn Shell() -> impl IntoView {
 
     let settings = use_settings();
     let shell_class = move || {
-        if settings.try_get().map(|s| s.compact_mode).unwrap_or(false) {
+        if settings
+            .try_get()
+            .map(|s| s.density.is_compact())
+            .unwrap_or(false)
+        {
             "shell compact"
         } else {
             "shell"
@@ -261,9 +249,6 @@ pub fn Shell() -> impl IntoView {
 
                 // Top bar
                 <TopBar/>
-                // Permanent logical contract rail (state, rules, transitions, next actions)
-                <LogicalControlRail/>
-
                 // Main content area with sidebar + workspace
                 <div class="shell-content">
                     // Left sidebar navigation
@@ -276,23 +261,7 @@ pub fn Shell() -> impl IntoView {
                         </main>
                     </Workspace>
 
-                    // Chat dock (collapsible right panel)
-                    {move || {
-                        match chat_state.get().dock_state {
-                            DockState::Docked => view! { <ChatDockPanel/> }.into_any(),
-                            DockState::Narrow | DockState::Hidden => view! {}.into_any(),
-                        }
-                    }}
                 </div>
-
-                // Bottom taskbar
-                <Taskbar/>
-
-                // Mobile chat overlay
-                <MobileChatOverlay/>
-
-                // Telemetry overlay (Ctrl+Shift+T toggle, off by default)
-                <TelemetryOverlay/>
 
             </div>
         </StatusCenterProvider>

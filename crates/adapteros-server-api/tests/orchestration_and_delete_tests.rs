@@ -20,7 +20,7 @@ async fn orchestration_config_stub_works() {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('system', 'System Tenant')",
     )
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert system tenant");
 
@@ -51,7 +51,7 @@ async fn delete_endpoints_succeed_and_404() {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('system', 'System Tenant')",
     )
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert system tenant");
 
@@ -104,7 +104,7 @@ async fn delete_endpoints_succeed_and_404() {
     adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
         .bind("system")
         .bind(&dataset_id)
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool"))
         .await
         .expect("assign dataset tenant");
 

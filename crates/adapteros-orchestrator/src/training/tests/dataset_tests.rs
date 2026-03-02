@@ -2,9 +2,10 @@
 
 use adapteros_lora_worker::training::TrainingExample as WorkerTrainingExample;
 use adapteros_types::training::ExampleMetadataV1;
+use tempfile::TempDir;
 
 use crate::training::dataset::weighted_round_robin_merge;
-use crate::training::job::{DataLineageMode, TrainingConfig};
+use crate::training::job::{DataLineageMode, TrainingConfig, TrainingJob};
 use crate::training::service::TrainingService;
 
 fn make_example(
@@ -232,6 +233,43 @@ async fn test_update_progress() {
     );
     assert_eq!(updated_job.current_epoch, 1);
     assert!((updated_job.current_loss - 0.5).abs() < 0.01);
+}
+
+#[tokio::test]
+async fn update_progress_persists_running_status_to_db() {
+    let temp = TempDir::new().expect("temp dir");
+    let db = adapteros_db::factory::DbFactory::create_in_memory()
+        .await
+        .expect("db");
+    db.migrate().await.expect("migrate");
+    db.ensure_direct_training_repo_exists("test-user")
+        .await
+        .expect("ensure direct training repo");
+
+    let job_id = db
+        .create_training_job("direct-training", "{}", "test-user")
+        .await
+        .expect("create training job");
+
+    let service = TrainingService::with_db(db.clone(), temp.path().to_path_buf());
+    let job = TrainingJob::new(
+        job_id.clone(),
+        "persist-running-status".to_string(),
+        TrainingConfig::default(),
+    );
+    service.insert_job_for_test(job).await;
+
+    service
+        .update_progress(&job_id, 1, 0.5, 1000.0)
+        .await
+        .expect("update progress");
+
+    let persisted = db
+        .get_training_job(&job_id)
+        .await
+        .expect("query training job")
+        .expect("training job exists");
+    assert_eq!(persisted.status, "running");
 }
 
 #[tokio::test]

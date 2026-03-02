@@ -358,6 +358,7 @@ impl TraceDb {
 }
 
 pub const MAX_REASONING_SWAPS: usize = 50;
+const REASONING_HOTSWAP_MAX_ATTEMPTS: usize = 2;
 
 #[derive(Debug, Clone)]
 struct ReasoningSwapGuard {
@@ -387,6 +388,41 @@ impl ReasoningSwapGuard {
     fn count(&self) -> usize {
         self.swaps
     }
+}
+
+async fn apply_reasoning_hotswap_with_retry<F, Fut>(
+    adapter_id: u16,
+    mut switch_adapter: F,
+) -> Result<usize>
+where
+    F: FnMut(u16) -> Fut,
+    Fut: std::future::Future<Output = Result<()>>,
+{
+    let mut last_error: Option<String> = None;
+
+    for attempt in 1..=REASONING_HOTSWAP_MAX_ATTEMPTS {
+        match switch_adapter(adapter_id).await {
+            Ok(()) => return Ok(attempt),
+            Err(e) => {
+                last_error = Some(e.to_string());
+                if attempt < REASONING_HOTSWAP_MAX_ATTEMPTS {
+                    warn!(
+                        adapter_id,
+                        attempt,
+                        max_attempts = REASONING_HOTSWAP_MAX_ATTEMPTS,
+                        error = %e,
+                        "Hot-swap switch_adapter failed, retrying"
+                    );
+                }
+            }
+        }
+    }
+
+    let detail = last_error.unwrap_or_else(|| "unknown error".to_string());
+    Err(AosError::Worker(format!(
+        "Reasoning hot-swap failed for adapter {} after {} attempts: {}",
+        adapter_id, REASONING_HOTSWAP_MAX_ATTEMPTS, detail
+    )))
 }
 
 // Refactored modules - extracted from lib.rs
@@ -1358,6 +1394,27 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkerModelRuntimeState {
+    pub active_model_id: Option<String>,
+    pub active_model_hash: Option<String>,
+    pub status: String,
+    pub generation: i64,
+    pub last_error: Option<String>,
+}
+
+impl Default for WorkerModelRuntimeState {
+    fn default() -> Self {
+        Self {
+            active_model_id: None,
+            active_model_hash: None,
+            status: "no-model".to_string(),
+            generation: 0,
+            last_error: None,
+        }
+    }
+}
+
 /// Worker for running inference with comprehensive safety mechanisms
 pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     manifest: ManifestV3,
@@ -1388,6 +1445,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     available_backends: AvailableBackends,
     /// Hash of the fused CoreML package manifest (if applicable)
     coreml_package_hash: Option<String>,
+    /// Runtime model lifecycle state reported over worker UDS.
+    model_runtime_state: Arc<StdMutex<WorkerModelRuntimeState>>,
     /// Cached CoreML verification snapshot for observability/debug.
     coreml_verification: Option<CoremlVerificationSnapshot>,
     // Safety mechanisms
@@ -1426,6 +1485,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     pause_registry: Option<Arc<inference_pause::InferencePauseRegistry>>,
     /// Equipment profile for cryptographic receipt binding (Patent 3535886.0002)
     equipment_profile: Option<EquipmentProfile>,
+    /// Optional hard limit on `max_tokens` per request
+    max_tokens_limit: Option<usize>,
 }
 
 impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
@@ -1446,6 +1507,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         kv_residency_policy_id: Option<String>,
         adapter_cache_bytes: Option<u64>,
         worker_id: u32,
+        max_tokens_limit: Option<usize>,
+        resource_limits: crate::limiter::ResourceLimits,
     ) -> Result<Self> {
         // Initialize determinism guards first
         init_determinism_guards()?;
@@ -1502,8 +1565,21 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 ..Default::default()
             },
         );
-        let resource_limiter = Arc::new(ResourceLimiter::new(ResourceLimits::from_env()));
-        let deadlock_detector = DeadlockDetector::new(DeadlockConfig::default());
+        let resource_limiter = Arc::new(ResourceLimiter::new(resource_limits));
+        let deadlock_config = if let Some(cfg) = try_effective_config() {
+            tracing::debug!(
+                deadlock_check_interval_secs = cfg.worker_safety.deadlock_check_interval_secs,
+                max_wait_time_secs = cfg.worker_safety.max_wait_time_secs,
+                max_lock_depth = cfg.worker_safety.max_lock_depth,
+                recovery_timeout_secs = cfg.worker_safety.recovery_timeout_secs,
+                "Loaded deadlock config from cp.toml [worker.safety]"
+            );
+            DeadlockConfig::from_effective_section_or_default(Some(&cfg.worker_safety))
+        } else {
+            tracing::debug!("Effective config not initialized, using default deadlock config");
+            DeadlockConfig::from_effective_section_or_default(None)
+        };
+        let deadlock_detector = DeadlockDetector::new(deadlock_config);
         let health_monitor = Arc::new(HealthMonitor::new(HealthConfig::default())?.with_telemetry(
             telemetry.clone(),
             tenant_id.to_string(),
@@ -1726,6 +1802,13 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             manifest.base.model_id.clone(),
             expected_metadata,
         ));
+        let initial_model_runtime_state = Arc::new(StdMutex::new(WorkerModelRuntimeState {
+            active_model_id: Some(manifest.base.model_id.clone()),
+            active_model_hash: Some(manifest.base.model_hash.to_hex()),
+            status: "ready".to_string(),
+            generation: 0,
+            last_error: None,
+        }));
 
         let hotswap = Arc::new(HotSwapManager::new_with_kernels(
             kernels_arc.clone(),
@@ -1805,6 +1888,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             _last_stack_hash: last_stack_hash,
             available_backends,
             coreml_package_hash,
+            model_runtime_state: initial_model_runtime_state,
             coreml_verification,
             _timeout_config: timeout_config,
             _timeout_wrapper: timeout_wrapper,
@@ -1830,6 +1914,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             critical_metrics,
             pause_registry: None,
             equipment_profile: capture_equipment_profile(),
+            max_tokens_limit,
         })
     }
 
@@ -2867,6 +2952,18 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let mut prompt_tokens_with_free = prompt_tokens.clone();
         #[allow(unused_mut)]
         let mut max_tokens_remaining = request.max_tokens;
+
+        // 1. Cap against manifest policy
+        max_tokens_remaining =
+            max_tokens_remaining.min(self.manifest.policies.performance.max_tokens);
+
+        // 2. Cap against global node/worker env limit (if configured)
+        if let Some(env_limit) = self.max_tokens_limit {
+            max_tokens_remaining = max_tokens_remaining.min(env_limit);
+        }
+
+        request.max_tokens = max_tokens_remaining; // update request for downstream use Wait
+
         let is_moe = self.kernels.lock().await.is_moe();
         self.router.set_model_is_moe(is_moe);
 
@@ -4021,9 +4118,20 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             };
 
             if let Some(adapter_id) = pending_hotswap.take() {
-                let mut kernels = self.kernels.lock().await;
-                if let Err(e) = kernels.switch_adapter(adapter_id) {
-                    warn!(adapter_id, error = %e, "Hot-swap switch_adapter failed");
+                let kernels = self.kernels.clone();
+                let attempts = apply_reasoning_hotswap_with_retry(adapter_id, move |target_id| {
+                    let kernels = kernels.clone();
+                    async move {
+                        let mut kernels = kernels.lock().await;
+                        kernels.switch_adapter(target_id)
+                    }
+                })
+                .await?;
+                if attempts > 1 {
+                    debug!(
+                        adapter_id,
+                        attempts, "Reasoning hot-swap recovered after retry"
+                    );
                 }
             }
 

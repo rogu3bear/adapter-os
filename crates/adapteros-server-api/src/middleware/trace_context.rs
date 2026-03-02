@@ -8,7 +8,7 @@
 use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState};
 use opentelemetry::Context;
-use tracing::Span;
+use tracing::{Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 const TRACEPARENT_HEADER: &str = "traceparent";
@@ -35,30 +35,47 @@ pub async fn trace_context_middleware(mut req: Request, next: Next) -> Response 
         .get(TRACESTATE_HEADER)
         .and_then(|v| v.to_str().ok());
 
-    // If traceparent is present, set it as the parent context
+    // Parse and store incoming trace context (if present).
+    let mut incoming_span_context: Option<SpanContext> = None;
     if let Some(traceparent) = traceparent {
         if let Ok(span_context) = parse_traceparent(traceparent, tracestate) {
-            let parent_cx = Context::current().with_remote_span_context(span_context.clone());
-            // Set the parent context on the current tracing span
-            let _ = Span::current().set_parent(parent_cx);
-
             // Store trace context in request extensions for handlers
             req.extensions_mut().insert(TraceContextExtension {
                 trace_id: span_context.trace_id().to_string(),
                 span_id: span_context.span_id().to_string(),
             });
+
+            incoming_span_context = Some(span_context);
         }
     }
 
-    let mut response = next.run(req).await;
+    // Execute request under an explicit request span if we have incoming context.
+    // This avoids relying on the ambient current span being valid in all call paths.
+    let mut response_span_context: Option<SpanContext> = None;
+    let mut response = if let Some(span_context) = incoming_span_context.as_ref() {
+        let parent_cx = Context::current().with_remote_span_context(span_context.clone());
+        let request_span = tracing::info_span!("http.request.trace_context");
+        let _ = request_span.set_parent(parent_cx);
+        let response = next.run(req).instrument(request_span.clone()).await;
+        let request_sc = request_span.context().span().span_context().clone();
+        if request_sc.is_valid() {
+            response_span_context = Some(request_sc);
+        }
+        response
+    } else {
+        let response = next.run(req).await;
+        let current_sc = Span::current().context().span().span_context().clone();
+        if current_sc.is_valid() {
+            response_span_context = Some(current_sc);
+        }
+        response
+    };
 
     // Inject trace context into response headers for correlation
-    let current_span = Span::current();
-    let cx = current_span.context();
-    let span_ref = cx.span();
-    let span_context = span_ref.span_context();
-
-    if span_context.is_valid() {
+    let header_context = response_span_context
+        .as_ref()
+        .or(incoming_span_context.as_ref());
+    if let Some(span_context) = header_context {
         let traceparent = format_traceparent(span_context);
         if let Ok(header_value) = HeaderValue::from_str(&traceparent) {
             response

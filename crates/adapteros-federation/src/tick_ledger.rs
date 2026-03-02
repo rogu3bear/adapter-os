@@ -72,7 +72,7 @@ impl TickLedgerManager {
     /// Returns the event_hash of the most recent tick ledger entry
     /// for this tenant and host, if one exists.
     pub async fn get_latest_tick_hash(&self) -> Result<Option<String>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         let row = sqlx::query(
             r#"
@@ -109,7 +109,7 @@ impl TickLedgerManager {
     /// * `bundle_hash` - Bundle hash to link
     /// * `event_hash` - Event hash identifying the tick entry
     pub async fn link_bundle_to_tick(&self, bundle_hash: &str, event_hash: &B3Hash) -> Result<()> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let event_hash_hex = event_hash.to_hex();
 
         let result = sqlx::query(
@@ -154,7 +154,7 @@ impl TickLedgerManager {
     ///
     /// Vector of tick ledger entries linked to the bundle
     pub async fn get_entries_for_bundle(&self, bundle_hash: &str) -> Result<Vec<TickLedgerEntry>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         let rows = sqlx::query(
             r#"
@@ -282,7 +282,7 @@ impl TickLedgerManager {
         peer_host_id: &str,
         tick_range: (u64, u64),
     ) -> Result<(u64, Vec<TickDriftPoint>)> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         // Get our entries
         let our_entries = sqlx::query(
@@ -473,7 +473,7 @@ impl TickLedgerManager {
             return Ok(Vec::new());
         }
 
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         // Build placeholders for IN clause
         let placeholders: Vec<String> = ticks.iter().map(|_| "?".to_string()).collect();
@@ -601,7 +601,7 @@ mod tests {
 
         // Insert a tick ledger entry first
         let test_hash = B3Hash::hash(b"test_event");
-        let pool = db.pool();
+        let pool = db.pool_result()?;
 
         sqlx::query(
             r#"
@@ -642,7 +642,7 @@ mod tests {
             TickLedgerManager::new(db.clone(), "tenant-001".to_string(), "host-001".to_string());
 
         // Insert two linked tick ledger entries
-        let pool = db.pool();
+        let pool = db.pool_result()?;
         let hash1 = B3Hash::hash(b"event_1");
         let hash2 = B3Hash::hash(b"event_2");
         let bundle_hash = "bundle-001";
@@ -703,7 +703,7 @@ mod tests {
             TickLedgerManager::new(db.clone(), "tenant-001".to_string(), "host-001".to_string());
 
         // Insert two unlinked tick ledger entries
-        let pool = db.pool();
+        let pool = db.pool_result()?;
         let hash1 = B3Hash::hash(b"event_1");
         let hash2 = B3Hash::hash(b"event_2");
         let wrong_hash = B3Hash::hash(b"wrong_prev");
@@ -764,7 +764,7 @@ mod tests {
         let manager =
             TickLedgerManager::new(db.clone(), "tenant-001".to_string(), "host-001".to_string());
 
-        let pool = db.pool();
+        let pool = db.pool_result()?;
         let hash1 = B3Hash::hash(b"event_1");
 
         // Insert entry for host-001

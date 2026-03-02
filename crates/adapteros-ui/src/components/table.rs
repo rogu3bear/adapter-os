@@ -144,7 +144,7 @@ pub fn TableHeadSortable(
 
     view! {
         <th class=full_class scope="col" aria-sort=sort.aria_sort() role="columnheader">
-            <button class="table-sort-button" on:click=move |_| on_sort.run(()) type="button">
+            <button class="btn btn-ghost table-sort-button" on:click=move |_| on_sort.run(()) type="button">
                 <span class="table-sort-label">{children()}</span>
                 <span class="table-sort-icon" aria-hidden="true">
                     {match sort {

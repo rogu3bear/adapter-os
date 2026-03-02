@@ -77,7 +77,7 @@ use security_framework::key::{Algorithm, GenerateKeyOptions, KeyType, SecKey, To
 use std::collections::HashMap;
 #[cfg(not(target_os = "macos"))]
 use tracing::warn;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttestationKind {
@@ -174,12 +174,23 @@ impl SecureEnclaveConnection {
     /// Get key attestation and explicit attestation kind metadata.
     pub fn get_key_attestation_with_kind(&mut self, alias: &str) -> Result<KeyAttestation> {
         let sec_key = self.ensure_signing_key(alias)?;
+        let require_hardware = require_hardware_attestation();
 
         info!("Requesting hardware attestation for key: {}", alias);
 
         // First, try to get real SEP attestation data
         match self.get_real_sep_attestation(&sec_key, alias) {
             Ok(real_attestation) => {
+                info!(
+                    target: "security.attestation",
+                    event = "attestation_mode",
+                    alias,
+                    attestation_kind = "hardware",
+                    trust_downgraded = false,
+                    require_hardware_attestation = require_hardware,
+                    attestation_len = real_attestation.len(),
+                    "Hardware attestation selected"
+                );
                 debug!(
                     alias,
                     attestation_len = real_attestation.len(),
@@ -191,20 +202,49 @@ impl SecureEnclaveConnection {
                 })
             }
             Err(e) => {
-                if require_hardware_attestation() {
+                warn!(
+                    target: "security.attestation",
+                    event = "attestation_mode",
+                    alias,
+                    attestation_kind = "synthetic",
+                    trust_downgraded = true,
+                    require_hardware_attestation = require_hardware,
+                    error = %e,
+                    "Real SEP attestation unavailable, synthetic fallback required"
+                );
+                warn!(
+                    target: "security.audit",
+                    event = "attestation_trust_downgrade",
+                    alias,
+                    require_hardware_attestation = require_hardware,
+                    reason = %e,
+                    "Attestation trust downgraded to synthetic"
+                );
+                if require_hardware {
+                    error!(
+                        target: "security.attestation",
+                        event = "hardware_attestation_gate_rejected",
+                        alias,
+                        trust_downgraded = true,
+                        error = %e,
+                        "Hardware attestation required and synthetic fallback rejected"
+                    );
+                    error!(
+                        target: "security.audit",
+                        event = "attestation_gate_rejected",
+                        alias,
+                        gate = "AOS_REQUIRE_HARDWARE_ATTESTATION",
+                        "Attestation gate blocked synthetic fallback"
+                    );
                     return Err(AosError::Crypto(format!(
                         "hardware attestation required but unavailable for '{}': {}",
                         alias, e
                     )));
                 }
-                warn!(
-                    alias,
-                    error = %e,
-                    "Real SEP attestation not available, falling back to synthetic attestation"
-                );
+                let synthetic_attestation = self.get_synthetic_attestation(&sec_key, alias)?;
                 Ok(KeyAttestation {
                     kind: AttestationKind::Synthetic,
-                    data: self.get_synthetic_attestation(&sec_key, alias)?,
+                    data: synthetic_attestation,
                 })
             }
         }

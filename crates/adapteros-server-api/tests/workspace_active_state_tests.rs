@@ -23,11 +23,21 @@ async fn register_test_model(state: &AppState, name: &str) -> String {
         .build()
         .expect("builder produces params");
 
-    state
+    let model_id = state
         .db
         .register_model(params)
         .await
-        .expect("model registration")
+        .expect("model registration");
+
+    let claims = test_admin_claims();
+    adapteros_db::sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
+        .bind(&claims.tenant_id)
+        .bind(&model_id)
+        .execute(state.db.pool_result().expect("db pool"))
+        .await
+        .expect("set model tenant");
+
+    model_id
 }
 
 #[tokio::test]

@@ -42,7 +42,7 @@ impl Gate for MetricsGate {
              LIMIT 1",
         )
         .bind(&config.cpid)
-        .fetch_optional(db.pool())
+        .fetch_optional(db.pool_result()?)
         .await?
         .ok_or_else(|| AosError::NotFound(format!("No audit found for CPID: {}", config.cpid)))?;
 

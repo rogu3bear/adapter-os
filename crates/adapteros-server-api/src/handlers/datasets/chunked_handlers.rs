@@ -5,7 +5,7 @@ use super::fs_utils::{clean_temp, ensure_dirs};
 use super::hashing::{hash_dataset_manifest, DatasetHashInput};
 use super::helpers::{
     build_validation_error_payload, dataset_quota_limits, path_policy_error, quota_error,
-    STREAM_BUFFER_SIZE,
+    resolve_source_derived_dataset_name, STREAM_BUFFER_SIZE,
 };
 use super::paths::{resolve_dataset_root, DatasetPaths};
 use super::progress::emit_progress;
@@ -711,7 +711,8 @@ pub async fn complete_chunked_upload(
     }
 
     // Determine dataset name
-    let dataset_name = request.name.unwrap_or_else(|| session.file_name.clone());
+    let source_file_name = [session.file_name.as_str()];
+    let dataset_name = resolve_source_derived_dataset_name(None, &source_file_name);
 
     let dataset_hash = hash_dataset_manifest(&[DatasetHashInput {
         file_name: session.file_name.clone(),

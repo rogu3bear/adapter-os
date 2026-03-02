@@ -31,7 +31,7 @@ use tracing::{debug, info, warn};
 
 use super::fs_utils::ensure_dirs;
 use super::hashing::{hash_dataset_manifest, hash_file, DatasetHashInput};
-use super::helpers::MAX_FILE_SIZE;
+use super::helpers::{resolve_source_derived_dataset_name, MAX_FILE_SIZE};
 use super::paths::{resolve_dataset_root, DatasetPaths};
 use super::tenant::bind_dataset_to_tenant;
 
@@ -167,7 +167,6 @@ pub async fn generate_dataset_from_file(
     // Parse multipart form
     let mut file_content: Option<String> = None;
     let mut file_name = String::new();
-    let mut name = String::new();
     let mut strategy = GenerationStrategy::Qa;
     let mut chunk_size: usize = 2000;
     let mut max_tokens: u32 = 512;
@@ -204,7 +203,8 @@ pub async fn generate_dataset_from_file(
                 );
             }
             "name" => {
-                name = field
+                // Name is accepted for compatibility but dataset naming is source-derived.
+                let _ = field
                     .text()
                     .await
                     .map_err(|e| ApiError::bad_request(format!("Failed to read name: {}", e)))?;
@@ -286,10 +286,13 @@ pub async fn generate_dataset_from_file(
 
     let content = file_content.ok_or_else(|| ApiError::bad_request("No file uploaded"))?;
 
-    // Default name from filename if not provided
-    if name.is_empty() {
-        name = format!("Generated from {}", file_name);
-    }
+    // Enforce source-derived naming for generated datasets.
+    let source_name = if file_name.trim().is_empty() {
+        "input.txt"
+    } else {
+        file_name.trim()
+    };
+    let name = resolve_source_derived_dataset_name(None, &[source_name]);
 
     // Chunk the content
     let mut chunks = chunk_text(&content, chunk_size);

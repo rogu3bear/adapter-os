@@ -13,6 +13,8 @@ use std::sync::Arc;
 const MAX_RECENT_ITEMS: usize = 6;
 const RUNS_CANONICAL_LABEL: &str = "Runs";
 const RUNS_LEGACY_ALIASES: &[&str] = &["flight recorder", "flight", "recorder"];
+const SETTINGS_RESULT_ID: &str = "settings";
+const SETTINGS_RESULT_PATH: &str = "/settings";
 
 fn is_runs_result(result: &SearchResult) -> bool {
     result.id.eq_ignore_ascii_case("runs")
@@ -38,6 +40,26 @@ fn result_matches(result: &SearchResult, query: &str) -> bool {
             .map(|s| s.to_lowercase().contains(&query_lower))
             .unwrap_or(false)
         || (is_runs_result(result) && matches_runs_legacy_alias(&query_lower))
+}
+
+fn ensure_settings_result(results: &mut Vec<SearchResult>) {
+    let has_settings = results.iter().any(|result| {
+        result.id.eq_ignore_ascii_case(SETTINGS_RESULT_ID)
+            || result
+                .path()
+                .is_some_and(|path| path == SETTINGS_RESULT_PATH || path.starts_with("/settings/"))
+    });
+    if has_settings {
+        return;
+    }
+
+    results.push(SearchResult::page(
+        SETTINGS_RESULT_ID,
+        "Settings",
+        None,
+        SETTINGS_RESULT_PATH,
+        1.0,
+    ));
 }
 
 #[derive(Clone)]
@@ -273,6 +295,9 @@ fn static_results(profile: adapteros_api_types::UiProfile) -> Vec<SearchResult> 
         })
         .collect();
 
+    // Settings must remain discoverable in Command Deck regardless of profile mode.
+    ensure_settings_result(&mut results);
+
     // Actions are always available regardless of profile
     results.push(SearchResult::action(
         "toggle-chat",
@@ -289,6 +314,30 @@ fn static_results(profile: adapteros_api_types::UiProfile) -> Vec<SearchResult> 
         "toggle-theme",
         None,
         1.0,
+    ));
+    results.push(SearchResult::action(
+        "run-promote-selected-adapter",
+        "Run Promote",
+        Some("Open Update Center for selected skill"),
+        "run-promote-selected-adapter",
+        None,
+        0.95,
+    ));
+    results.push(SearchResult::action(
+        "run-checkout-selected-adapter",
+        "Run Checkout",
+        Some("Open Update Center for selected skill"),
+        "run-checkout-selected-adapter",
+        None,
+        0.95,
+    ));
+    results.push(SearchResult::action(
+        "feed-dataset-selected-adapter",
+        "Feed Dataset",
+        Some("Continue training from selected skill"),
+        "feed-dataset-selected-adapter",
+        None,
+        0.95,
     ));
 
     results

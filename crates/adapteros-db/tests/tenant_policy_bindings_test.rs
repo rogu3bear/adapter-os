@@ -18,7 +18,7 @@ async fn test_new_tenant_default_bindings() -> Result<()> {
 
     // Create a tenant (this should auto-initialize bindings)
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('test-tenant', 'Test', 0)")
-        .execute(&*db.pool())
+        .execute(&*db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -50,7 +50,7 @@ async fn test_toggle_creates_audit_record() -> Result<()> {
 
     // Create tenant and initialize bindings
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('audit-test', 'Audit Test', 0)")
-        .execute(&*db.pool())
+        .execute(&*db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -73,7 +73,7 @@ async fn test_toggle_creates_audit_record() -> Result<()> {
           AND hook = 'toggle'
         "#,
     )
-    .fetch_one(&*db.pool())
+    .fetch_one(&*db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -95,7 +95,7 @@ async fn test_toggle_creates_audit_record() -> Result<()> {
           AND hook = 'toggle'
         "#,
     )
-    .fetch_one(&*db.pool())
+    .fetch_one(&*db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -111,12 +111,12 @@ async fn test_tenant_isolation() -> Result<()> {
 
     // Create two tenants
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('tenant-a', 'Tenant A', 0)")
-        .execute(&*db.pool())
+        .execute(&*db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('tenant-b', 'Tenant B', 0)")
-        .execute(&*db.pool())
+        .execute(&*db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -152,7 +152,7 @@ async fn test_list_all_bindings() -> Result<()> {
     let db = Db::new_in_memory().await?;
 
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('list-test', 'List Test', 0)")
-        .execute(&*db.pool())
+        .execute(&*db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -181,7 +181,7 @@ async fn test_is_policy_enabled() -> Result<()> {
     sqlx::query(
         "INSERT INTO tenants (id, name, itar_flag) VALUES ('enabled-test', 'Enabled Test', 0)",
     )
-    .execute(&*db.pool())
+    .execute(&*db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -218,7 +218,7 @@ async fn test_audit_chain_integrity() -> Result<()> {
     let db = Db::new_in_memory().await?;
 
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('chain-test', 'Chain Test', 0)")
-        .execute(&*db.pool())
+        .execute(&*db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -242,7 +242,7 @@ async fn test_audit_chain_integrity() -> Result<()> {
         ORDER BY chain_sequence ASC
         "#,
     )
-    .fetch_all(&*db.pool())
+    .fetch_all(&*db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(e.to_string()))?;
 

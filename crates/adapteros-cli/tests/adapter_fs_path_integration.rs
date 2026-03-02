@@ -170,12 +170,12 @@ async fn train_docs_and_worker_path_align() {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?1, ?2, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool"))
         .await
         .expect("seed tenant");
     let tenant_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenants WHERE id = ?1")
         .bind(tenant_id)
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result().expect("db pool"))
         .await
         .expect("count tenant");
     assert_eq!(tenant_count, 1, "tenant persisted in temp db");
@@ -197,7 +197,7 @@ async fn train_docs_and_worker_path_align() {
         .bind(base_model_id)
         .bind(tenant_id)
         .bind(inserted_model_id)
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool"))
         .await
         .expect("assign model id");
     let file_bytes = fs::read(&expected_aos).await.expect("read aos");

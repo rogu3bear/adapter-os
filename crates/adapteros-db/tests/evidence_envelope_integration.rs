@@ -19,7 +19,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> anyhow::Result<()> {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind(format!("Test Tenant {}", tenant_id))
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     Ok(())
 }

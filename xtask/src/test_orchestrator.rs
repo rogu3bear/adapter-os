@@ -79,7 +79,7 @@ pub struct TestOrchestratorArgs {
     run: bool,
     #[arg(
         long,
-        default_value = "reports/test-orchestrator",
+        default_value = "var/reports/test-orchestrator",
         help = "Report output directory"
     )]
     report_dir: String,

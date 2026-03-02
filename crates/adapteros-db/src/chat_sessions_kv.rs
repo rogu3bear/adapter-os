@@ -333,6 +333,59 @@ impl ChatSessionKvRepository {
         Ok(sessions)
     }
 
+    pub async fn update_chat_session(
+        &self,
+        session_id: &str,
+        tenant_id: &str,
+        params: &crate::chat_sessions::UpdateChatSessionParams,
+    ) -> Result<()> {
+        let Some(mut session) = self.get_chat_session(session_id).await? else {
+            return Ok(());
+        };
+        // Match SQL semantics: update only when tenant_id matches.
+        if session.tenant_id != tenant_id {
+            return Ok(());
+        }
+
+        if let Some(name) = params.name.as_ref() {
+            session.name = name.clone();
+        }
+        if let Some(title) = params.title.as_ref() {
+            session.title = Some(title.clone());
+        }
+        if let Some(stack_id) = params.stack_id.as_ref() {
+            session.stack_id = stack_id.clone();
+        }
+        if let Some(collection_id) = params.collection_id.as_ref() {
+            session.collection_id = collection_id.clone();
+        }
+        if let Some(document_id) = params.document_id.as_ref() {
+            session.document_id = document_id.clone();
+        }
+        if let Some(source_type) = params.source_type.as_ref() {
+            session.source_type = Some(source_type.clone());
+        }
+        if let Some(metadata_json) = params.metadata_json.as_ref() {
+            session.metadata_json = metadata_json.clone();
+        }
+        if let Some(tags_json) = params.tags_json.as_ref() {
+            session.tags_json = tags_json.clone();
+        }
+        if let Some(codebase_adapter_id) = params.codebase_adapter_id.as_ref() {
+            session.codebase_adapter_id = codebase_adapter_id.clone();
+        }
+
+        let now = Self::now();
+        session.updated_at = now.clone();
+        session.last_activity_at = now;
+        let payload = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
+        self.backend
+            .set(&Self::session_key(&session.tenant_id, session_id), payload)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to store chat session: {}", e)))?;
+        Ok(())
+    }
+
     pub async fn update_chat_session_activity(&self, session_id: &str) -> Result<()> {
         let Some(mut session) = self.get_chat_session(session_id).await? else {
             return Ok(());

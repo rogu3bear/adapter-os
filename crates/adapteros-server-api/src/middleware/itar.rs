@@ -161,7 +161,7 @@ async fn check_tenant_itar_flag(state: &AppState, tenant_id: &str) -> Result<boo
     // Fall back to SQL
     let result = sqlx::query_scalar::<_, i64>("SELECT itar_flag FROM tenants WHERE id = ?")
         .bind(tenant_id)
-        .fetch_optional(state.db.pool())
+        .fetch_optional(state.db.pool_result()?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -212,7 +212,7 @@ async fn record_itar_audit_event(
     .bind(tenant_id) // resource_id is the tenant itself for ITAR events
     .bind(client_ip)
     .bind(event_json.to_string())
-    .execute(state.db.pool())
+    .execute(state.db.pool_result()?)
     .await
     .map_err(|e| e.to_string())?;
 

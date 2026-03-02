@@ -146,7 +146,7 @@ fuzz_target!(|data: &[u8]| {
         .bind(corrupt_hash.clone())
         .bind(corrupt_hash)
         .bind(&trace_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await;
 
         // Trigger recomputation; mismatches/errors are fine, panics are not

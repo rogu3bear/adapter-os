@@ -58,7 +58,7 @@ pub enum ApiError {
         code: String,
         failure_code: Option<FailureCode>,
         hint: Option<String>,
-        details: Option<serde_json::Value>,
+        details: Box<Option<serde_json::Value>>,
         request_id: Option<String>,
         error_id: Option<String>,
         fingerprint: Option<String>,
@@ -80,7 +80,7 @@ impl ApiError {
                     .failure_code
                     .or_else(|| FailureCode::parse_code(&err.code)),
                 hint: err.hint,
-                details: err.details,
+                details: Box::new(err.details),
                 request_id: err.request_id.or(request_id_header),
                 error_id: err.error_id,
                 fingerprint: err.fingerprint,
@@ -258,7 +258,12 @@ impl ApiError {
                     details,
                     ..
                 } => {
-                    let base = user_message_for_code(code, *failure_code, error, details.as_ref());
+                    let base = user_message_for_code(
+                        code,
+                        *failure_code,
+                        error,
+                        details.as_ref().as_ref(),
+                    );
                     apply_hint(base, hint.as_deref())
                 }
                 _ => self.to_string(),
@@ -400,6 +405,9 @@ fn user_message_for_code(
         "BAD_REQUEST" => "Invalid request. Check your input and try again.".to_string(),
         "VALIDATION_ERROR" => {
             "Some fields are invalid. Fix the highlighted fields and retry.".to_string()
+        }
+        "SCHEMA_CONTRACT_VIOLATION" => {
+            "Schema contract mismatch detected. Refresh and retry.".to_string()
         }
         "SERIALIZATION_ERROR" => "Data format error. Check your request format.".to_string(),
         "PARSE_ERROR" => "Could not parse the request. Check the input format.".to_string(),
@@ -657,10 +665,11 @@ fn user_message_for_code(
 pub fn format_structured_details(error: &ApiError) -> String {
     match error {
         ApiError::Structured {
-            details: Some(details),
+            details,
             error: err_msg,
             ..
-        } => {
+        } if details.as_ref().is_some() => {
+            let details = details.as_ref().as_ref().unwrap();
             if let Some(errors) = details.get("errors").and_then(|v| v.as_array()) {
                 let rendered: Vec<String> = errors
                     .iter()
@@ -723,6 +732,12 @@ impl From<gloo_net::Error> for ApiError {
 impl From<serde_json::Error> for ApiError {
     fn from(err: serde_json::Error) -> Self {
         Self::Serialization(err.to_string())
+    }
+}
+
+impl From<Box<ApiError>> for ApiError {
+    fn from(b: Box<ApiError>) -> Self {
+        *b
     }
 }
 
@@ -845,7 +860,7 @@ mod tests {
             code: "UNAUTHORIZED".to_string(),
             failure_code: None,
             hint: None,
-            details: None,
+            details: Box::new(None),
             request_id: None,
             error_id: None,
             fingerprint: None,
@@ -914,7 +929,7 @@ mod tests {
             code: "SERVICE_UNAVAILABLE".to_string(),
             failure_code: None,
             hint: Some("retry in a moment".to_string()),
-            details: None,
+            details: Box::new(None),
             request_id: None,
             error_id: None,
             fingerprint: None,

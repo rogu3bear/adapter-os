@@ -95,8 +95,16 @@ pub struct WorkerRuntimeInfo {
     pub coreml_failure_reason: Option<String>,
     /// BLAKE3 hash of currently loaded model (for routing affinity)
     pub loaded_model_hash: Option<String>,
+    /// Runtime active model ID reported by worker lifecycle telemetry.
+    pub active_model_id: Option<String>,
+    /// Runtime active model hash reported by worker lifecycle telemetry.
+    pub active_model_hash: Option<String>,
     /// Current model load state (unloaded, loading, loaded, error)
     pub model_load_state: Option<adapteros_api_types::workers::WorkerModelLoadState>,
+    /// Lifecycle generation counter for model switching.
+    pub model_generation: Option<i64>,
+    /// Last model lifecycle error reported by worker runtime.
+    pub model_error: Option<String>,
     /// Aggregated cache statistics for smarter routing
     pub cache_stats: Option<CacheStats>,
 }
@@ -127,7 +135,7 @@ pub struct BackgroundTaskSnapshot {
 pub struct ModelServerState {
     /// Whether model server mode is enabled
     pub enabled: bool,
-    /// Server address (e.g., "http://127.0.0.1:50051")
+    /// Server address (e.g., "http://127.0.0.1:18085")
     pub server_addr: Option<String>,
     /// Whether currently connected
     pub connected: bool,
@@ -597,6 +605,12 @@ pub struct StreamingConfig {
     /// Token buffer capacity for streaming inference
     #[serde(default = "default_streaming_token_buffer_capacity")]
     pub inference_token_buffer_capacity: usize,
+    /// Consecutive error threshold for SSE stream circuit breakers.
+    #[serde(default = "default_streaming_sse_circuit_failure_threshold")]
+    pub sse_circuit_failure_threshold: u32,
+    /// Recovery timeout (seconds) before SSE stream breaker enters half-open.
+    #[serde(default = "default_streaming_sse_circuit_recovery_timeout_secs")]
+    pub sse_circuit_recovery_timeout_secs: u64,
     /// Maximum duration in seconds that a paused stream may hold a connection open.
     /// After this duration the pause expires and normal idle-timeout behaviour resumes.
     /// Defaults to 1800 (30 minutes) when `None`.
@@ -616,14 +630,46 @@ fn default_streaming_token_buffer_capacity() -> usize {
     128
 }
 
+fn default_streaming_sse_circuit_failure_threshold() -> u32 {
+    5
+}
+
+fn default_streaming_sse_circuit_recovery_timeout_secs() -> u64 {
+    30
+}
+
 impl Default for StreamingConfig {
     fn default() -> Self {
         Self {
             inference_heartbeat_interval_secs: default_streaming_heartbeat_interval_secs(),
             inference_idle_timeout_secs: default_streaming_idle_timeout_secs(),
             inference_token_buffer_capacity: default_streaming_token_buffer_capacity(),
+            sse_circuit_failure_threshold: default_streaming_sse_circuit_failure_threshold(),
+            sse_circuit_recovery_timeout_secs: default_streaming_sse_circuit_recovery_timeout_secs(
+            ),
             max_pause_duration_secs: None,
         }
+    }
+}
+
+impl StreamingConfig {
+    pub fn sse_breaker_failure_threshold(&self) -> u32 {
+        self.sse_circuit_failure_threshold.max(1)
+    }
+
+    pub fn sse_breaker_recovery_timeout_secs(&self) -> u64 {
+        self.sse_circuit_recovery_timeout_secs.max(1)
+    }
+
+    pub fn sse_breaker_recovery_timeout(&self) -> Duration {
+        Duration::from_secs(self.sse_breaker_recovery_timeout_secs())
+    }
+
+    pub fn sse_breaker_settings(&self) -> (u32, Duration) {
+        (
+            self.sse_breaker_failure_threshold(),
+            self.sse_breaker_recovery_timeout(),
+        )
     }
 }
 
@@ -1027,7 +1073,7 @@ pub struct AppState {
     pub git_subsystem: Option<Arc<adapteros_git::GitSubsystem>>,
     pub file_change_tx: Option<Arc<tokio::sync::broadcast::Sender<FileChangeEvent>>>,
     pub crypto: Arc<CryptoState>,
-    pub lifecycle_manager: Option<Arc<Mutex<LifecycleManager>>>,
+    pub lifecycle_manager: Option<Arc<LifecycleManager>>,
     pub code_job_manager: Option<Arc<CodeJobManager>>,
     pub worker: Option<WorkerHandle>,
     pub active_stack: Arc<RwLock<HashMap<String, Option<String>>>>,
@@ -1143,7 +1189,10 @@ impl AppState {
         uma_monitor: Arc<UmaPressureMonitor>,
     ) -> Self {
         let db = ProtectedDb::new(db);
-        let db_pool = db.pool().clone(); // Get the pool from the Db struct
+        let db_pool = db
+            .pool_opt()
+            .cloned()
+            .expect("SQL pool required for AppState initialization");
         let keys_dir = resolve_var_dir().join("keys");
         let crypto_state = CryptoState::new_with_path(keys_dir);
         let ed25519_keypair = crypto_state.jwt_keypair.clone();
@@ -1449,7 +1498,7 @@ impl AppState {
         self
     }
 
-    pub fn with_lifecycle(mut self, lifecycle_manager: Arc<Mutex<LifecycleManager>>) -> Self {
+    pub fn with_lifecycle(mut self, lifecycle_manager: Arc<LifecycleManager>) -> Self {
         self.lifecycle_manager = Some(lifecycle_manager);
         self
     }

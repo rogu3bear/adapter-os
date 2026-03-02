@@ -2295,6 +2295,16 @@
           "ssrf_protection": {
             "type": "boolean"
           },
+          "streaming_circuit_failure_threshold": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "streaming_circuit_recovery_timeout_secs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "streaming_heartbeat_interval_secs": {
             "format": "int64",
             "minimum": 0,
@@ -2331,6 +2341,8 @@
           "worker_heartbeat_interval_secs",
           "streaming_heartbeat_interval_secs",
           "streaming_idle_timeout_secs",
+          "streaming_circuit_failure_threshold",
+          "streaming_circuit_recovery_timeout_secs",
           "self_hosting_mode",
           "self_hosting_repo_allowlist_count"
         ],
@@ -14471,6 +14483,76 @@
         ],
         "type": "object"
       },
+      "InferenceMetricsResponse": {
+        "description": "Inference metrics response",
+        "properties": {
+          "failed_requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_updated": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_mean_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "latency_p50_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_p95_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_p99_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "successful_requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tokens_per_second": {
+            "format": "double",
+            "type": "number"
+          },
+          "total_requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "total_requests",
+          "successful_requests",
+          "failed_requests",
+          "total_tokens",
+          "tokens_per_second",
+          "latency_p50_ms",
+          "latency_p95_ms",
+          "latency_p99_ms",
+          "latency_mean_ms",
+          "last_updated"
+        ],
+        "type": "object"
+      },
       "InferenceReadyState": {
         "description": "Inference readiness tri-state for operators.",
         "enum": [
@@ -18093,6 +18175,19 @@
       },
       "OpenAiChatCompletionsRequest": {
         "properties": {
+          "frequency_penalty": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "logprobs": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "max_completion_tokens": {
             "format": "int32",
             "minimum": 0,
@@ -18129,6 +18224,41 @@
               "null"
             ]
           },
+          "presence_penalty": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "response_format": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenAiResponseFormat"
+              }
+            ]
+          },
+          "seed": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stop": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenAiStop"
+              }
+            ]
+          },
           "stream": {
             "type": [
               "boolean",
@@ -18139,6 +18269,25 @@
             "format": "float",
             "type": [
               "number",
+              "null"
+            ]
+          },
+          "tool_choice": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenAiToolChoice"
+              }
+            ]
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/OpenAiTool"
+            },
+            "type": [
+              "array",
               "null"
             ]
           },
@@ -18221,15 +18370,26 @@
       "OpenAiChatMessageResponse": {
         "properties": {
           "content": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "role": {
             "type": "string"
+          },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/OpenAiToolCall"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
-          "role",
-          "content"
+          "role"
         ],
         "type": "object"
       },
@@ -18270,6 +18430,19 @@
       },
       "OpenAiCompletionsRequest": {
         "properties": {
+          "frequency_penalty": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "logprobs": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "max_tokens": {
             "format": "int32",
             "minimum": 0,
@@ -18292,8 +18465,33 @@
               "null"
             ]
           },
+          "presence_penalty": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "prompt": {
             "$ref": "#/components/schemas/OpenAiCompletionPrompt"
+          },
+          "seed": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stop": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenAiStop"
+              }
+            ]
           },
           "stream": {
             "type": [
@@ -18515,6 +18713,27 @@
         ],
         "type": "object"
       },
+      "OpenAiJsonSchemaFormat": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "object"
+          },
+          "strict": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "schema"
+        ],
+        "type": "object"
+      },
       "OpenAiModel": {
         "description": "OpenAI-compatible model object.\n\nSee: <https://platform.openai.com/docs/api-reference/models/object>",
         "properties": {
@@ -18562,6 +18781,145 @@
         "required": [
           "object",
           "data"
+        ],
+        "type": "object"
+      },
+      "OpenAiNamedToolChoice": {
+        "properties": {
+          "function": {
+            "$ref": "#/components/schemas/OpenAiNamedToolFunction"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "function"
+        ],
+        "type": "object"
+      },
+      "OpenAiNamedToolFunction": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "OpenAiResponseFormat": {
+        "properties": {
+          "json_schema": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenAiJsonSchemaFormat"
+              }
+            ]
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "OpenAiStop": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ]
+      },
+      "OpenAiTool": {
+        "properties": {
+          "function": {
+            "$ref": "#/components/schemas/OpenAiToolFunction"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "function"
+        ],
+        "type": "object"
+      },
+      "OpenAiToolCall": {
+        "properties": {
+          "function": {
+            "$ref": "#/components/schemas/OpenAiToolCallFunction"
+          },
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "function"
+        ],
+        "type": "object"
+      },
+      "OpenAiToolCallFunction": {
+        "properties": {
+          "arguments": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "arguments"
+        ],
+        "type": "object"
+      },
+      "OpenAiToolChoice": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "$ref": "#/components/schemas/OpenAiNamedToolChoice"
+          }
+        ]
+      },
+      "OpenAiToolFunction": {
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -22903,7 +23261,7 @@
             ]
           },
           "router_seed": {
-            "description": "Router seed for audit purposes (stored but currently unused)\n\nThe router uses a deterministic algorithm (sorted by score, then by\nstable_id for tie-breaking). This seed is stored for audit trail purposes\nbut does NOT currently affect routing decisions.",
+            "description": "Router seed for audit and adaptive tie-break replay.\n\nDeterministic routing mode uses score/stable_id ordering and does not\ndepend on this seed. Adaptive routing mode derives reproducible tie-break\nordering from this value.",
             "type": [
               "string",
               "null"
@@ -32607,7 +32965,8 @@
         "description": "UI profile for navigation and surface filtering.",
         "enum": [
           "primary",
-          "full"
+          "full",
+          "hud"
         ],
         "type": "string"
       },
@@ -34649,7 +35008,7 @@
               "null"
             ]
           },
-          "last_heartbeat_at": {
+          "last_seen_at": {
             "type": [
               "string",
               "null"
@@ -34939,6 +35298,13 @@
       "WorkerRegistrationRequest": {
         "description": "Worker registration request\n\nSent by worker on startup to register with the control plane.\nThe control plane validates manifest_hash against the plan's expected manifest.",
         "properties": {
+          "active_model_id": {
+            "description": "Active model identifier at registration time (for restart continuity)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "api_version": {
             "description": "API version for CP-worker protocol (e.g., \"1.0\")",
             "type": "string"
@@ -35171,6 +35537,20 @@
       "WorkerResponse": {
         "description": "Worker response",
         "properties": {
+          "active_model_hash": {
+            "description": "Runtime active model hash currently serving on this worker.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active_model_id": {
+            "description": "Runtime active model identifier currently serving on this worker.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "backend": {
             "description": "Backend selected by the worker (e.g., mlx, metal, coreml)",
             "type": [
@@ -35262,6 +35642,21 @@
               "null"
             ]
           },
+          "model_error": {
+            "description": "Last model lifecycle error reported by worker runtime.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_generation": {
+            "description": "Lifecycle generation counter for worker model transitions.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "model_hash": {
             "description": "Base model hash (BLAKE3 hex) expected/loaded by this worker (from manifest/worker)",
             "type": [
@@ -35274,6 +35669,17 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "model_load_state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkerModelLoadState",
+                "description": "Runtime model load state for routing/readiness visibility."
+              }
             ]
           },
           "model_loaded": {
@@ -35339,6 +35745,20 @@
       "WorkerStatusNotification": {
         "description": "Worker status notification\n\nSent by worker to notify control plane of status changes.",
         "properties": {
+          "active_model_hash": {
+            "description": "Runtime active model hash currently serving on this worker.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active_model_id": {
+            "description": "Runtime active model identifier currently serving on this worker.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "cache_active_entries": {
             "description": "Number of active cache entries (in-use, cannot be evicted)",
             "format": "int32",
@@ -35410,6 +35830,21 @@
             "description": "BLAKE3 hash of the currently loaded model (for routing affinity)",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "model_error": {
+            "description": "Last model runtime error reported by worker.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_generation": {
+            "description": "Lifecycle generation counter for model switch serialization on worker.",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -37788,6 +38223,16 @@
               }
             },
             "description": "Invalid request"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal error"
           }
         },
         "summary": "Register new adapter",
@@ -38350,7 +38795,7 @@
     },
     "/v1/adapters/{adapter_id}/duplicate": {
       "post": {
-        "description": "Creates a copy of an adapter with a new ID. The duplicate will have\nthe original adapter set as its parent and fork_type=\"duplicate\".",
+        "description": "Creates a copy of an adapter with a new ID. The duplicate will have\nthe original adapter set as its parent and fork_type=\"extension\".",
         "operationId": "duplicate_adapter",
         "parameters": [
           {
@@ -50556,6 +51001,38 @@
         ]
       }
     },
+    "/v1/metrics/inference": {
+      "get": {
+        "description": "Returns overall inference performance metrics including:\n- Request counts (total, success, failed)\n- Throughput (tokens/sec)\n- Latency percentiles (p50, p95, p99)",
+        "operationId": "get_inference_metrics_handler",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InferenceMetricsResponse"
+                }
+              }
+            },
+            "description": "Inference metrics retrieved"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Permission denied"
+          }
+        },
+        "summary": "GET /v1/metrics/inference",
+        "tags": [
+          "metrics"
+        ]
+      }
+    },
     "/v1/metrics/quality": {
       "get": {
         "operationId": "get_quality_metrics",
@@ -55737,7 +56214,7 @@
             }
           },
           {
-            "description": "Search scope: all, adapters, pages",
+            "description": "Search scope: all, adapters, models, pages",
             "in": "query",
             "name": "scope",
             "required": false,

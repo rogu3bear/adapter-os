@@ -96,7 +96,7 @@ pub fn adapter_feature_flag() -> bool {
     .bind(stale_hash)
     .bind("default")
     .bind(&first_payload.adapter_id)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("seed stale hash")
     .rows_affected();

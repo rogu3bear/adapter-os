@@ -17,7 +17,7 @@ async fn create_tenant(db: &ProtectedDb, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create tenant: {}", e)))?;
     Ok(())

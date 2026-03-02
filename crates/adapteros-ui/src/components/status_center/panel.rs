@@ -3,13 +3,19 @@
 //! Main panel component with backdrop, sliding animation, and status sections.
 
 use super::hooks::{use_escape_key, use_status_data, StatusLoadingState};
-use super::items::{StatusItem, StatusItemMemory, StatusItemSeverity};
+use super::items::{StatusItem, StatusItemSeverity};
 use super::sections::{StatusDivider, StatusSection, StatusSectionBadgeVariant};
-use crate::components::Spinner;
-use crate::signals::{use_notification_context, Notification, NotificationSeverity};
+use crate::api::report_error_with_toast;
+use crate::components::glass_toggle::GlassThemeToggle;
+use crate::components::{IconX, Spinner};
+use crate::signals::{
+    use_auth, use_notification_context, use_notifications, use_refetch, Notification,
+    NotificationSeverity,
+};
+use crate::utils::status_display_label;
 use adapteros_api_types::{
-    DataAvailability, InferenceBlocker, InferenceReadyState, MemoryPressureLevel, RagStatus,
-    ServiceHealthStatus, StatusIndicator as ApiStatusIndicator,
+    InferenceBlocker, InferenceReadyState, ServiceHealthStatus,
+    StatusIndicator as ApiStatusIndicator,
 };
 use leptos::prelude::*;
 use std::{cell::RefCell, rc::Rc};
@@ -28,8 +34,8 @@ pub fn StatusCenterPanel(
     let escape_count = use_escape_key();
     Effect::new(move || {
         let _ = escape_count.try_get();
-        if open.try_get().unwrap_or(false) {
-            let _ = open.try_set(false);
+        if open.get_untracked() {
+            open.set(false);
         }
     });
 
@@ -147,6 +153,8 @@ pub fn StatusCenterPanel(
                     "status-center-backdrop status-center-backdrop-hidden"
                 }
             }
+            hidden=move || !open.try_get().unwrap_or(false)
+            aria-hidden=move || (!open.try_get().unwrap_or(false)).to_string()
             on:click=close
         />
 
@@ -160,6 +168,8 @@ pub fn StatusCenterPanel(
                     "status-center-panel status-center-panel-closed"
                 }
             }
+            hidden=move || !open.try_get().unwrap_or(false)
+            aria-hidden=move || (!open.try_get().unwrap_or(false)).to_string()
             role="dialog"
             aria-modal="true"
             aria-labelledby="status-center-title"
@@ -183,7 +193,7 @@ pub fn StatusCenterPanel(
                 <div class="status-center-header-actions">
                     // Refresh button
                     <button
-                        class="status-center-refresh-btn"
+                        class="btn btn-ghost status-center-refresh-btn"
                         on:click=move |_| refetch_for_button()
                         title="Refresh status"
                         aria-label="Refresh status"
@@ -208,20 +218,22 @@ pub fn StatusCenterPanel(
 
                     // Close button
                     <button
-                        class="status-center-close-btn"
+                        class="btn btn-ghost status-center-close-btn"
                         on:click=close
                         title="Close (Escape)"
                         aria-label="Close"
                     >
-                        <svg class="status-center-close-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
+                        <IconX class="status-center-close-icon"/>
                     </button>
                 </div>
             </div>
 
             // Content
             <div class="status-center-content">
+                // Session & Preferences
+                <SessionPreferencesSection />
+                <StatusDivider />
+
                 // Notifications section (always visible, independent of status loading)
                 <NotificationsSection />
                 <StatusDivider />
@@ -302,19 +314,14 @@ pub fn StatusCenterPanel(
     }
 }
 
-/// Internal component to render all status sections
+/// Internal component to render status sections: Readiness, Inference, Services.
 #[component]
 fn StatusCenterSections(
     status: adapteros_api_types::SystemStatusResponse,
     state: adapteros_api_types::SystemStateResponse,
 ) -> impl IntoView {
-    // Clone values needed in view! macro to avoid ownership issues
-    // Each clone is for a separate closure in the view! macro
     let readiness_checks = status.readiness.checks.clone();
     let kernel_for_model = status.kernel.clone();
-    let kernel_for_uma = status.kernel.clone();
-    let kernel_for_ane = status.kernel.clone();
-    let rag_status = state.rag_status.clone();
     let ready_count = [
         &readiness_checks.db,
         &readiness_checks.migrations,
@@ -432,38 +439,19 @@ fn StatusCenterSections(
                 view! {}.into_any()
             }}
             {kernel_for_model.as_ref().and_then(|k| k.model.as_ref()).map(|m| {
+                let model_status = m.status.clone();
+                let model_status_token = model_status.trim().to_ascii_lowercase().replace('-', "_");
+                let model_status_label = status_display_label(&model_status);
                 view! {
                     <StatusItem
                         label="Active Model"
                         value=m.model_id.clone().unwrap_or_else(|| "None".to_string())
-                        severity=if m.status == "ready" || m.status == "loaded" { StatusItemSeverity::Success } else { StatusItemSeverity::Warning }
-                        detail=format!("Status: {}", m.status)
-                    />
-                }
-            })}
-            {rag_status.map(|rag| {
-                let (value, severity, detail) = match rag {
-                    RagStatus::Enabled { model_hash, dimension } => {
-                        let short_hash = adapteros_id::format_hash_short(&model_hash);
-                        (
-                            "Enabled".to_string(),
-                            StatusItemSeverity::Success,
-                            format!("Model: {} ({}d)", short_hash, dimension),
-                        )
-                    }
-                    RagStatus::Disabled { reason } => (
-                        "Disabled".to_string(),
-                        StatusItemSeverity::Warning,
-                        format!("Reason: {}", reason),
-                    ),
-                };
-
-                view! {
-                    <StatusItem
-                        label="RAG"
-                        value=value
-                        severity=severity
-                        detail=detail
+                        severity=if model_status_token == "ready" || model_status_token == "loaded" {
+                            StatusItemSeverity::Success
+                        } else {
+                            StatusItemSeverity::Warning
+                        }
+                        detail=format!("Status: {} ({})", model_status_label, model_status)
                     />
                 }
             })}
@@ -471,122 +459,16 @@ fn StatusCenterSections(
 
         <StatusDivider />
 
-        // Memory Section
+        // Services Section (simple list with status indicator)
         <StatusSection
-            title="Memory"
-            badge_variant=memory_pressure_to_badge(&state.memory.pressure_level)
-            initially_expanded=false
-        >
-            <StatusItemMemory
-                label="System Memory"
-                used=Some(state.memory.used_mb)
-                total=Some(state.memory.total_mb)
-                available=true
-            />
-            <StatusItem
-                label="Headroom"
-                value=format!("{:.1}%", state.memory.headroom_percent)
-                severity=headroom_to_severity(state.memory.headroom_percent)
-            />
-            <StatusItem
-                label="Pressure Level"
-                value=format_pressure_level(&state.memory.pressure_level)
-                severity=pressure_to_severity(&state.memory.pressure_level)
-            />
-
-            // UMA Memory (if available in status)
-            {kernel_for_uma.as_ref().and_then(|k| k.memory.as_ref()).and_then(|m| m.uma.as_ref()).map(|uma| {
-                let available = uma.availability == DataAvailability::Available;
-                view! {
-                    <StatusItemMemory
-                        label="UMA Memory"
-                        used=uma.used_mb
-                        total=uma.total_mb
-                        available=available
-                    />
-                }
-            })}
-
-            // ANE Memory (if available in status)
-            {kernel_for_ane.as_ref().and_then(|k| k.memory.as_ref()).and_then(|m| m.ane.as_ref()).map(|ane| {
-                let available = ane.availability == DataAvailability::Available;
-                view! {
-                    <StatusItemMemory
-                        label="ANE Memory"
-                        used=ane.used_mb
-                        total=ane.allocated_mb
-                        available=available
-                    />
-                }
-            })}
-
-            // Top Adapters by Memory
-            {if !state.memory.top_adapters.is_empty() {
-                view! {
-                    <div class="status-top-adapters">
-                        <span class="status-top-adapters-label">"Top Adapters:"</span>
-                        {state.memory.top_adapters.iter().take(5).map(|a| {
-                            view! {
-                                <StatusItem
-                                    label=a.name.clone()
-                                    value=format!("{:.1} MB", a.memory_mb)
-                                    severity=StatusItemSeverity::Info
-                                    detail=format!("State: {}", a.state)
-                                />
-                            }
-                        }).collect::<Vec<_>>()}
-                    </div>
-                }.into_any()
-            } else {
-                view! {}.into_any()
-            }}
-        </StatusSection>
-
-        <StatusDivider />
-
-        // Node Section
-        <StatusSection
-            title="Node"
+            title="Services"
             badge_count=healthy_services
             badge_variant=services_badge_variant
             initially_expanded=false
         >
-            <StatusItem
-                label="Hostname"
-                value=state.origin.hostname.clone()
-                severity=StatusItemSeverity::Info
-            />
-            <StatusItem
-                label="Federation Role"
-                value=state.origin.federation_role.clone()
-                severity=StatusItemSeverity::Info
-            />
-            <StatusItem
-                label="Uptime"
-                value=format_uptime(state.node.uptime_seconds)
-                severity=StatusItemSeverity::Info
-            />
-            <StatusItem
-                label="CPU Usage"
-                value=format!("{:.1}%", state.node.cpu_usage_percent)
-                severity=cpu_to_severity(state.node.cpu_usage_percent)
-            />
-            <StatusItem
-                label="GPU Available"
-                value=if state.node.gpu_available { "Yes" } else { "No" }.to_string()
-                severity=if state.node.gpu_available { StatusItemSeverity::Success } else { StatusItemSeverity::Warning }
-            />
-            <StatusItem
-                label="ANE Available"
-                value=if state.node.ane_available { "Yes" } else { "No" }.to_string()
-                severity=if state.node.ane_available { StatusItemSeverity::Success } else { StatusItemSeverity::Warning }
-            />
-
-            // Services
             {if !state.node.services.is_empty() {
                 view! {
                     <div class="status-services">
-                        <span class="status-services-label">"Services:"</span>
                         {state.node.services.iter().map(|s| {
                             view! {
                                 <StatusItem
@@ -599,42 +481,14 @@ fn StatusCenterSections(
                     </div>
                 }.into_any()
             } else {
-                view! {}.into_any()
+                view! {
+                    <StatusItem
+                        label="Services"
+                        value="No services registered"
+                        severity=StatusItemSeverity::Warning
+                    />
+                }.into_any()
             }}
-        </StatusSection>
-
-        // Integrity Section
-        <StatusDivider />
-        <StatusSection
-            title="Integrity"
-            initially_expanded=false
-        >
-            <StatusItem
-                label="Mode"
-                value=status.integrity.mode.clone()
-                severity=StatusItemSeverity::Info
-            />
-            <StatusItem
-                label="Federated"
-                value=if status.integrity.is_federated { "Yes" } else { "No" }.to_string()
-                severity=StatusItemSeverity::Info
-            />
-            <StatusItem
-                label="Strict Mode"
-                value=if status.integrity.strict_mode { "Enabled" } else { "Disabled" }.to_string()
-                severity=if status.integrity.strict_mode { StatusItemSeverity::Success } else { StatusItemSeverity::Info }
-            />
-            <StatusItem
-                label="PF Deny OK"
-                value=if status.integrity.pf_deny_ok { "Yes" } else { "No" }.to_string()
-                severity=if status.integrity.pf_deny_ok { StatusItemSeverity::Success } else { StatusItemSeverity::Warning }
-            />
-            <StatusItem
-                label="Drift Level"
-                value=format!("{:?}", status.integrity.drift.level)
-                severity=drift_level_to_severity(&status.integrity.drift.level)
-                detail=status.integrity.drift.summary.clone().unwrap_or_default()
-            />
         </StatusSection>
     }
 }
@@ -646,7 +500,14 @@ fn NotificationsSection() -> impl IntoView {
     let action_for_clear = action.clone();
     let action_for_mark = action.clone();
 
-    let unread_count = move || state.get().notifications.iter().filter(|n| !n.read).count();
+    let unread_count = move || {
+        state
+            .get_untracked()
+            .notifications
+            .iter()
+            .filter(|n| !n.read)
+            .count()
+    };
 
     // Derive announcement text for notification count changes
     let notification_announcement = move || {
@@ -660,11 +521,11 @@ fn NotificationsSection() -> impl IntoView {
         }
     };
 
-    let has_notifications = move || !state.get().notifications.is_empty();
+    let has_notifications = move || !state.get_untracked().notifications.is_empty();
 
     // Determine badge variant from most severe unread notification
     let badge_variant = move || {
-        let notifications = state.get().notifications.clone();
+        let notifications = state.get_untracked().notifications.clone();
         let worst = notifications
             .iter()
             .filter(|n| !n.read)
@@ -700,7 +561,7 @@ fn NotificationsSection() -> impl IntoView {
                 has_notifications().then(|| view! {
                     <div class="status-notifications-actions" style="margin-bottom: 0.5rem;">
                         <button
-                            class="status-notifications-action-btn"
+                            class="btn btn-ghost status-notifications-action-btn"
                             on:click=move |_| mark_action.mark_all_read()
                             title="Mark all read"
                             aria-label="Mark all read"
@@ -710,7 +571,7 @@ fn NotificationsSection() -> impl IntoView {
                             </svg>
                         </button>
                         <button
-                            class="status-notifications-action-btn"
+                            class="btn btn-ghost status-notifications-action-btn"
                             on:click=move |_| clear_action.clear_notifications()
                             title="Clear all"
                             aria-label="Clear all"
@@ -881,71 +742,6 @@ fn format_blocker(blocker: &InferenceBlocker) -> String {
     }
 }
 
-fn format_pressure_level(level: &MemoryPressureLevel) -> String {
-    match level {
-        MemoryPressureLevel::Low => "Low".to_string(),
-        MemoryPressureLevel::Medium => "Medium".to_string(),
-        MemoryPressureLevel::High => "High".to_string(),
-        MemoryPressureLevel::Critical => "Critical".to_string(),
-    }
-}
-
-fn pressure_to_severity(level: &MemoryPressureLevel) -> StatusItemSeverity {
-    match level {
-        MemoryPressureLevel::Low => StatusItemSeverity::Success,
-        MemoryPressureLevel::Medium => StatusItemSeverity::Info,
-        MemoryPressureLevel::High => StatusItemSeverity::Warning,
-        MemoryPressureLevel::Critical => StatusItemSeverity::Error,
-    }
-}
-
-fn memory_pressure_to_badge(level: &MemoryPressureLevel) -> StatusSectionBadgeVariant {
-    match level {
-        MemoryPressureLevel::Low => StatusSectionBadgeVariant::Success,
-        MemoryPressureLevel::Medium => StatusSectionBadgeVariant::Info,
-        MemoryPressureLevel::High => StatusSectionBadgeVariant::Warning,
-        MemoryPressureLevel::Critical => StatusSectionBadgeVariant::Error,
-    }
-}
-
-fn headroom_to_severity(headroom: f32) -> StatusItemSeverity {
-    if headroom >= 20.0 {
-        StatusItemSeverity::Success
-    } else if headroom >= 15.0 {
-        StatusItemSeverity::Info
-    } else if headroom >= 10.0 {
-        StatusItemSeverity::Warning
-    } else {
-        StatusItemSeverity::Error
-    }
-}
-
-fn cpu_to_severity(cpu: f32) -> StatusItemSeverity {
-    if cpu < 50.0 {
-        StatusItemSeverity::Success
-    } else if cpu < 75.0 {
-        StatusItemSeverity::Info
-    } else if cpu < 90.0 {
-        StatusItemSeverity::Warning
-    } else {
-        StatusItemSeverity::Error
-    }
-}
-
-fn format_uptime(seconds: u64) -> String {
-    let days = seconds / 86400;
-    let hours = (seconds % 86400) / 3600;
-    let minutes = (seconds % 3600) / 60;
-
-    if days > 0 {
-        format!("{}d {}h {}m", days, hours, minutes)
-    } else if hours > 0 {
-        format!("{}h {}m", hours, minutes)
-    } else {
-        format!("{}m", minutes)
-    }
-}
-
 fn format_service_status(status: ServiceHealthStatus) -> String {
     match status {
         ServiceHealthStatus::Healthy => "Healthy".to_string(),
@@ -961,14 +757,6 @@ fn service_status_to_severity(status: ServiceHealthStatus) -> StatusItemSeverity
         ServiceHealthStatus::Degraded => StatusItemSeverity::Warning,
         ServiceHealthStatus::Unhealthy => StatusItemSeverity::Error,
         ServiceHealthStatus::Unknown => StatusItemSeverity::Info,
-    }
-}
-
-fn drift_level_to_severity(level: &adapteros_api_types::DriftLevel) -> StatusItemSeverity {
-    match level {
-        adapteros_api_types::DriftLevel::Ok => StatusItemSeverity::Success,
-        adapteros_api_types::DriftLevel::Warn => StatusItemSeverity::Warning,
-        adapteros_api_types::DriftLevel::Critical => StatusItemSeverity::Error,
     }
 }
 
@@ -988,3 +776,171 @@ fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn set_timeout_simple<F: FnOnce() + 'static>(_f: F, _ms: i32) {}
+
+/// Session & Preferences section for the Status Center
+#[component]
+fn SessionPreferencesSection() -> impl IntoView {
+    let (auth_state, auth_action) = use_auth();
+    let auth_action_signal = StoredValue::new(auth_action);
+
+    // Tenant Picker logic
+    let notifications = use_notifications();
+    let refetch = use_refetch();
+    let auth_action_stored = StoredValue::new(auth_action_signal.get_value());
+    let notifications_stored = StoredValue::new(notifications);
+    let refetch_stored = StoredValue::new(refetch);
+    let (switching, set_switching) = signal(false);
+
+    let tenants = Signal::derive(move || {
+        auth_state
+            .get()
+            .user()
+            .map(|u| (u.tenant_id.clone(), u.admin_tenants.clone()))
+    });
+
+    let on_change = move |ev: web_sys::Event| {
+        let target = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok());
+        let selected = match target {
+            Some(el) => el.value(),
+            None => return,
+        };
+
+        if tenants
+            .get()
+            .map(|(current, _)| current == selected)
+            .unwrap_or(true)
+        {
+            return;
+        }
+
+        set_switching.set(true);
+        let selected_id = selected.clone();
+
+        auth_action_stored.with_value(|action| {
+            let action = action.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match action.switch_tenant(&selected_id).await {
+                    Ok(()) => {
+                        notifications_stored.with_value(|n| {
+                            n.success(
+                                "Workspace switched",
+                                &format!("Now using workspace {}", selected_id),
+                            );
+                        });
+                        refetch_stored.with_value(|r| r.all());
+                    }
+                    Err(e) => {
+                        report_error_with_toast(&e, "Failed to switch tenant", None, true);
+                    }
+                }
+                set_switching.set(false);
+            });
+        });
+    };
+
+    view! {
+        <StatusSection
+            title="Session & Preferences"
+            badge_count=0
+            badge_variant=StatusSectionBadgeVariant::Info
+            initially_expanded=true
+        >
+            <div class="p-2 flex flex-col gap-4">
+                // Profile
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        {move || {
+                            if let Some(user) = auth_state.get().user() {
+                                let identity = if user.display_name.is_empty() {
+                                    user.email.clone()
+                                } else {
+                                    user.display_name.clone()
+                                };
+                                let initials = identity.chars().next().unwrap_or('U').to_uppercase().to_string();
+                                view! {
+                                    <div class="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-medium">
+                                        {initials}
+                                    </div>
+                                    <div class="flex flex-col">
+                                        <span class="text-sm font-medium">{user.email.clone()}</span>
+                                        <span class="text-xs text-muted-foreground">{format!("Logged in as {}", identity)}</span>
+                                    </div>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <div class="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                                        <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                                        </svg>
+                                    </div>
+                                    <span class="text-sm font-medium text-muted-foreground">"Not logged in"</span>
+                                }.into_any()
+                            }
+                        }}
+                    </div>
+                    {move || {
+                        if auth_state.get().user().is_some() {
+                            view! {
+                                <button
+                                    class="text-xs text-destructive hover:underline px-2 py-1"
+                                    on:click=move |_| {
+                                        auth_action_signal.try_with_value(|action| {
+                                            let action = action.clone();
+                                            wasm_bindgen_futures::spawn_local(async move {
+                                                action.logout().await;
+                                            });
+                                        });
+                                    }
+                                >
+                                    "Sign out"
+                                </button>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <a href="/login" class="text-xs text-primary hover:underline px-2 py-1">"Log in"</a>
+                            }.into_any()
+                        }
+                    }}
+                </div>
+
+                // Tenant Picker
+                {move || {
+                    let info = tenants.get();
+                    match info {
+                        Some((current, admin_tenants)) if admin_tenants.len() > 1 => {
+                            let options = admin_tenants.iter().map(|t| {
+                                let selected = t == &current;
+                                let val = t.clone();
+                                let label = t.clone();
+                                view! { <option value=val selected=selected>{label}</option> }
+                            }).collect::<Vec<_>>();
+
+                            Some(view! {
+                                <div class="flex items-center justify-between py-1 border-t border-border/50 mt-1">
+                                    <span class="text-sm text-foreground">"Workspace"</span>
+                                    <select
+                                        class="tenant-picker text-xs bg-muted border border-border/50 rounded px-2 py-1 text-foreground cursor-pointer hover:bg-muted/80 transition-colors focus:outline-none"
+                                        on:change=on_change
+                                        disabled=move || switching.get()
+                                        aria-label="Switch workspace tenant"
+                                    >
+                                        {options}
+                                    </select>
+                                </div>
+                            })
+                        }
+                        _ => None,
+                    }
+                }}
+
+                // Display Theme
+                <div class="flex items-center justify-between py-1 border-t border-border/50 mt-1">
+                    <span class="text-sm text-foreground">"Theme / Appearance"</span>
+                    <GlassThemeToggle />
+                </div>
+            </div>
+        </StatusSection>
+    }
+}

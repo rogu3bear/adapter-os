@@ -27,7 +27,7 @@ async fn seed_dataset_version(
     .bind(dataset_id)
     .bind(hash)
     .bind(tenant_id)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result()?)
     .await?;
 
     state

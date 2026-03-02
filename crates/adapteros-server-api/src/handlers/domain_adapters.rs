@@ -316,10 +316,10 @@ pub async fn load_domain_adapter(
 
     // Use lifecycle manager if available
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        let mut manager = lifecycle.lock().await;
+        let manager = lifecycle;
 
         // Load adapter (updates internal state only)
-        manager.get_or_reload(&adapter_id).map_err(|e| {
+        manager.get_or_reload_async(&adapter_id).await.map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to load adapter via lifecycle manager");
             ApiError::internal("Failed to load adapter").with_details(e.to_string())
         })?;

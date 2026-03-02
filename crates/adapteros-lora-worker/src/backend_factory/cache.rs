@@ -2,7 +2,7 @@ use super::model_config::{
     resolve_config_toml_path, resolve_model_cache_budget_bytes, PinConflictMode,
 };
 use crate::model_handle_cache::ModelHandleCache;
-use adapteros_config::ConfigLoader;
+use adapteros_config::{ConfigLoader, LoaderOptions};
 use adapteros_core::{constants::BYTES_PER_MB, AosError, Result};
 use adapteros_telemetry::TelemetryWriter;
 use once_cell::sync::Lazy;
@@ -55,10 +55,13 @@ pub fn validate_model_cache_budget() -> Result<u64> {
 
     // Check config file
     let toml_path = resolve_config_toml_path()?;
-    let config_value = ConfigLoader::new()
-        .load(Vec::new(), toml_path.clone())
-        .ok()
-        .and_then(|cfg| cfg.get("model.cache.max.mb").map(String::from));
+    let config_value = ConfigLoader::with_options(LoaderOptions {
+        allow_unknown_keys: true,
+        ..LoaderOptions::default()
+    })
+    .load(Vec::new(), toml_path.clone())
+    .ok()
+    .and_then(|cfg| cfg.get("model.cache.max.mb").map(String::from));
 
     debug!(
         env_var = ?env_value,

@@ -75,8 +75,8 @@ async fn register_test_worker(db: &Db, tenant_id: &str, worker_id: &str) -> Stri
     )
     .bind("test-node-worker-tenant")
     .bind("test-node")
-    .bind("http://localhost:8080")
-    .execute(db.pool())
+    .bind("http://localhost:18080")
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create node");
 
@@ -87,7 +87,7 @@ async fn register_test_worker(db: &Db, tenant_id: &str, worker_id: &str) -> Stri
     .bind(tenant_id)
     .bind("test-manifest-hash")
     .bind("{}")
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create manifest");
 
@@ -100,7 +100,7 @@ async fn register_test_worker(db: &Db, tenant_id: &str, worker_id: &str) -> Stri
     .bind("test-manifest-hash")
     .bind("[]")
     .bind("layout-b3:test")
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create plan");
 
@@ -138,7 +138,7 @@ async fn get_worker_for_tenant_returns_worker_for_same_tenant() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-worker-test")
         .bind("Worker Test Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -163,14 +163,14 @@ async fn get_worker_for_tenant_returns_none_for_different_tenant() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-a-worker")
         .bind("Tenant A")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-b-worker")
         .bind("Tenant B")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -197,7 +197,7 @@ async fn get_worker_for_tenant_returns_none_for_nonexistent_worker() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-no-worker")
         .bind("Tenant No Worker")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -220,14 +220,14 @@ async fn cross_tenant_worker_access_indistinguishable_from_not_found() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-enum-test-a")
         .bind("Tenant A")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-enum-test-b")
         .bind("Tenant B")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -265,7 +265,7 @@ async fn worker_status_can_transition_to_healthy() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-status-test")
         .bind("Status Test Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -290,7 +290,7 @@ async fn worker_status_can_transition_to_draining() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-draining-test")
         .bind("Draining Test Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -320,7 +320,7 @@ async fn worker_status_can_transition_to_error() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-error-test")
         .bind("Error Test Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -350,14 +350,14 @@ async fn list_healthy_workers_by_tenant_respects_tenant_boundaries() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-a-capacity")
         .bind("Tenant A")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-b-capacity")
         .bind("Tenant B")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -399,14 +399,14 @@ async fn list_workers_by_tenant_returns_empty_for_other_tenant() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-has-workers")
         .bind("Tenant With Workers")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant with workers");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-no-workers")
         .bind("Tenant Without Workers")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant without workers");
 
@@ -444,7 +444,7 @@ async fn worker_health_metrics_are_tenant_scoped() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-health")
         .bind("Health Test Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -486,14 +486,14 @@ async fn list_workers_by_health_status_respects_tenant_boundaries() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-health-a")
         .bind("Tenant A")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-health-b")
         .bind("Tenant B")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -551,14 +551,14 @@ async fn worker_termination_requires_tenant_ownership() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-owner")
         .bind("Owner Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create owner tenant");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-attacker")
         .bind("Attacker Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create attacker tenant");
 
@@ -602,7 +602,7 @@ async fn worker_status_transition_is_tenant_agnostic_at_db_layer() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-transition")
         .bind("Transition Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -634,7 +634,7 @@ async fn worker_registration_validates_uds_path_no_tmp() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-path-test")
         .bind("Path Test Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -644,8 +644,8 @@ async fn worker_registration_validates_uds_path_no_tmp() {
     )
     .bind("test-node-path")
     .bind("test-node")
-    .bind("http://localhost:8080")
-    .execute(db.pool())
+    .bind("http://localhost:18080")
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create node");
 
@@ -656,7 +656,7 @@ async fn worker_registration_validates_uds_path_no_tmp() {
     .bind("tenant-path-test")
     .bind("test-manifest-hash")
     .bind("{}")
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create manifest");
 
@@ -669,7 +669,7 @@ async fn worker_registration_validates_uds_path_no_tmp() {
     .bind("test-manifest-hash")
     .bind("[]")
     .bind("layout-b3:test")
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create plan");
 
@@ -728,7 +728,7 @@ async fn worker_registration_with_path_traversal_in_tenant_id() {
     let result = sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind(dangerous_tenant_id)
         .bind("Dangerous Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await;
 
     // DB would accept it (no validation), but handler prevents this scenario
@@ -793,14 +793,14 @@ async fn worker_telemetry_writes_are_tenant_isolated() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-telem-a")
         .bind("Tenant A")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-telem-b")
         .bind("Tenant B")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -813,20 +813,20 @@ async fn worker_telemetry_writes_are_tenant_isolated() {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS telemetry_events (
             id TEXT PRIMARY KEY,
-            worker_id TEXT NOT NULL,
+            worker_id TEXT,
             tenant_id TEXT NOT NULL,
             event_type TEXT NOT NULL,
-            payload TEXT,
+            event_data TEXT NOT NULL DEFAULT '{}',
             timestamp TEXT NOT NULL DEFAULT (datetime('now'))
         )",
     )
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create telemetry_events table");
 
     // Insert telemetry events for worker A (tenant-telem-a)
     sqlx::query(
-        "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, payload)
+        "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, event_data)
          VALUES (?, ?, ?, ?, ?)",
     )
     .bind("telem-a-1")
@@ -834,13 +834,13 @@ async fn worker_telemetry_writes_are_tenant_isolated() {
     .bind("tenant-telem-a")
     .bind("inference_complete")
     .bind(r#"{"latency_ms": 150}"#)
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("insert telemetry A");
 
     // Insert telemetry events for worker B (tenant-telem-b)
     sqlx::query(
-        "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, payload)
+        "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, event_data)
          VALUES (?, ?, ?, ?, ?)",
     )
     .bind("telem-b-1")
@@ -848,7 +848,7 @@ async fn worker_telemetry_writes_are_tenant_isolated() {
     .bind("tenant-telem-b")
     .bind("inference_complete")
     .bind(r#"{"latency_ms": 200}"#)
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("insert telemetry B");
 
@@ -879,14 +879,14 @@ async fn worker_telemetry_queries_cannot_access_other_tenant_data() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-telem-isolated-a")
         .bind("Tenant A")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-telem-isolated-b")
         .bind("Tenant B")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -898,21 +898,21 @@ async fn worker_telemetry_queries_cannot_access_other_tenant_data() {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS telemetry_events (
             id TEXT PRIMARY KEY,
-            worker_id TEXT NOT NULL,
+            worker_id TEXT,
             tenant_id TEXT NOT NULL,
             event_type TEXT NOT NULL,
-            payload TEXT,
+            event_data TEXT NOT NULL DEFAULT '{}',
             timestamp TEXT NOT NULL DEFAULT (datetime('now'))
         )",
     )
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create telemetry_events table");
 
     // Insert multiple telemetry events for worker A
     for i in 0..5 {
         sqlx::query(
-            "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, payload)
+            "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, event_data)
              VALUES (?, ?, ?, ?, ?)",
         )
         .bind(format!("telem-iso-a-{}", i))
@@ -920,7 +920,7 @@ async fn worker_telemetry_queries_cannot_access_other_tenant_data() {
         .bind("tenant-telem-isolated-a")
         .bind("inference_complete")
         .bind(r#"{"latency_ms": 100}"#)
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("insert telemetry A");
     }
@@ -928,7 +928,7 @@ async fn worker_telemetry_queries_cannot_access_other_tenant_data() {
     // Insert telemetry events for worker B
     for i in 0..3 {
         sqlx::query(
-            "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, payload)
+            "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, event_data)
              VALUES (?, ?, ?, ?, ?)",
         )
         .bind(format!("telem-iso-b-{}", i))
@@ -936,7 +936,7 @@ async fn worker_telemetry_queries_cannot_access_other_tenant_data() {
         .bind("tenant-telem-isolated-b")
         .bind("inference_complete")
         .bind(r#"{"latency_ms": 200}"#)
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("insert telemetry B");
     }
@@ -976,14 +976,14 @@ async fn test_list_workers_operator_sees_only_own_tenant() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-list-a")
         .bind("Tenant A")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-list-b")
         .bind("Tenant B")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -1028,14 +1028,14 @@ async fn test_list_workers_admin_can_query_specific_tenant() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-admin-a")
         .bind("Tenant A")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-admin-b")
         .bind("Tenant B")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -1094,14 +1094,14 @@ async fn test_stop_worker_cross_tenant_returns_404() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-stop-a")
         .bind("Tenant A")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-stop-b")
         .bind("Tenant B")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -1163,14 +1163,14 @@ async fn test_restart_worker_cross_tenant_returns_404() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-restart-a")
         .bind("Tenant A")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-restart-b")
         .bind("Tenant B")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -1226,7 +1226,7 @@ async fn test_decommission_worker_non_terminal_returns_409() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-decom-non-terminal")
         .bind("Decommission Non-Terminal Tenant")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -1277,7 +1277,7 @@ async fn test_decommission_worker_terminal_succeeds() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-decom-terminal")
         .bind("Decommission Terminal Tenant")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -1329,14 +1329,14 @@ async fn test_decommission_worker_cross_tenant_returns_404() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-decom-a")
         .bind("Tenant A")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-decom-b")
         .bind("Tenant B")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -1390,14 +1390,14 @@ async fn test_worker_history_cross_tenant_returns_404() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-hist-a")
         .bind("Tenant A")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-hist-b")
         .bind("Tenant B")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -1452,7 +1452,7 @@ async fn test_worker_history_same_tenant_succeeds() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-hist-same")
         .bind("Tenant Same")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant");
 
@@ -1500,14 +1500,14 @@ async fn test_worker_incidents_are_tenant_scoped() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-inc-a")
         .bind("Tenant A")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-inc-b")
         .bind("Tenant B")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -1568,14 +1568,14 @@ async fn test_worker_registration_api_respects_tenant_boundaries() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-reg-a")
         .bind("Tenant A")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-reg-b")
         .bind("Tenant B")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -1585,8 +1585,8 @@ async fn test_worker_registration_api_respects_tenant_boundaries() {
     )
     .bind("local")
     .bind("local")
-    .bind("http://localhost:8080")
-    .execute(state.db.pool())
+    .bind("http://localhost:18080")
+    .execute(state.db.pool_result().expect("db pool available"))
     .await
     .expect("create local node");
 
@@ -1598,7 +1598,7 @@ async fn test_worker_registration_api_respects_tenant_boundaries() {
     .bind("tenant-reg-a")
     .bind("hash-reg-a")
     .bind("{}")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool available"))
     .await
     .expect("create manifest");
 
@@ -1612,7 +1612,7 @@ async fn test_worker_registration_api_respects_tenant_boundaries() {
     .bind("hash-reg-a")
     .bind("[]")
     .bind("layout-b3:reg-a")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool available"))
     .await
     .expect("create plan");
 
@@ -1630,6 +1630,7 @@ async fn test_worker_registration_api_respects_tenant_boundaries() {
         capabilities_detail: None,
         backend: None,
         model_hash: None,
+        active_model_id: None,
         strict_mode: false,
         tokenizer_hash_b3: None,
         tokenizer_vocab_size: None,
@@ -1673,14 +1674,14 @@ async fn test_worker_status_notification_updates_correct_tenant() {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-notif-a")
         .bind("Tenant A")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-notif-b")
         .bind("Tenant B")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool available"))
         .await
         .expect("create tenant B");
 
@@ -1702,7 +1703,11 @@ async fn test_worker_status_notification_updates_correct_tenant() {
         coreml_failure_stage: None,
         coreml_failure_reason: None,
         loaded_model_hash: None,
+        active_model_id: None,
+        active_model_hash: None,
         model_load_state: None,
+        model_generation: None,
+        model_error: None,
         cache_memory_bytes: None,
         cache_hit_ratio: None,
     };

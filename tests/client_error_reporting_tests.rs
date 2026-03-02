@@ -88,11 +88,11 @@ async fn test_anonymous_endpoint_success() {
         "Response should contain received_at"
     );
 
-    // Verify error_id is a valid UUID format
+    // Verify error_id is a valid TypedId (err-{hex32} format)
     let error_id = response["error_id"].as_str().unwrap();
     assert!(
-        uuid::Uuid::parse_str(error_id).is_ok(),
-        "error_id should be valid UUID"
+        adapteros_id::TypedId::parse(error_id).is_some(),
+        "error_id should be valid TypedId, got: {error_id}"
     );
 }
 
@@ -341,11 +341,14 @@ async fn test_response_structure_conforms_to_spec() {
 
     assert_eq!(status, StatusCode::CREATED);
 
-    // Verify error_id is UUID
+    // Verify error_id is valid TypedId (err-{hex32} format)
     let error_id = response["error_id"]
         .as_str()
         .expect("error_id should be string");
-    uuid::Uuid::parse_str(error_id).expect("error_id should be valid UUID");
+    assert!(
+        adapteros_id::TypedId::parse(error_id).is_some(),
+        "error_id should be valid TypedId, got: {error_id}"
+    );
 
     // Verify received_at is ISO 8601 (RFC 3339)
     let received_at = response["received_at"]

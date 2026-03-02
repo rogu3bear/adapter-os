@@ -1,8 +1,5 @@
 //! Retry logic for HTTP requests with exponential backoff
 
-use std::time::Duration;
-
-use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::error::WebBrowseError;
@@ -93,35 +90,6 @@ impl HttpRetryConfig {
     }
 }
 
-/// Calculate retry delay based on error, attempt count, and configuration
-pub fn calculate_retry_delay(
-    error: &WebBrowseError,
-    attempt: u32,
-    config: &HttpRetryConfig,
-) -> Duration {
-    // Check for Retry-After hint first
-    if config.respect_retry_after {
-        if let Some(hint) = error.retry_after_hint() {
-            let capped = hint.min(Duration::from_secs(config.max_retry_after_secs));
-            return capped;
-        }
-    }
-
-    // Exponential backoff with jitter
-    let base_delay = config.base_delay_ms as f64;
-    let multiplier = config
-        .backoff_multiplier
-        .powi((attempt.saturating_sub(1)) as i32);
-    let delay_ms = (base_delay * multiplier).min(config.max_delay_ms as f64);
-
-    // Apply jitter
-    let jitter_range = delay_ms * config.jitter_factor;
-    let jitter = (rand::thread_rng().gen::<f64>() - 0.5) * 2.0 * jitter_range;
-    let final_delay = (delay_ms + jitter).max(1.0) as u64;
-
-    Duration::from_millis(final_delay)
-}
-
 /// Parse Retry-After header value from HTTP response
 ///
 /// Supports both:
@@ -177,43 +145,6 @@ mod tests {
         assert_eq!(config.base_delay_ms, 500);
         assert_eq!(config.max_delay_ms, 30_000);
         assert_eq!(config.backoff_multiplier, 2.0);
-    }
-
-    #[test]
-    fn test_calculate_retry_delay_exponential() {
-        let config = HttpRetryConfig {
-            jitter_factor: 0.0, // Disable jitter for predictable test
-            ..Default::default()
-        };
-
-        let error = WebBrowseError::NetworkError("test".to_string());
-
-        // First attempt: 500ms
-        let delay1 = calculate_retry_delay(&error, 1, &config);
-        assert_eq!(delay1.as_millis(), 500);
-
-        // Second attempt: 500 * 2 = 1000ms
-        let delay2 = calculate_retry_delay(&error, 2, &config);
-        assert_eq!(delay2.as_millis(), 1000);
-
-        // Third attempt: 500 * 4 = 2000ms
-        let delay3 = calculate_retry_delay(&error, 3, &config);
-        assert_eq!(delay3.as_millis(), 2000);
-    }
-
-    #[test]
-    fn test_calculate_retry_delay_capped() {
-        let config = HttpRetryConfig {
-            max_delay_ms: 1000,
-            jitter_factor: 0.0,
-            ..Default::default()
-        };
-
-        let error = WebBrowseError::NetworkError("test".to_string());
-
-        // High attempt should be capped at max_delay_ms
-        let delay = calculate_retry_delay(&error, 10, &config);
-        assert_eq!(delay.as_millis(), 1000);
     }
 
     #[test]

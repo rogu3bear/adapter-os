@@ -222,7 +222,7 @@ impl Db {
         .bind(algorithm)
         .bind(created_at)
         .bind(metadata)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to register tenant weight key: {}", e)))?;
 
@@ -245,7 +245,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get active tenant weight key: {}", e))
@@ -265,7 +265,7 @@ impl Db {
         )
         .bind(revoked_at)
         .bind(key_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to revoke tenant weight key: {}", e)))?;
 
@@ -307,7 +307,7 @@ impl Db {
         .bind(nonce_b64)
         .bind(original_digest_hex)
         .bind(encrypted_at)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to record encrypted weight file: {}", e))
@@ -332,7 +332,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(file_path)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get weight file encryption: {}", e)))?;
 
@@ -354,7 +354,7 @@ impl Db {
             "#,
         )
         .bind(adapter_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list adapter weight files: {}", e)))?;
 
@@ -372,7 +372,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to count plaintext weight files: {}", e))
@@ -811,7 +811,7 @@ mod tests {
         .bind("/bad/path2")
         .bind("invalid_status")
         .bind(&digest)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
         assert!(

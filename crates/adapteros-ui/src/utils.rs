@@ -302,6 +302,70 @@ pub fn humanize(s: &str) -> String {
         .join(" ")
 }
 
+/// Convert a backend status/state code to a user-facing label.
+///
+/// Uses curated mappings for common API statuses and falls back to [`humanize`]
+/// for unknown values.
+pub fn status_display_label(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    match trimmed.to_ascii_lowercase().as_str() {
+        "ok" | "healthy" => "Healthy".to_string(),
+        "ready" => "Ready".to_string(),
+        "indexed" => "Indexed".to_string(),
+        "uploaded" => "Uploaded".to_string(),
+        "processing" => "Processing".to_string(),
+        "chunked" => "Chunked".to_string(),
+        "embedded" => "Embedded".to_string(),
+        "running" => "Running".to_string(),
+        "completed" => "Completed".to_string(),
+        "success" => "Success".to_string(),
+        "failure" | "failed" => "Failed".to_string(),
+        "warning" => "Warning".to_string(),
+        "degraded" => "Degraded".to_string(),
+        "error" => "Error".to_string(),
+        "pending" => "Pending".to_string(),
+        "queued" => "Queued".to_string(),
+        "created" => "Created".to_string(),
+        "registered" => "Registered".to_string(),
+        "draining" => "Draining".to_string(),
+        "stopped" => "Stopped".to_string(),
+        "paused" => "Paused".to_string(),
+        "active" => "Active".to_string(),
+        "archived" => "Archived".to_string(),
+        "unknown" => "Unknown".to_string(),
+        "not_ready" | "not-ready" => "Not Ready".to_string(),
+        "valid" => "Valid".to_string(),
+        "invalid" => "Invalid".to_string(),
+        "blocked" => "Blocked".to_string(),
+        "allowed" => "Allowed".to_string(),
+        "allowed_with_warning" | "allowed-with-warning" => "Allowed With Warning".to_string(),
+        "needs_approval" | "needs-approval" => "Needs Approval".to_string(),
+        "unverified" => "Unverified".to_string(),
+        "not_verified" | "not-verified" => "Not Verified".to_string(),
+        other => humanize(other),
+    }
+}
+
+/// Return a user-facing status label and preserve raw status when it differs.
+///
+/// Example output: `Allowed With Warning (allowed_with_warning)`.
+pub fn status_display_with_raw(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let label = status_display_label(trimmed);
+    if label.eq_ignore_ascii_case(trimmed) {
+        label
+    } else {
+        format!("{} ({})", label, trimmed)
+    }
+}
+
 /// Generate a random alphanumeric suffix of the specified length.
 ///
 /// Uses a base32-like alphabet (lowercase letters and digits 2-7) to generate
@@ -497,6 +561,31 @@ mod tests {
     #[test]
     fn humanize_empty() {
         assert_eq!(humanize(""), "");
+    }
+
+    #[test]
+    fn status_display_label_maps_common_statuses() {
+        assert_eq!(status_display_label("ok"), "Healthy");
+        assert_eq!(
+            status_display_label("allowed_with_warning"),
+            "Allowed With Warning"
+        );
+        assert_eq!(status_display_label("needs-approval"), "Needs Approval");
+        assert_eq!(status_display_label("not_verified"), "Not Verified");
+    }
+
+    #[test]
+    fn status_display_label_falls_back_to_humanize() {
+        assert_eq!(status_display_label("circuit_open"), "Circuit Open");
+    }
+
+    #[test]
+    fn status_display_with_raw_preserves_raw_when_label_differs() {
+        assert_eq!(
+            status_display_with_raw("allowed_with_warning"),
+            "Allowed With Warning (allowed_with_warning)"
+        );
+        assert_eq!(status_display_with_raw("ready"), "Ready");
     }
 
     // Note: format_relative_time, random_suffix, generate_readable_id, and copy_to_clipboard

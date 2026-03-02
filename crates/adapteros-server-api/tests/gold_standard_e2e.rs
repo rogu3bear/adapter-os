@@ -30,7 +30,8 @@ use adapteros_api_types::InferRequest;
 use adapteros_core::hash::B3Hash;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::seed::{
-    derive_seed, set_thread_local_determinism_config, DeterminismConfig, HKDF_ALGORITHM_VERSION,
+    clear_thread_local_determinism_config, derive_seed, set_thread_local_determinism_config,
+    DeterminismConfig, HKDF_ALGORITHM_VERSION,
 };
 use adapteros_core::version::API_SCHEMA_VERSION;
 use adapteros_db::adapters::AdapterRegistrationBuilder;
@@ -204,7 +205,21 @@ fn create_deterministic_worker_response(
             },
             token_count: 8,
             router_decisions: None,
-            router_decision_chain: None,
+            router_decision_chain: Some(vec![
+                adapteros_api_types::inference::RouterDecisionChainEntry {
+                    step: 0,
+                    input_token_id: Some(42),
+                    adapter_indices: vec![0],
+                    adapter_ids: vec![adapter_id.to_string()],
+                    gates_q15: vec![24576],
+                    entropy: 0.0,
+                    decision_hash: None,
+                    previous_hash: None,
+                    entry_hash: fixed_seed_hex(),
+                    policy_mask_digest_b3: None,
+                    policy_overrides_applied: None,
+                },
+            ]),
             model_type: None,
         },
         run_receipt: Some(run_receipt),
@@ -215,7 +230,7 @@ fn create_deterministic_worker_response(
             billed_output_tokens: 8,
         }),
         backend_used: Some(backend_name.to_string()),
-        backend_version: Some("mock-v1.0.0".to_string()),
+        backend_version: Some(adapteros_core::version::VERSION.to_string()),
         fallback_triggered: false,
         coreml_compute_preference: None,
         coreml_compute_units: None,
@@ -280,8 +295,8 @@ async fn test_gold_standard_e2e_inference() {
     set_thread_local_determinism_config(gold_standard_determinism_config());
 
     // Test constants
-    let manifest_hash = "gold-standard-manifest-hash-0001";
-    let backend_name = "mock";
+    let manifest_hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let backend_name = "metal";
     let model_name = "gold-standard-model";
     let adapter_id = "gold-standard-adapter";
     let request_id = "gold-standard-request-001";
@@ -360,6 +375,12 @@ async fn test_gold_standard_e2e_inference() {
         .register_model(model_params)
         .await
         .expect("register model");
+    adapteros_db::sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
+        .bind(&claims.tenant_id)
+        .bind(&model_id)
+        .execute(state.db.pool_result().expect("db pool"))
+        .await
+        .expect("set model tenant");
 
     // Mark model ready
     state
@@ -412,7 +433,7 @@ async fn test_gold_standard_e2e_inference() {
     .bind(&claims.tenant_id)
     .bind(manifest_hash)
     .bind("{}")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("seed manifest");
 
@@ -423,7 +444,7 @@ async fn test_gold_standard_e2e_inference() {
     .bind("gold-node-1")
     .bind("gold-node.local")
     .bind("http://localhost:0")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("seed node");
 
@@ -436,7 +457,7 @@ async fn test_gold_standard_e2e_inference() {
     .bind("gold-plan-b3")
     .bind(manifest_hash)
     .bind("gold-layout-hash")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("seed plan");
 
@@ -632,6 +653,8 @@ async fn test_gold_standard_e2e_inference() {
         "Gold standard E2E test PASSED"
     );
 
+    clear_thread_local_determinism_config();
+
     // Cancel failure bundle save since test passed
     bundle_guard.cancel_save();
 }
@@ -642,8 +665,8 @@ async fn test_gold_standard_e2e_inference() {
 /// hash doesn't match the expected value.
 #[tokio::test]
 async fn test_receipt_mismatch_detection() {
-    // Set up determinism config
-    set_thread_local_determinism_config(gold_standard_determinism_config());
+    // Ensure global input seed differences are not masked by fixed-seed override.
+    clear_thread_local_determinism_config();
 
     // Create two receipts with different seeds
     let global_seed_1 = B3Hash::from_bytes(FIXED_SEED_BYTES);

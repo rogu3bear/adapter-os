@@ -7,6 +7,7 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_core::error_codes;
 use adapteros_lora_worker::memory::MemoryPressureLevel;
 use axum::extract::{Extension, State};
 use axum::http::StatusCode;
@@ -14,6 +15,35 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::ToSchema;
+
+fn is_schema_contract_violation(message: &str) -> bool {
+    message.contains("no such table")
+        || message.contains("no such column")
+        || message.contains("has no column named")
+}
+
+fn map_capacity_db_error<E: std::fmt::Display>(error: E) -> (StatusCode, Json<ErrorResponse>) {
+    let message = error.to_string();
+    if is_schema_contract_violation(&message) {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                ErrorResponse::new("schema contract violation")
+                    .with_code(error_codes::SCHEMA_CONTRACT_VIOLATION)
+                    .with_string_details(message),
+            ),
+        );
+    }
+
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(
+            ErrorResponse::new("database error")
+                .with_code("DATABASE_ERROR")
+                .with_string_details(message),
+        ),
+    )
+}
 
 /// Node health indicator
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -144,32 +174,30 @@ pub async fn get_capacity(
     };
 
     // Get current usage from database
-    let models_loaded = state.db.count_loaded_models().await.unwrap_or(0) as usize;
+    let models_loaded = state
+        .db
+        .count_loaded_models()
+        .await
+        .map_err(map_capacity_db_error)? as usize;
 
     // Count adapters in various load states
     let adapters_loaded = state
         .db
         .count_adapters_by_load_state()
         .await
-        .unwrap_or_default()
+        .map_err(map_capacity_db_error)?
         .into_iter()
         .filter(|(state, _)| matches!(state.as_str(), "loaded" | "warm" | "hot" | "resident"))
         .map(|(_, count)| count)
         .sum::<i64>() as usize;
 
     // Get active requests count - query from request_log table (PRD G3: Query in_progress status)
-    // Note: This table may not exist yet, so we use a fallback approach
-    let active_requests = if state.db.table_exists("request_log").await.unwrap_or(false) {
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM request_log WHERE status = 'in_progress'",
-        )
-        .fetch_one(state.db.pool())
-        .await
-        .ok()
-        .unwrap_or(0) as usize
-    } else {
-        0
-    };
+    let active_requests = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM request_log WHERE status = 'in_progress'",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .map_err(map_capacity_db_error)? as usize;
 
     // Determine node health based on headroom (matching MemoryPressureLevel thresholds)
     // Critical: < 15% (min_headroom), High: 15-20%, Medium: 20-30%, Low: >= 30%

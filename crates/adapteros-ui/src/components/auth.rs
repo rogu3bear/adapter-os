@@ -6,6 +6,28 @@ use crate::components::{Button, ButtonVariant, Card, Spinner};
 use crate::signals::{use_auth, AuthState};
 use leptos::prelude::*;
 
+#[cfg(target_arch = "wasm32")]
+fn current_pathname() -> Option<String> {
+    web_sys::window().and_then(|window| window.location().pathname().ok())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn current_pathname() -> Option<String> {
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+fn redirect_to(path: &str) {
+    if let Some(window) = web_sys::window() {
+        let _ = window.location().set_href(path);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn redirect_to(path: &str) {
+    let _ = path;
+}
+
 /// Protected route wrapper
 ///
 /// Redirects to login if not authenticated.
@@ -46,15 +68,13 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
     // Capture current path as returnUrl so user returns after login
     Effect::new(move || {
         if needs_redirect.try_get().unwrap_or(false) {
-            if let Some(window) = web_sys::window() {
-                if let Ok(current) = window.location().pathname() {
-                    // Only redirect if we're not already on login page
-                    if current != "/login" {
-                        // Encode current path as returnUrl query param
-                        let encoded_path = js_sys::encode_uri_component(&current);
-                        let login_url = format!("/login?returnUrl={}", encoded_path);
-                        let _ = window.location().set_href(&login_url);
-                    }
+            if let Some(current) = current_pathname() {
+                // Only redirect if we're not already on login page
+                if current != "/login" {
+                    // Encode current path as returnUrl query param
+                    let encoded_path = urlencoding::encode(&current);
+                    let login_url = format!("/login?returnUrl={}", encoded_path);
+                    redirect_to(&login_url);
                 }
             }
         }
@@ -65,12 +85,48 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
         let action = auth_action.clone();
         Callback::new(move |_| {
             let action = action.clone();
+            #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
             wasm_bindgen_futures::spawn_local(async move {
                 action.check_auth().await;
             });
+            #[cfg(not(all(feature = "hydrate", target_arch = "wasm32")))]
+            let _ = action;
         })
     };
     let retry_auth_error = retry_auth;
+
+    // Self-heal guard: if auth remains loading unexpectedly, run one
+    // explicit check to avoid stale loading overlays.
+    let loading_recheck_scheduled = StoredValue::new(false);
+    Effect::new(move || {
+        if is_loading.get() {
+            if !loading_recheck_scheduled.get_value() {
+                loading_recheck_scheduled.set_value(true);
+                let action = auth_action.clone();
+                let state = auth_state;
+                #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
+                {
+                    gloo_timers::callback::Timeout::new(1500, move || {
+                        if !state.get_untracked().is_loading() {
+                            return;
+                        }
+                        let action = action.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            action.check_auth().await;
+                        });
+                    })
+                    .forget();
+                }
+                #[cfg(not(all(feature = "hydrate", target_arch = "wasm32")))]
+                {
+                    let _ = action;
+                    let _ = state;
+                }
+            }
+        } else if loading_recheck_scheduled.get_value() {
+            loading_recheck_scheduled.set_value(false);
+        }
+    });
 
     view! {
         // Mount/unmount auth UI states (avoid hidden overlays intercepting clicks).
@@ -104,9 +160,7 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
                         <Button
                             variant=ButtonVariant::Outline
                             on_click=Callback::new(move |_| {
-                                if let Some(window) = web_sys::window() {
-                                    let _ = window.location().set_href("/login");
-                                }
+                                redirect_to("/login");
                             })
                         >
                             "Go to Login"
@@ -137,9 +191,7 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
                                     {requires_login.then(|| view! {
                                         <Button
                                             on_click=Callback::new(move |_| {
-                                                if let Some(window) = web_sys::window() {
-                                                    let _ = window.location().set_href("/login");
-                                                }
+                                                redirect_to("/login");
                                             })
                                         >
                                             "Log In"
@@ -149,9 +201,7 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
                                         <Button
                                             variant=ButtonVariant::Outline
                                             on_click=Callback::new(move |_| {
-                                                if let Some(window) = web_sys::window() {
-                                                    let _ = window.location().set_href("/login");
-                                                }
+                                                redirect_to("/login");
                                             })
                                         >
                                             "Go to Login"
@@ -178,10 +228,20 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
 /// Provides auth context to the app and checks initial auth state.
 #[component]
 pub fn AuthProvider(children: Children) -> impl IntoView {
-    use crate::signals::provide_auth_context;
+    use crate::signals::{AuthAction, AuthContext, AuthState};
 
     // Provide auth context at the app level
-    provide_auth_context();
+    #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
+    crate::signals::provide_auth_context();
+    #[cfg(not(all(feature = "hydrate", target_arch = "wasm32")))]
+    {
+        use crate::api::ApiClient;
+        use std::sync::Arc;
+
+        let state = RwSignal::new(AuthState::Unknown);
+        let action = AuthAction::new(Arc::new(ApiClient::new()), state);
+        provide_context::<AuthContext>((state.read_only(), action));
+    }
 
     // Note: Chat context is provided by AppProviders in lib.rs
     // Do NOT call provide_chat_context() here - that would create duplicate contexts

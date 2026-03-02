@@ -162,6 +162,7 @@ pub mod tenant_settings;
 pub mod tenant_settings_registry;
 pub mod topology;
 pub mod traits;
+pub mod worker_model_state;
 
 // Lifecycle rules module
 pub mod lifecycle_rules;
@@ -1215,7 +1216,7 @@ impl Db {
         // Run migrations with a timeout to avoid hanging on locked databases.
         self.ensure_disk_space("database migrations")?;
         info!("Applying database migrations...");
-        tokio::time::timeout(Self::migration_timeout(), migrator.run(self.pool()))
+        tokio::time::timeout(Self::migration_timeout(), migrator.run(self.pool_result()?))
         .await
         .map_err(|_| {
             AosError::Database(
@@ -1242,7 +1243,7 @@ impl Db {
         let exists: Option<i64> = sqlx::query_scalar(
             "SELECT 1 FROM pragma_table_info('adapters') WHERE name = 'lora_strength' LIMIT 1",
         )
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to inspect adapters schema: {}", e)))?;
 
@@ -1250,7 +1251,7 @@ impl Db {
             warn!("Adapters table missing lora_strength column; applying runtime patch");
             if let Err(e) =
                 sqlx::query("ALTER TABLE adapters ADD COLUMN lora_strength REAL DEFAULT 1.0")
-                    .execute(self.pool())
+                    .execute(self.pool_result()?)
                     .await
             {
                 // Best-effort compatibility patch: concurrent initializers may race here.
@@ -1264,7 +1265,7 @@ impl Db {
             }
             // Backfill existing rows to preserve deterministic defaults.
             sqlx::query("UPDATE adapters SET lora_strength = 1.0 WHERE lora_strength IS NULL")
-                .execute(self.pool())
+                .execute(self.pool_result()?)
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to backfill lora_strength: {}", e))
@@ -1279,14 +1280,14 @@ impl Db {
         let exists: Option<i64> = sqlx::query_scalar(
             "SELECT 1 FROM pragma_table_info('adapters') WHERE name = 'recommended_for_moe' LIMIT 1",
         )
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to inspect adapters schema: {}", e)))?;
 
         if exists.is_none() {
             warn!("Adapters table missing recommended_for_moe column; applying runtime patch");
             sqlx::query("ALTER TABLE adapters ADD COLUMN recommended_for_moe INTEGER DEFAULT 1")
-                .execute(self.pool())
+                .execute(self.pool_result()?)
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to add recommended_for_moe column: {}", e))
@@ -1295,7 +1296,7 @@ impl Db {
             sqlx::query(
                 "UPDATE adapters SET recommended_for_moe = 1 WHERE recommended_for_moe IS NULL",
             )
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to backfill recommended_for_moe: {}", e))
@@ -1309,7 +1310,7 @@ impl Db {
     ///
     /// These fields are populated during worker registration and surfaced by listing endpoints.
     async fn ensure_worker_runtime_metadata_columns(&self) -> Result<()> {
-        let pool = self.pool();
+        let pool = self.pool_result()?;
 
         let ensure_column = |name: &'static str, ddl: &'static str| async move {
             let exists: Option<i64> = sqlx::query_scalar(
@@ -1362,7 +1363,7 @@ impl Db {
             "CREATE INDEX IF NOT EXISTS idx_inference_trace_tokens_trace_token_index \
              ON inference_trace_tokens (trace_id, token_index)",
         )
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -1388,7 +1389,7 @@ impl Db {
         let latest_db_migration: Option<(i64, String)> = sqlx::query_as(
             "SELECT version, description FROM _sqlx_migrations ORDER BY version DESC LIMIT 1",
         )
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to query migration version: {}", e)))?;
 
@@ -1641,7 +1642,7 @@ impl Db {
             "INSERT OR IGNORE INTO tenants (id, name, created_at)
              VALUES ('default', 'default', datetime('now'))",
         )
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await?;
 
         // Ensure local node exists for single-node dev environments.
@@ -1657,14 +1658,14 @@ impl Db {
                  VALUES ('local', 'localhost', 'http://localhost:0', 'active', datetime('now'), ?, datetime('now'))",
             )
             .bind(labels)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await?;
         }
 
         // Only seed dev users when no users exist. This keeps local dev auth stable without
         // clobbering manually created accounts.
         let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-            .fetch_one(self.pool())
+            .fetch_one(self.pool_result()?)
             .await?;
         if user_count > 0 {
             tracing::info!("Users already exist; skipping dev user seed");
@@ -1701,7 +1702,7 @@ impl Db {
             .bind(display_name)
             .bind(pwd_hash)
             .bind(role)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await?;
         }
 
@@ -1724,7 +1725,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(adapter_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch adapter: {}", e)))?;
 
@@ -2061,11 +2062,25 @@ impl Db {
         Ok(())
     }
 
-    /// Get the underlying pool for custom queries
+    #[deprecated(
+        since = "0.1.0",
+        note = "use pool_result() which returns Result instead of panicking"
+    )]
     pub fn pool(&self) -> &SqlitePool {
-        self.pool
-            .as_ref()
-            .expect("SQL pool not available for current storage mode")
+        self.pool.as_ref().unwrap_or_else(|| {
+            // Ideally this would return a Result, but to maintain API compatibility
+            // we have to panic here if the pool is missing. Callers should migrate
+            // to pool_result() to handle this gracefully.
+            panic!("SQL pool not available for current storage mode")
+        })
+    }
+
+    /// Get the underlying pool, returning an error if the pool is not available
+    /// (e.g., when running in KV-only mode).
+    pub fn pool_result(&self) -> Result<&SqlitePool> {
+        self.pool.as_ref().ok_or_else(|| {
+            AosError::Database("SQL pool not available for current storage mode".to_string())
+        })
     }
 
     /// Get the underlying pool if attached (KV-only may return None)
@@ -2104,7 +2119,7 @@ impl Db {
     /// Begin a SQLite transaction with a pre-flight disk space check.
     pub async fn begin_write_tx(&self) -> Result<sqlx::Transaction<'_, sqlx::Sqlite>> {
         self.ensure_disk_space("write transaction")?;
-        self.pool()
+        self.pool_result()?
             .begin()
             .await
             .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))
@@ -2640,17 +2655,17 @@ impl Db {
         // Step 1: Analyze table statistics
         info!("Analyzing table statistics");
         sqlx::query("ANALYZE adapters")
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to analyze adapters table: {}", e)))?;
 
         sqlx::query("ANALYZE users")
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to analyze users table: {}", e)))?;
 
         sqlx::query("ANALYZE adapter_stacks")
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to analyze adapter_stacks table: {}", e))
@@ -2659,7 +2674,7 @@ impl Db {
         // Step 2: Perform integrity check
         info!("Validating database integrity");
         let integrity_result: String = sqlx::query_scalar("PRAGMA integrity_check")
-            .fetch_one(self.pool())
+            .fetch_one(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to perform integrity check: {}", e)))?;
 
@@ -2675,7 +2690,7 @@ impl Db {
         // Step 3: Rebuild all indexes
         info!("Rebuilding all indexes");
         sqlx::query("REINDEX")
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to rebuild indexes: {}", e)))?;
 
@@ -2683,7 +2698,7 @@ impl Db {
         let adapter_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM adapters WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(self.pool())
+                .fetch_one(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to count adapters: {}", e)))?;
 
@@ -2708,7 +2723,7 @@ impl Db {
         self.increment_rate_limit(tenant_id);
 
         let timeout_duration = self.get_query_timeout();
-        let pool = self.pool().clone();
+        let pool = self.pool_result()?.clone();
         let tenant_id_owned = tenant_id.to_string();
 
         let result = tokio::time::timeout(timeout_duration, async move {
@@ -2759,7 +2774,7 @@ impl Db {
             "#,
         )
         .bind(email_query)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get user by email: {}", e)))?;
 
@@ -2777,7 +2792,7 @@ impl Db {
             "#,
         )
         .bind(&user_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get user by id: {}", e)))?;
 
@@ -2799,7 +2814,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(index_type)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get index hash: {}", e)))?;
 
@@ -2838,7 +2853,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get trusted adapter key: {}", e)))?;
 
@@ -3182,7 +3197,7 @@ impl Db {
         .bind(investigation_notes)
         .bind(investigated_by)
         .bind(anomaly_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
         Ok(())
@@ -3195,7 +3210,7 @@ impl Db {
         let row: Option<(String,)> =
             sqlx::query_as("SELECT value FROM system_settings WHERE key = ?")
                 .bind(key)
-                .fetch_optional(self.pool())
+                .fetch_optional(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to get system setting: {}", e)))?;
 
@@ -3215,7 +3230,7 @@ impl Db {
         )
         .bind(key)
         .bind(value)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to set system setting: {}", e)))?;
 
@@ -3563,7 +3578,7 @@ impl Db {
         .bind(memory_mb as i64)
         .bind(reason)
         .bind(metadata)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert behavior event: {}", e)))?;
 
@@ -3627,7 +3642,7 @@ impl Db {
         }
 
         let rows = q
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to query behavior events: {}", e)))?;
 
@@ -3701,7 +3716,7 @@ impl Db {
             total_q = total_q.bind(tid);
         }
         let total_row = total_q
-            .fetch_one(self.pool())
+            .fetch_one(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to get total count: {}", e)))?;
         let total: i64 = total_row.try_get("total").unwrap_or(0);
@@ -3716,7 +3731,7 @@ impl Db {
             cat_q = cat_q.bind(tid);
         }
         let category_rows = cat_q
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to get category stats: {}", e)))?;
 
@@ -3734,7 +3749,7 @@ impl Db {
             trans_q = trans_q.bind(tid);
         }
         let transition_rows = trans_q
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to get transition stats: {}", e)))?;
 

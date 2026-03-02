@@ -240,7 +240,7 @@ async fn collect_database_state(
 
     // Get manifest count
     if let Ok(result) = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM manifests")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await
     {
         info.push_str(&format!("Manifests: {}\n", result));
@@ -248,7 +248,7 @@ async fn collect_database_state(
 
     // Get adapter count
     if let Ok(result) = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM adapters")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await
     {
         info.push_str(&format!("Adapters: {}\n", result));
@@ -257,7 +257,7 @@ async fn collect_database_state(
     // Get job counts by status
     if let Ok(rows) =
         sqlx::query_as::<_, (String, i64)>("SELECT status, COUNT(*) FROM jobs GROUP BY status")
-            .fetch_all(db.pool())
+            .fetch_all(db.pool_result()?)
             .await
     {
         info.push_str("\nJobs by status:\n");
@@ -270,7 +270,7 @@ async fn collect_database_state(
     if let Ok(rows) = sqlx::query_as::<_, (String, String, String)>(
         "SELECT id, job_type, status FROM jobs ORDER BY created_at DESC LIMIT 20",
     )
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await
     {
         info.push_str("\nRecent jobs:\n");

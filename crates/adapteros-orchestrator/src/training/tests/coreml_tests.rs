@@ -93,12 +93,33 @@ async fn start_training_records_coreml_intent_and_fallback() {
 #[tokio::test]
 async fn coreml_export_flow_updates_job_and_registry() {
     let _env = TestEnvGuard::new();
-    std::env::set_var("AOS_ALLOW_COREML_EXPORT_STUB", "1");
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock before unix epoch")
+        .as_nanos();
+    let job_id = format!("job-export-{unique}");
+    let adapter_id = format!("adapter-export-{unique}");
     let temp = new_test_tempdir();
-    let base_dir = temp.path().join("base");
-    std::fs::create_dir_all(&base_dir).unwrap();
-    std::fs::write(base_dir.join("Manifest.json"), "{}").unwrap();
-    std::env::set_var("AOS_MODEL_PATH", base_dir.to_string_lossy().to_string());
+
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+    let base_package = match std::env::var("AOS_COREML_EXPORT_BASE_PACKAGE") {
+        Ok(path) => std::path::PathBuf::from(path),
+        Err(_) => {
+            eprintln!("SKIPPED: set AOS_COREML_EXPORT_BASE_PACKAGE to a valid CoreML package path");
+            return;
+        }
+    };
+
+    #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
+    let base_package = {
+        let base_dir = temp.path().join("base");
+        std::fs::create_dir_all(&base_dir).unwrap();
+        std::fs::write(base_dir.join("Manifest.json"), "{}").unwrap();
+        base_dir
+    };
+
+    std::env::set_var("AOS_ALLOW_COREML_EXPORT_STUB", "1");
+    std::env::set_var("AOS_MODEL_PATH", base_package.to_string_lossy().to_string());
     let aos_path = temp.path().join("adapter.aos");
     std::fs::write(&aos_path, b"adapter-bytes").unwrap();
 
@@ -109,12 +130,12 @@ async fn coreml_export_flow_updates_job_and_registry() {
 
     let service = TrainingService::with_db(db.clone(), temp.path().to_path_buf());
     let mut job = TrainingJob::new(
-        "job-export".into(),
-        "adapter-export".into(),
+        job_id.clone(),
+        adapter_id.clone(),
         TrainingConfig::default(),
     );
     job.status = TrainingJobStatus::Completed;
-    job.adapter_id = Some("adapter-export".into());
+    job.adapter_id = Some(adapter_id.clone());
     job.aos_path = Some(aos_path.to_string_lossy().to_string());
     job.manifest_base_model = Some("base-model-x".into());
     job.package_hash_b3 = Some("hash123".into());
@@ -122,18 +143,29 @@ async fn coreml_export_flow_updates_job_and_registry() {
     service.insert_job_for_test(job).await;
 
     let updated = service
-        .export_coreml_for_job("job-export")
+        .export_coreml_for_job(&job_id)
         .await
         .expect("export");
 
+    #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
     assert_eq!(
         updated.coreml_export_status.as_deref(),
         Some("metadata_only")
     );
+
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+    assert!(
+        matches!(
+            updated.coreml_export_status.as_deref(),
+            Some("metadata_only") | Some("succeeded")
+        ),
+        "unexpected CoreML export status: {:?}",
+        updated.coreml_export_status
+    );
     assert!(updated.coreml_fused_package_hash.is_some());
 
     let pair = db
-        .get_coreml_fusion_pair("tenant-test", "base-model-x", "adapter-export")
+        .get_coreml_fusion_pair("tenant-test", "base-model-x", &adapter_id)
         .await
         .expect("pair lookup");
     assert!(pair.is_some(), "fusion pair should be recorded");

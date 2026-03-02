@@ -52,14 +52,14 @@ async fn setup_tenants(db: &Db) -> (String, String) {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_a)
         .bind("Tenant A")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("Failed to create tenant A for trigger isolation test");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_b)
         .bind("Tenant B")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("Failed to create tenant B for trigger isolation test");
 
@@ -76,7 +76,7 @@ async fn create_test_repo(db: &Db, tenant_id: &str, name: &str) -> String {
     .bind(tenant_id)
     .bind(name)
     .bind("main")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("Failed to create test adapter repository for trigger isolation test");
 
@@ -101,7 +101,7 @@ async fn create_test_version(
     .bind(version)
     .bind("main")
     .bind("draft")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await?;
 
     Ok(version_id)
@@ -121,7 +121,7 @@ async fn create_test_dataset(db: &Db, tenant_id: &str, name: &str) -> String {
     .bind("jsonl")
     .bind(&hash_b3)
     .bind(format!("var/test/{}", dataset_id))
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("create dataset");
 
@@ -147,7 +147,7 @@ async fn create_test_adapter(db: &Db, tenant_id: &str, name: &str) -> String {
     .bind(&adapter_id)
     .bind("active")
     .bind(1)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("create adapter");
 
@@ -170,7 +170,7 @@ async fn create_test_git_repo(db: &Db, repo_id: &str) -> Result<(), sqlx::Error>
     .bind("{}")
     .bind("active")
     .bind("test-user")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await?;
 
     Ok(())
@@ -198,7 +198,7 @@ async fn create_test_training_job(
     .bind("{}")
     .bind("{}")
     .bind("test-user")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await?;
 
     Ok(job_id)
@@ -217,7 +217,7 @@ async fn test_tenant_trigger_isolation_adapter_base_model_trigger_presence() {
 
     let trigger_rows: Vec<(String, String, Option<String>)> =
         sqlx::query_as("SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger'")
-            .fetch_all(db.pool())
+            .fetch_all(db.pool_result().unwrap())
             .await
             .expect("fetch triggers");
 
@@ -683,7 +683,7 @@ async fn test_tenant_trigger_isolation_rejects_adapter_versions_cross_tenant_rep
     let result = sqlx::query("UPDATE adapter_versions SET repo_id = ? WHERE id = ?")
         .bind(&repo_b)
         .bind(&version_id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(
@@ -705,7 +705,7 @@ async fn test_tenant_trigger_isolation_rejects_adapter_versions_cross_tenant_ten
     let result = sqlx::query("UPDATE adapter_versions SET tenant_id = ? WHERE id = ?")
         .bind(&tenant_b)
         .bind(&version_id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(
@@ -728,7 +728,7 @@ async fn test_tenant_trigger_isolation_rejects_adapters_cross_tenant_training_jo
     let result = sqlx::query("UPDATE adapters SET training_job_id = ? WHERE id = ?")
         .bind(&job_b)
         .bind(&adapter_a)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(
@@ -751,7 +751,7 @@ async fn test_tenant_trigger_isolation_allows_adapters_same_tenant_training_job(
     let result = sqlx::query("UPDATE adapters SET training_job_id = ? WHERE id = ?")
         .bind(&job_a)
         .bind(&adapter_a)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(
@@ -778,7 +778,7 @@ async fn test_tenant_trigger_isolation_rejects_dataset_adapter_links_cross_tenan
     .bind(&adapter_b)
     .bind("training")
     .bind(&tenant_a)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -804,7 +804,7 @@ async fn test_tenant_trigger_isolation_allows_dataset_adapter_links_same_tenant_
     .bind(&adapter_a)
     .bind("training")
     .bind(&tenant_a)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -832,14 +832,14 @@ async fn test_tenant_trigger_isolation_rejects_dataset_adapter_links_cross_tenan
     .bind(&adapter_a)
     .bind("training")
     .bind(&tenant_a)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("insert link");
 
     let result = sqlx::query("UPDATE dataset_adapter_links SET adapter_id = ? WHERE id = ?")
         .bind(&adapter_b)
         .bind(&link_id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(
@@ -865,7 +865,7 @@ async fn test_tenant_trigger_isolation_rejects_evidence_entries_cross_tenant_ada
     .bind("doc")
     .bind("ref")
     .bind(&tenant_a)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -891,7 +891,7 @@ async fn test_tenant_trigger_isolation_allows_evidence_entries_same_tenant_adapt
     .bind("doc")
     .bind("ref")
     .bind(&tenant_a)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -919,14 +919,14 @@ async fn test_tenant_trigger_isolation_rejects_evidence_entries_cross_tenant_ada
     .bind("doc")
     .bind("ref")
     .bind(&tenant_a)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("insert evidence entry");
 
     let result = sqlx::query("UPDATE evidence_entries SET adapter_id = ? WHERE id = ?")
         .bind(&adapter_b)
         .bind(&entry_id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(
@@ -956,7 +956,7 @@ async fn test_tenant_trigger_isolation_rejects_adapter_version_history_cross_ten
     .bind(&version_id)
     .bind("main")
     .bind("draft")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -986,7 +986,7 @@ async fn test_tenant_trigger_isolation_allows_adapter_version_history_same_tenan
     .bind(&version_id)
     .bind("main")
     .bind("draft")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -1016,7 +1016,7 @@ async fn create_test_stack(db: &Db, tenant_id: &str, suffix: &str, adapter_ids: 
     .bind(&adapter_ids_json)
     .bind("1.0.0")
     .bind("active")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("create stack");
 
@@ -1045,7 +1045,7 @@ async fn test_adapter_stacks_cross_tenant_insert_rejected() {
     .bind(&adapter_ids_json)
     .bind("1.0.0")
     .bind("active")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -1076,7 +1076,7 @@ async fn test_adapter_stacks_same_tenant_insert_allowed() {
     .bind(&adapter_ids_json)
     .bind("1.0.0")
     .bind("active")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -1103,7 +1103,7 @@ async fn test_adapter_stacks_cross_tenant_update_rejected() {
     let result = sqlx::query("UPDATE adapter_stacks SET adapter_ids_json = ? WHERE id = ?")
         .bind(&cross_tenant_json)
         .bind(&stack_id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(
@@ -1137,7 +1137,7 @@ async fn test_training_jobs_adapter_cross_tenant_insert_rejected() {
     .bind(&tenant_a)
     .bind("Test Repo")
     .bind("main")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("create repo");
 
@@ -1156,7 +1156,7 @@ async fn test_training_jobs_adapter_cross_tenant_insert_rejected() {
     .bind("{}")
     .bind("active")
     .bind("test-user")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("create git repo");
 
@@ -1173,7 +1173,7 @@ async fn test_training_jobs_adapter_cross_tenant_insert_rejected() {
     .bind("{}")
     .bind("{}")
     .bind("test-user")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -1202,7 +1202,7 @@ async fn test_training_jobs_adapter_same_tenant_insert_allowed() {
     .bind(&tenant_a)
     .bind("Test Repo Same Tenant")
     .bind("main")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("create repo");
 
@@ -1221,7 +1221,7 @@ async fn test_training_jobs_adapter_same_tenant_insert_allowed() {
     .bind("{}")
     .bind("active")
     .bind("test-user")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("create git repo");
 
@@ -1238,7 +1238,7 @@ async fn test_training_jobs_adapter_same_tenant_insert_allowed() {
     .bind("{}")
     .bind("{}")
     .bind("test-user")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -1259,7 +1259,7 @@ async fn create_test_collection(db: &Db, tenant_id: &str, name: &str) -> String 
         .bind(&collection_id)
         .bind(tenant_id)
         .bind(name)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("create collection");
 
@@ -1287,7 +1287,7 @@ async fn test_chat_sessions_cross_tenant_stack_rejected() {
     .bind("Test Session")
     .bind("test-model")
     .bind("[]")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -1316,7 +1316,7 @@ async fn test_chat_sessions_cross_tenant_collection_rejected() {
     .bind("Test Session")
     .bind("test-model")
     .bind("[]")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -1346,7 +1346,7 @@ async fn test_routing_decisions_cross_tenant_stack_rejected() {
     .bind("abcd1234")
     .bind("{}")
     .bind(100)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(

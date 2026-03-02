@@ -41,7 +41,6 @@ adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-client = { path = "../adapteros-client" }
 adapteros-storage = { path = "../adapteros-storage" }
 blake3 = { workspace = true }
-tokenizers = { workspace = true }
 git2 = "0.20"
 # Database
 sqlx = { workspace = true }
@@ -67,6 +66,7 @@ adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 
 [dev-dependencies]
 nix.workspace = true
+tokenizers = { workspace = true }
 
 [[bin]]
 name = "aos-orchestrator"

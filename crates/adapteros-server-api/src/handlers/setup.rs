@@ -102,7 +102,7 @@ pub async fn setup_discover_models(
 
     let registered_paths: HashSet<String> = if state.db.pool_opt().is_some() {
         sqlx::query_scalar::<_, String>("SELECT model_path FROM models")
-            .fetch_all(state.db.pool())
+            .fetch_all(state.db.pool_result()?)
             .await
             .map_err(ApiError::db_error)?
             .into_iter()

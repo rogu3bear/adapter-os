@@ -58,7 +58,30 @@ npm run test:ui:chrome
 # Specific test files
 npm run test:smoke      # Route smoke tests only
 npm run test:visual     # Visual regression only
+npm run test:audit      # Route/accessibility audit surfaces
+npm run test:gate:quality -- --project=chromium
+npm run test:gate:quality -- --project=webkit
 ```
+
+### Blocking UI Quality Gate
+
+The canonical blocking gate is `test:gate:quality` and bundles:
+
+- `ui/console.regression.spec.ts`
+- `ui/routes.best_practices.audit.spec.ts`
+- `ui/visual.spec.ts`
+- `ui/runs.spec.ts`
+
+Before running those specs, the gate enforces visual baseline contract checks via:
+
+```bash
+node scripts/check-visual-snapshot-contract.mjs
+```
+
+Baseline policy:
+- Canonical baselines are macOS (`*-darwin.png`) for Chromium and WebKit.
+- Active visual assertions must have both browser baselines present.
+- Snapshot files without matching `toHaveScreenshot(...)` references are treated as contract violations.
 
 ### Speed Tips
 

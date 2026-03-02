@@ -525,6 +525,8 @@ pub async fn run(
         None, // No KV residency policy ID
         None, // No adapter cache size limit
         cli_worker_id,
+        None, // No max tokens limit
+        adapteros_lora_worker::limiter::ResourceLimits::default(),
     )
     .await?;
     output.success("Worker initialized");

@@ -669,7 +669,7 @@ mod tests {
             "Train should be ~170, got {}",
             train.len()
         );
-        assert!(held.len() > 0, "Held-out should have some samples");
+        assert!(!held.is_empty(), "Held-out should have some samples");
     }
 
     // -- Edit distance tests --

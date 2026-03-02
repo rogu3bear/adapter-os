@@ -21,6 +21,45 @@ pub struct GitRepository {
 }
 
 impl Db {
+    /// Ensure a synthetic git_repositories parent row exists for the given repo_id.
+    ///
+    /// Training jobs are persisted in `repository_training_jobs`, which keeps a
+    /// foreign key to `git_repositories(repo_id)`. Some control-plane flows use
+    /// adapter repository IDs, so we create a minimal parent row when missing to
+    /// keep FK constraints satisfied without changing external API contracts.
+    pub async fn ensure_training_repo_parent_exists(
+        &self,
+        repo_id: &str,
+        created_by: &str,
+    ) -> Result<()> {
+        let repo_id = repo_id.trim();
+        if repo_id.is_empty() {
+            return Err(AosError::Validation(
+                "repo_id cannot be empty when ensuring git repository parent row".to_string(),
+            ));
+        }
+
+        let id = new_id(IdPrefix::Rep);
+        sqlx::query(
+            "INSERT OR IGNORE INTO git_repositories \
+             (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(repo_id)
+        .bind(format!("training://{repo_id}"))
+        .bind("main")
+        .bind("{}")
+        .bind("[]")
+        .bind("{}")
+        .bind("active")
+        .bind(created_by)
+        .execute(self.pool_result()?)
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     /// Ensure the synthetic direct-training git repository exists.
     ///
     /// The training pipeline persists `repository_training_jobs` with a non-null
@@ -45,7 +84,7 @@ impl Db {
         .bind("{}")
         .bind("active")
         .bind(created_by)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -79,7 +118,7 @@ impl Db {
         .bind("{}") // Empty security scan JSON for now
         .bind("registered")
         .bind(created_by)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
@@ -96,7 +135,7 @@ impl Db {
              FROM git_repositories WHERE repo_id = ?",
         )
         .bind(repo_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repository)
@@ -112,7 +151,7 @@ impl Db {
                     security_scan_json, status, created_at, created_by, last_scan
              FROM git_repositories ORDER BY created_at DESC",
         )
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repositories)
@@ -126,7 +165,7 @@ impl Db {
         sqlx::query("UPDATE git_repositories SET status = ? WHERE repo_id = ?")
             .bind(status)
             .bind(repo_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -152,7 +191,7 @@ impl Db {
         .bind(evidence_json)
         .bind(security_scan_json)
         .bind(repo_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -165,7 +204,7 @@ impl Db {
     pub async fn delete_git_repository(&self, repo_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM git_repositories WHERE repo_id = ?")
             .bind(repo_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -182,7 +221,7 @@ impl Db {
              FROM git_repositories WHERE status = ? ORDER BY created_at DESC",
         )
         .bind(status)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repositories)
@@ -202,7 +241,7 @@ impl Db {
              FROM git_repositories WHERE created_by = ? ORDER BY created_at DESC",
         )
         .bind(created_by)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repositories)
@@ -215,7 +254,7 @@ impl Db {
     pub async fn update_git_repository_last_scan(&self, repo_id: &str) -> Result<()> {
         sqlx::query("UPDATE git_repositories SET last_scan = datetime('now') WHERE repo_id = ?")
             .bind(repo_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())

@@ -19,7 +19,7 @@ fn simple_adapter_payload(delta: f32) -> Vec<u8> {
         )
     })
     .expect("tensor view");
-    serialize([("dummy.weight".to_string(), tensor)], &Default::default())
+    serialize([("dummy.weight".to_string(), tensor)], Default::default())
         .expect("serialize sidecar adapter")
 }
 
@@ -99,7 +99,7 @@ fn stub_lora_preserves_coreml_model_bytes() -> Result<()> {
         })
         .expect("tensor view"),
     )];
-    let adapter_bytes = serialize(adapter_tensors, &Default::default()).expect("serialize adapter");
+    let adapter_bytes = serialize(adapter_tensors, Default::default()).expect("serialize adapter");
 
     // Wrap adapter payload into a canonical .aos bundle so the export helper can ingest it.
     let tmp = tempdir().expect("temp dir");
@@ -1652,7 +1652,7 @@ fn test_coreml_hot_swap_attach_switch_detach_stub() {
             .expect("tensor view");
         serialize(
             vec![("adapter.weight".to_string(), tensor)],
-            &Default::default(),
+            Default::default(),
         )
         .expect("serialize adapter weights")
     }

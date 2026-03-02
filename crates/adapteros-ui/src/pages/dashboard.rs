@@ -9,8 +9,8 @@ use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::components::status_center::use_status_center;
 use crate::components::{
     Button, ButtonLink, ButtonSize, ButtonVariant, Card, ErrorDisplay, IconCheckCircle, IconPlay,
-    PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction, SkeletonStatsGrid, StatusColor,
-    StatusIconBox, StatusIndicator, StatusVariant,
+    PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction, PageScaffoldStatus,
+    SkeletonStatsGrid, StatusColor, StatusIconBox, StatusIndicator, StatusVariant,
 };
 use crate::hooks::{
     use_live_system_metrics, use_sse_notifications, use_system_status, LoadingState,
@@ -46,19 +46,22 @@ pub fn Dashboard() -> impl IntoView {
     view! {
         <PageScaffold
             title="Home"
-            subtitle="Create, chat, replay, verify, and promote with confidence."
+            subtitle="Start chat, build adapters, and review evidence with clear steps."
+            full_width=true
         >
+            <PageScaffoldStatus slot>
+                <SseIndicator state=live_metrics.sse_status/>
+            </PageScaffoldStatus>
             <PageScaffoldPrimaryAction slot>
                 <ButtonLink
-                    href="/training?open_wizard=1"
+                    href="/chat"
                     variant=ButtonVariant::Primary
                     size=ButtonSize::Sm
                 >
-                    "Create Adapter"
+                    "Start Chat"
                 </ButtonLink>
             </PageScaffoldPrimaryAction>
             <PageScaffoldActions slot>
-                <SseIndicator state=live_metrics.sse_status/>
                 <Button
                     variant=ButtonVariant::Secondary
                     on_click=Callback::new(move |_| refetch.run(()))
@@ -71,7 +74,7 @@ pub fn Dashboard() -> impl IntoView {
                     variant=ButtonVariant::Outline
                     size=ButtonSize::Sm
                 >
-                    "View infrastructure"
+                    "View System"
                 </ButtonLink>
             </PageScaffoldActions>
 
@@ -79,11 +82,15 @@ pub fn Dashboard() -> impl IntoView {
                 match status.try_get().unwrap_or(LoadingState::Loading) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="mt-4">
-                                <div class="h-48 rounded-lg border border-border animate-pulse bg-muted/20"/>
+                            <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                                <div class="h-24 rounded-lg border border-border animate-pulse bg-muted/20"/>
+                                <div class="h-24 rounded-lg border border-border animate-pulse bg-muted/20"/>
                             </div>
                             <SkeletonStatsGrid count=2/>
-                            <div class="mt-3 h-10 rounded-lg border border-border animate-pulse bg-muted/20"/>
+                            <div class="mt-3 grid gap-2">
+                                <div class="h-8 rounded-lg border border-border animate-pulse bg-muted/20"/>
+                                <div class="h-8 rounded-lg border border-border animate-pulse bg-muted/20"/>
+                            </div>
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
@@ -155,7 +162,7 @@ fn DashboardContent(status: SystemStatusResponse) -> impl IntoView {
         <JourneyFlowSection />
 
         <div class="mt-4 grid gap-4 sm:grid-cols-2">
-            <Card title="Kernel Status".to_string()>
+            <Card title="System Status".to_string()>
                 <div class="flex items-center gap-3">
                     <StatusIconBox status=StatusVariant::from_bool(is_ready)>
                         <IconCheckCircle class="h-5 w-5".to_string() />
@@ -171,7 +178,7 @@ fn DashboardContent(status: SystemStatusResponse) -> impl IntoView {
                 </div>
             </Card>
 
-            <Card title="Prompt Studio".to_string()>
+            <Card title="Chat".to_string()>
                 <div class="flex items-center gap-3">
                     <StatusIconBox status=match status.inference_ready {
                         InferenceReadyState::True => StatusVariant::Success,
@@ -226,7 +233,7 @@ fn DashboardContent(status: SystemStatusResponse) -> impl IntoView {
                 }
             />
             <a href="/system" class="text-xs font-medium text-primary hover:underline">
-                "View infrastructure"
+                "View System"
             </a>
         </div>
     }
@@ -235,39 +242,43 @@ fn DashboardContent(status: SystemStatusResponse) -> impl IntoView {
 #[component]
 fn JourneyFlowSection() -> impl IntoView {
     view! {
-        <Card title="Guided Flow".to_string() class="mt-4">
+        <Card title="Quick Start".to_string() class="mt-4">
             <p class="text-sm text-muted-foreground mb-4">
-                "Use this path to create a skill, validate reproducibility, review signed proof, and promote safely."
+                "Use adapterOS as a chat that can build adapters and produce proof."
             </p>
-            <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <p class="text-xs text-muted-foreground mb-4">
+                "Pick one action to start. You can switch between these at any time."
+            </p>
+            <details class="mb-4 rounded border border-border/50 bg-muted/20 px-3 py-2">
+                <summary class="cursor-pointer text-xs font-medium text-muted-foreground">
+                    "Advanced workflow"
+                </summary>
+                <p class="text-xs text-muted-foreground mt-2">
+                "Recommended default: resolve a version in Versions, run checkout or promote, then feed-dataset for the next revision."
+                </p>
+            </details>
+            <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                 <JourneyStep
-                    step="Step 1"
+                    step="Action 1"
+                    title="Start Chat"
+                    body="Open chat, ask a question, and iterate quickly."
+                    href="/chat"
+                    cta="Start Chat"
+                    start_here=true
+                />
+                <JourneyStep
+                    step="Action 2"
                     title="Create Adapter"
                     body="Add your files, name the adapter, and start training."
                     href="/training?open_wizard=1"
                     cta="Create Adapter"
-                    start_here=true
                 />
                 <JourneyStep
-                    step="Step 2"
-                    title="Start a Conversation"
-                    body="Switch to Prompt Studio and talk to the skill immediately."
-                    href="/chat"
-                    cta="Open Prompt Studio"
-                />
-                <JourneyStep
-                    step="Step 3"
-                    title="Replay & Signed Proof"
-                    body="Replay the exact response with locked output and inspect tamper-proof evidence."
+                    step="Action 3"
+                    title="View Evidence"
+                    body="Review execution records, receipts, and replay results."
                     href="/runs"
-                    cta="Open Restore Points"
-                />
-                <JourneyStep
-                    step="Step 4"
-                    title="Promote Safely"
-                    body="Move versions from Draft to Reviewed to Production with rollback controls."
-                    href="/update-center"
-                    cta="Open Update Center"
+                    cta="View Evidence"
                 />
             </div>
             <p class="mt-4 text-xs text-muted-foreground">
@@ -290,6 +301,8 @@ fn JourneyStep(
     cta: &'static str,
     #[prop(optional)] start_here: bool,
 ) -> impl IntoView {
+    let cta_aria = format!("{step}: {title}. {cta}");
+
     view! {
         <div class="rounded-lg border border-border/60 bg-card/60 p-3 space-y-2">
             <div class="flex items-center gap-2">
@@ -302,7 +315,12 @@ fn JourneyStep(
             </div>
             <p class="text-sm font-semibold">{title}</p>
             <p class="text-xs text-muted-foreground">{body}</p>
-            <ButtonLink href=href variant=ButtonVariant::Outline size=ButtonSize::Sm>
+            <ButtonLink
+                href=href
+                variant=ButtonVariant::Outline
+                size=ButtonSize::Sm
+                aria_label=cta_aria
+            >
                 {cta}
             </ButtonLink>
         </div>

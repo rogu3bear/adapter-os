@@ -26,21 +26,8 @@ use crate::api::{
 };
 use adapteros_api_types::{HealthResponse, SystemStatusResponse};
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-
-/// Response from `/healthz/startup` (boot sequence status).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StartupHealthResponse {
-    pub status: String,
-    pub boot_state: String,
-    pub next_action: String,
-    #[serde(default)]
-    pub failed_phase: Option<String>,
-    #[serde(default)]
-    pub last_error_code: Option<String>,
-}
 
 // ---------------------------------------------------------------------------
 // SWR cache — thread_local HashMap for stale-while-revalidate
@@ -181,8 +168,15 @@ pub fn use_scope_alive() -> Arc<AtomicBool> {
 
 /// Get the current page path for error reporting
 #[allow(dead_code)] // Reserved for future error reporting enhancements
+#[cfg(target_arch = "wasm32")]
 fn get_current_path() -> Option<String> {
     web_sys::window().and_then(|w| w.location().pathname().ok())
+}
+
+#[allow(dead_code)] // Reserved for future error reporting enhancements
+#[cfg(not(target_arch = "wasm32"))]
+fn get_current_path() -> Option<String> {
+    None
 }
 
 /// Resource loading state
@@ -196,7 +190,7 @@ pub enum LoadingState<T> {
     /// Loaded with data
     Loaded(T),
     /// Error occurred
-    Error(ApiError),
+    Error(Box<ApiError>),
 }
 
 impl<T> LoadingState<T> {
@@ -216,7 +210,7 @@ impl<T> LoadingState<T> {
     /// Get error if any
     pub fn error(&self) -> Option<&ApiError> {
         match self {
-            Self::Error(e) => Some(e),
+            Self::Error(e) => Some(e.as_ref()),
             _ => None,
         }
     }
@@ -263,11 +257,18 @@ where
             let set_state_result = set_state;
             let fetch_version_check = Arc::clone(&fetch_version);
 
+            let state_for_refetch = state;
             // The timeout callback is a one-shot operation that runs immediately (0ms delay).
             // While the Timeout handle is forgotten (WASM limitation), the version counter
             // ensures stale responses are discarded after component unmount.
             gloo_timers::callback::Timeout::new(0, move || {
-                let _ = set_state_loading.try_set(LoadingState::Loading);
+                // Only show loading spinner if we don't have cached data displayed
+                if !matches!(
+                    state_for_refetch.try_get_untracked(),
+                    Some(LoadingState::Loaded(_))
+                ) {
+                    let _ = set_state_loading.try_set(LoadingState::Loading);
+                }
 
                 wasm_bindgen_futures::spawn_local(async move {
                     match fetch(client).await {
@@ -287,7 +288,7 @@ where
                             {
                                 let page = get_current_path();
                                 report_error(&e, page.as_deref(), is_authenticated);
-                                let _ = set_state_result.try_set(LoadingState::Error(e));
+                                let _ = set_state_result.try_set(LoadingState::Error(Box::new(e)));
                             }
                         }
                     }
@@ -394,7 +395,10 @@ where
 
             gloo_timers::callback::Timeout::new(0, move || {
                 // Only show loading spinner if we don't have cached data displayed
-                if !matches!(state_for_refetch.get_untracked(), LoadingState::Loaded(_)) {
+                if !matches!(
+                    state_for_refetch.try_get_untracked(),
+                    Some(LoadingState::Loaded(_))
+                ) {
                     let _ = set_state_result.try_set(LoadingState::Loading);
                 }
 
@@ -417,7 +421,7 @@ where
                             {
                                 let page = get_current_path();
                                 report_error(&e, page.as_deref(), is_authenticated);
-                                let _ = set_state_result.try_set(LoadingState::Error(e));
+                                let _ = set_state_result.try_set(LoadingState::Error(Box::new(e)));
                             }
                         }
                     }
@@ -458,9 +462,11 @@ pub struct HealthEndpointsState {
 
 /// Shared cached hook for `/healthz`.
 pub fn use_health() -> (ReadSignal<LoadingState<HealthResponse>>, Refetch) {
-    use_cached_api_resource("health", CacheTtl::STATUS, |client: Arc<ApiClient>| async move {
-        client.health().await
-    })
+    use_cached_api_resource(
+        "health",
+        CacheTtl::STATUS,
+        |client: Arc<ApiClient>| async move { client.health().await },
+    )
 }
 
 /// Shared cached hook for common health endpoints used by System and Monitoring pages.
@@ -514,20 +520,6 @@ pub fn use_health_endpoints() -> (ReadSignal<HealthEndpointsState>, Refetch) {
     (state, refetch)
 }
 
-/// Shared cached hook for `/healthz/startup`.
-/// Used by LogicalControlRail and SystemTray to avoid duplicate requests.
-pub fn use_startup_health() -> (ReadSignal<LoadingState<StartupHealthResponse>>, Refetch) {
-    use_cached_api_resource(
-        "startup_health",
-        CacheTtl::STATUS,
-        |client: Arc<ApiClient>| async move {
-            client
-                .get::<StartupHealthResponse>("/healthz/startup")
-                .await
-        },
-    )
-}
-
 /// Simple polling hook with automatic cleanup
 ///
 /// Returns a cancel function that stops the polling when called.
@@ -542,86 +534,95 @@ where
     F: Fn() -> Fut + Clone + 'static,
     Fut: std::future::Future<Output = ()> + 'static,
 {
-    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-    use wasm_bindgen::prelude::*;
-    use wasm_bindgen::JsCast;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (interval_ms, fetch);
+        move || {}
+    }
 
-    // Store interval ID for cleanup (-1 = no interval)
-    let interval_id = Arc::new(AtomicI32::new(-1));
-    let interval_id_for_cleanup = Arc::clone(&interval_id);
-    let interval_id_for_cancel = Arc::clone(&interval_id);
+    #[cfg(target_arch = "wasm32")]
+    {
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+        use wasm_bindgen::prelude::*;
+        use wasm_bindgen::JsCast;
 
-    // Track if we've already initialized (prevent re-initialization on Effect re-run)
-    let initialized = Arc::new(AtomicBool::new(false));
+        // Store interval ID for cleanup (-1 = no interval)
+        let interval_id = Arc::new(AtomicI32::new(-1));
+        let interval_id_for_cleanup = Arc::clone(&interval_id);
+        let interval_id_for_cancel = Arc::clone(&interval_id);
 
-    // Register cleanup to clear interval on unmount
-    on_cleanup(move || {
-        let id = interval_id_for_cleanup.swap(-1, Ordering::SeqCst);
-        if id >= 0 {
-            if let Some(window) = web_sys::window() {
-                window.clear_interval_with_handle(id);
-            }
-        }
-    });
+        // Track if we've already initialized (prevent re-initialization on Effect re-run)
+        let initialized = Arc::new(AtomicBool::new(false));
 
-    Effect::new(move || {
-        // Only initialize once - Effects can re-run but we don't want duplicate intervals
-        // or leaked closures
-        if initialized.swap(true, Ordering::SeqCst) {
-            return;
-        }
-
-        let fetch = fetch.clone();
-        let interval_id = Arc::clone(&interval_id);
-
-        // Initial fetch - deferred via Timeout to avoid RefCell re-entrancy
-        // panic in wasm-bindgen-futures when spawn_local is called from Effect body
-        let fetch_init = fetch.clone();
-        gloo_timers::callback::Timeout::new(0, move || {
-            wasm_bindgen_futures::spawn_local(async move {
-                fetch_init().await;
-            });
-        })
-        .forget();
-
-        // Set up interval using web_sys for cleanup capability
-        let callback = Closure::wrap(Box::new(move || {
-            let fetch = fetch.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                // Skip polling when tab is hidden to avoid needless load
-                let should_skip = web_sys::window()
-                    .and_then(|w| w.document())
-                    .map(|d| d.hidden())
-                    .unwrap_or(false)
-                    || web_sys::window()
-                        .map(|w| !w.navigator().on_line())
-                        .unwrap_or(false);
-                if should_skip {
-                    return;
+        // Register cleanup to clear interval on unmount
+        on_cleanup(move || {
+            let id = interval_id_for_cleanup.swap(-1, Ordering::SeqCst);
+            if id >= 0 {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(id);
                 }
-                fetch().await;
-            });
-        }) as Box<dyn FnMut()>);
-
-        if let Some(window) = web_sys::window() {
-            if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
-                callback.as_ref().unchecked_ref(),
-                interval_ms as i32,
-            ) {
-                interval_id.store(id, Ordering::SeqCst);
             }
-        }
+        });
 
-        // Closure must be leaked (WASM limitation), but interval is cleared on cleanup
-        callback.forget();
-    });
+        Effect::new(move || {
+            // Only initialize once - Effects can re-run but we don't want duplicate intervals
+            // or leaked closures
+            if initialized.swap(true, Ordering::SeqCst) {
+                return;
+            }
 
-    // Return cancel function
-    move || {
-        let id = interval_id_for_cancel.swap(-1, Ordering::SeqCst);
-        if id >= 0 {
+            let fetch = fetch.clone();
+            let interval_id = Arc::clone(&interval_id);
+
+            // Initial fetch - deferred via Timeout to avoid RefCell re-entrancy
+            // panic in wasm-bindgen-futures when spawn_local is called from Effect body
+            let fetch_init = fetch.clone();
+            gloo_timers::callback::Timeout::new(0, move || {
+                wasm_bindgen_futures::spawn_local(async move {
+                    fetch_init().await;
+                });
+            })
+            .forget();
+
+            // Set up interval using web_sys for cleanup capability
+            let callback = Closure::wrap(Box::new(move || {
+                let fetch = fetch.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    // Skip polling when tab is hidden to avoid needless load
+                    let should_skip = web_sys::window()
+                        .and_then(|w| w.document())
+                        .map(|d| d.hidden())
+                        .unwrap_or(false)
+                        || web_sys::window()
+                            .map(|w| !w.navigator().on_line())
+                            .unwrap_or(false);
+                    if should_skip {
+                        return;
+                    }
+                    fetch().await;
+                });
+            }) as Box<dyn FnMut()>);
+
             if let Some(window) = web_sys::window() {
-                window.clear_interval_with_handle(id);
+                if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
+                    callback.as_ref().unchecked_ref(),
+                    interval_ms as i32,
+                ) {
+                    interval_id.store(id, Ordering::SeqCst);
+                }
+            }
+
+            // Closure must be leaked (WASM limitation), but interval is cleared on cleanup
+            callback.forget();
+        });
+
+        // Return cancel function
+        move || {
+            let id = interval_id_for_cancel.swap(-1, Ordering::SeqCst);
+            if id >= 0 {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(id);
+                }
             }
         }
     }
@@ -651,104 +652,113 @@ where
     F: Fn() -> Fut + Clone + 'static,
     Fut: std::future::Future<Output = ()> + 'static,
 {
-    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-    use wasm_bindgen::prelude::*;
-    use wasm_bindgen::JsCast;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (interval_ms, should_poll, fetch);
+        move || {}
+    }
 
-    // Store interval ID for cleanup (-1 = no interval)
-    let interval_id = Arc::new(AtomicI32::new(-1));
-    let interval_id_for_cleanup = Arc::clone(&interval_id);
-    let interval_id_for_cancel = Arc::clone(&interval_id);
+    #[cfg(target_arch = "wasm32")]
+    {
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+        use wasm_bindgen::prelude::*;
+        use wasm_bindgen::JsCast;
 
-    // Track if permanently cancelled
-    let cancelled = Arc::new(AtomicBool::new(false));
-    let cancelled_for_effect = Arc::clone(&cancelled);
-    let cancelled_for_cancel = Arc::clone(&cancelled);
+        // Store interval ID for cleanup (-1 = no interval)
+        let interval_id = Arc::new(AtomicI32::new(-1));
+        let interval_id_for_cleanup = Arc::clone(&interval_id);
+        let interval_id_for_cancel = Arc::clone(&interval_id);
 
-    // Register cleanup to clear interval on unmount
-    on_cleanup(move || {
-        let id = interval_id_for_cleanup.swap(-1, Ordering::SeqCst);
-        if id >= 0 {
-            if let Some(window) = web_sys::window() {
-                window.clear_interval_with_handle(id);
-            }
-        }
-    });
+        // Track if permanently cancelled
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancelled_for_effect = Arc::clone(&cancelled);
+        let cancelled_for_cancel = Arc::clone(&cancelled);
 
-    Effect::new(move || {
-        let fetch = fetch.clone();
-        let interval_id = Arc::clone(&interval_id);
-        let is_polling = should_poll.try_get().unwrap_or(false);
-        let cancelled = Arc::clone(&cancelled_for_effect);
-
-        // If permanently cancelled, do nothing
-        if cancelled.load(Ordering::SeqCst) {
-            return;
-        }
-
-        // Clear any existing interval first
-        let old_id = interval_id.swap(-1, Ordering::SeqCst);
-        if old_id >= 0 {
-            if let Some(window) = web_sys::window() {
-                window.clear_interval_with_handle(old_id);
-            }
-        }
-
-        // Only set up polling if should_poll is true
-        if !is_polling {
-            return;
-        }
-
-        // Initial fetch when polling starts - deferred via Timeout to avoid
-        // RefCell re-entrancy in wasm-bindgen-futures when called from Effect body
-        let fetch_init = fetch.clone();
-        gloo_timers::callback::Timeout::new(0, move || {
-            wasm_bindgen_futures::spawn_local(async move {
-                fetch_init().await;
-            });
-        })
-        .forget();
-
-        // Set up interval using web_sys for cleanup capability
-        let callback = Closure::wrap(Box::new(move || {
-            let fetch = fetch.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                // Skip polling when tab is hidden to avoid needless load
-                let should_skip = web_sys::window()
-                    .and_then(|w| w.document())
-                    .map(|d| d.hidden())
-                    .unwrap_or(false)
-                    || web_sys::window()
-                        .map(|w| !w.navigator().on_line())
-                        .unwrap_or(false);
-                if should_skip {
-                    return;
+        // Register cleanup to clear interval on unmount
+        on_cleanup(move || {
+            let id = interval_id_for_cleanup.swap(-1, Ordering::SeqCst);
+            if id >= 0 {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(id);
                 }
-                fetch().await;
-            });
-        }) as Box<dyn FnMut()>);
-
-        if let Some(window) = web_sys::window() {
-            if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
-                callback.as_ref().unchecked_ref(),
-                interval_ms as i32,
-            ) {
-                interval_id.store(id, Ordering::SeqCst);
             }
-        }
+        });
 
-        // Closure must be leaked (WASM limitation), but interval is cleared on cleanup
-        callback.forget();
-    });
+        Effect::new(move || {
+            let fetch = fetch.clone();
+            let interval_id = Arc::clone(&interval_id);
+            let is_polling = should_poll.try_get().unwrap_or(false);
+            let cancelled = Arc::clone(&cancelled_for_effect);
 
-    // Return cancel function
-    move || {
-        // Mark as permanently cancelled
-        cancelled_for_cancel.store(true, Ordering::SeqCst);
-        let id = interval_id_for_cancel.swap(-1, Ordering::SeqCst);
-        if id >= 0 {
+            // If permanently cancelled, do nothing
+            if cancelled.load(Ordering::SeqCst) {
+                return;
+            }
+
+            // Clear any existing interval first
+            let old_id = interval_id.swap(-1, Ordering::SeqCst);
+            if old_id >= 0 {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(old_id);
+                }
+            }
+
+            // Only set up polling if should_poll is true
+            if !is_polling {
+                return;
+            }
+
+            // Initial fetch when polling starts - deferred via Timeout to avoid
+            // RefCell re-entrancy in wasm-bindgen-futures when called from Effect body
+            let fetch_init = fetch.clone();
+            gloo_timers::callback::Timeout::new(0, move || {
+                wasm_bindgen_futures::spawn_local(async move {
+                    fetch_init().await;
+                });
+            })
+            .forget();
+
+            // Set up interval using web_sys for cleanup capability
+            let callback = Closure::wrap(Box::new(move || {
+                let fetch = fetch.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    // Skip polling when tab is hidden to avoid needless load
+                    let should_skip = web_sys::window()
+                        .and_then(|w| w.document())
+                        .map(|d| d.hidden())
+                        .unwrap_or(false)
+                        || web_sys::window()
+                            .map(|w| !w.navigator().on_line())
+                            .unwrap_or(false);
+                    if should_skip {
+                        return;
+                    }
+                    fetch().await;
+                });
+            }) as Box<dyn FnMut()>);
+
             if let Some(window) = web_sys::window() {
-                window.clear_interval_with_handle(id);
+                if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
+                    callback.as_ref().unchecked_ref(),
+                    interval_ms as i32,
+                ) {
+                    interval_id.store(id, Ordering::SeqCst);
+                }
+            }
+
+            // Closure must be leaked (WASM limitation), but interval is cleared on cleanup
+            callback.forget();
+        });
+
+        // Return cancel function
+        move || {
+            // Mark as permanently cancelled
+            cancelled_for_cancel.store(true, Ordering::SeqCst);
+            let id = interval_id_for_cancel.swap(-1, Ordering::SeqCst);
+            if id >= 0 {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(id);
+                }
             }
         }
     }

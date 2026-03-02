@@ -998,6 +998,23 @@ pub struct DatasetListResponse {
     pub total: i64,
 }
 
+/// Adapter lineage entry for dataset adapters response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetAdapterEntry {
+    pub adapter_id: String,
+    #[serde(default)]
+    pub dataset_version_id: Option<String>,
+    #[serde(default)]
+    pub training_job_id: Option<String>,
+}
+
+/// Response for adapters using a dataset
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetAdaptersResponse {
+    #[serde(default)]
+    pub adapters: Vec<DatasetAdapterEntry>,
+}
+
 /// Dataset statistics response
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DatasetStatisticsResponse {
@@ -1031,6 +1048,189 @@ pub struct DatasetPreviewResponse {
     pub total_examples: usize,
     #[serde(default)]
     pub examples: Vec<serde_json::Value>,
+}
+
+/// Row-level edit request used when creating an edited dataset version.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetRowEditRequest {
+    pub row_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub split: Option<String>,
+}
+
+/// Request payload for creating a dataset version.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct CreateDatasetVersionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_json: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_dataset_version_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row_edits: Option<Vec<DatasetRowEditRequest>>,
+}
+
+/// Response from creating a dataset version.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateDatasetVersionResponse {
+    pub dataset_id: String,
+    pub dataset_version_id: String,
+    pub version_number: i64,
+    pub trust_state: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetSourceSpan {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_start: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_end: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub char_start: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub char_end: Option<i32>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct DatasetEvaluationCoverageStats {
+    #[serde(default)]
+    pub total_rows: usize,
+    #[serde(default)]
+    pub rows_with_response: usize,
+    #[serde(default)]
+    pub rows_with_source_span: usize,
+    #[serde(default)]
+    pub rows_with_provenance_metadata: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct DatasetEvaluationDuplicationStats {
+    #[serde(default)]
+    pub duplicate_prompt_response_pairs: usize,
+    #[serde(default)]
+    pub duplicate_prompt_only: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct DatasetEvaluationLeakageRisk {
+    #[serde(default)]
+    pub risky_row_count: usize,
+    #[serde(default)]
+    pub risk_score: f32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetSchemaAnomaly {
+    pub issue: String,
+    pub row_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_span: Option<DatasetSourceSpan>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetEvaluationExampleRow {
+    pub row_id: String,
+    pub prompt: String,
+    pub response: String,
+    pub split: String,
+    pub weight: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_span: Option<DatasetSourceSpan>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetEvaluationCitation {
+    pub issue: String,
+    pub row_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_span: Option<DatasetSourceSpan>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetEvaluationArtifact {
+    pub artifact_id: String,
+    pub dataset_id: String,
+    pub dataset_version_id: String,
+    pub generated_at: String,
+    pub generator_version: String,
+    pub coverage_stats: DatasetEvaluationCoverageStats,
+    pub duplication_stats: DatasetEvaluationDuplicationStats,
+    pub leakage_risk: DatasetEvaluationLeakageRisk,
+    #[serde(default)]
+    pub schema_anomalies: Vec<DatasetSchemaAnomaly>,
+    #[serde(default)]
+    pub example_rows: Vec<DatasetEvaluationExampleRow>,
+    #[serde(default)]
+    pub citations: Vec<DatasetEvaluationCitation>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetVersionRowChange {
+    pub row_id: String,
+    pub change_type: String,
+    #[serde(default)]
+    pub changed_fields: Vec<String>,
+    pub provenance_impact: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetVersionCompareSummary {
+    pub base_dataset_version_id: String,
+    pub compare_dataset_version_id: String,
+    #[serde(default)]
+    pub total_changed_rows: usize,
+    #[serde(default)]
+    pub changed_rows: Vec<DatasetVersionRowChange>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetVersionDetailResponse {
+    #[serde(default)]
+    pub schema_version: String,
+    pub dataset_id: String,
+    pub dataset_version_id: String,
+    pub version_number: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_label: Option<String>,
+    pub hash_b3: String,
+    pub storage_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_path: Option<String>,
+    pub validation_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_errors: Option<Vec<String>>,
+    pub pii_status: String,
+    pub toxicity_status: String,
+    pub leak_status: String,
+    pub anomaly_status: String,
+    pub overall_safety_status: String,
+    pub trust_state: String,
+    pub overall_trust_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitivity: Option<String>,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locked_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evaluation: Option<DatasetEvaluationArtifact>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compare: Option<DatasetVersionCompareSummary>,
 }
 
 /// Preprocessed cache count response
@@ -1186,6 +1386,28 @@ pub struct DatasetPreprocessStatusResponse {
     /// When the job completed (ISO 8601), if finished
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+}
+
+/// Request payload for dataset version trust override.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetVersionTrustOverrideRequest {
+    /// Override state: allowed | allowed_with_warning | blocked | needs_approval
+    pub override_state: String,
+    /// Human-readable reason for auditability.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Response payload for dataset version trust override.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetVersionTrustOverrideResponse {
+    pub dataset_id: String,
+    pub dataset_version_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub override_state: Option<String>,
+    pub effective_trust_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 // ============================================================================
@@ -2265,6 +2487,10 @@ pub struct DatasetVersionTrustSummary {
     pub dataset_version_id: String,
     #[serde(default)]
     pub trust_at_training_time: Option<String>,
+    #[serde(default)]
+    pub dataset_id: Option<String>,
+    #[serde(default)]
+    pub dataset_name: Option<String>,
 }
 
 /// Adapter lifecycle events from SSE stream `/v1/stream/adapters`.

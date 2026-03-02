@@ -624,8 +624,10 @@ mod tests {
         let mut history = AdapterVersionHistory::new();
         history.record(make_version(0, make_report(0.85, 0.75)));
 
-        let mut config = RatchetConfig::default();
-        config.require_improvement = false;
+        let config = RatchetConfig {
+            require_improvement: false,
+            ..RatchetConfig::default()
+        };
         let ratchet = QualityRatchet::new(history, config);
         // Small regression within tolerance (0.02)
         let new_report = make_report(0.84, 0.74);
@@ -661,8 +663,10 @@ mod tests {
         let mut history = AdapterVersionHistory::new();
         history.record(make_version(0, make_report(0.85, 0.75)));
 
-        let mut config = RatchetConfig::default();
-        config.require_improvement = false;
+        let config = RatchetConfig {
+            require_improvement: false,
+            ..RatchetConfig::default()
+        };
         let ratchet = QualityRatchet::new(history, config);
         let new_report = make_report(0.85, 0.75);
 

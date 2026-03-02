@@ -7,7 +7,6 @@ pub mod client;
 pub mod diagnostic_bundle;
 pub mod error;
 pub mod error_reporter;
-pub mod reviews;
 pub mod sse;
 pub mod types;
 
@@ -23,17 +22,19 @@ pub use types::{
     ComplianceAuditResponse, ComplianceControl, ComponentHealth, ComponentStatus,
     CreateCollectionRequest, CreateErrorAlertRuleRequest, CreateMonitoringRuleRequest,
     CreateStackRequest, CreateTrainingJobRequest, DatasetListResponse, DatasetPreviewResponse,
-    DatasetResponse, DatasetSafetyCheckResult, DatasetStatisticsResponse, DetectedFeaturesResponse,
-    DocumentListParams, DocumentListResponse, DocumentResponse, ErrorAlertHistoryListResponse,
-    ErrorAlertHistoryResponse, ErrorAlertRuleResponse, ErrorAlertRulesListResponse,
-    FederationAuditResponse, FileValidationError, GetCodePolicyResponse, HostChainSummary,
-    InferenceRequest, InferenceTraceDetailResponse, InferenceTraceResponse, LoadAverageInfo,
-    ModelArchitectureSummary, ModelListResponse, ModelWithStatsResponse, PolicyPackResponse,
-    PolicyValidationResponse, PreprocessedCacheCountResponse, PreprocessedCacheEntry,
-    PreprocessedCacheListResponse, ProcessAlertResponse, ProcessAnomalyResponse,
-    ProcessCrashDumpResponse, ProcessDocumentResponse, ProcessHealthMetricResponse,
-    ProcessLogResponse, ProcessMonitoringRuleResponse, ReadyzCheck, ReadyzChecks, ReadyzResponse,
-    ResourceUsageInfo, RoutingCandidateResponse, RoutingDebugRequest, RoutingDebugResponse,
+    DatasetResponse, DatasetSafetyCheckResult, DatasetStatisticsResponse,
+    DatasetVersionTrustOverrideRequest, DatasetVersionTrustOverrideResponse,
+    DetectedFeaturesResponse, DocumentListParams, DocumentListResponse, DocumentResponse,
+    ErrorAlertHistoryListResponse, ErrorAlertHistoryResponse, ErrorAlertRuleResponse,
+    ErrorAlertRulesListResponse, FederationAuditResponse, FileValidationError,
+    GetCodePolicyResponse, HostChainSummary, InferenceRequest, InferenceTraceDetailResponse,
+    InferenceTraceResponse, LoadAverageInfo, ModelArchitectureSummary, ModelListResponse,
+    ModelWithStatsResponse, PolicyPackResponse, PolicyValidationResponse,
+    PreprocessedCacheCountResponse, PreprocessedCacheEntry, PreprocessedCacheListResponse,
+    ProcessAlertResponse, ProcessAnomalyResponse, ProcessCrashDumpResponse,
+    ProcessDocumentResponse, ProcessHealthMetricResponse, ProcessLogResponse,
+    ProcessMonitoringRuleResponse, ReadyzCheck, ReadyzChecks, ReadyzResponse, ResourceUsageInfo,
+    RoutingCandidateResponse, RoutingDebugRequest, RoutingDebugResponse,
     RoutingDecisionChainResponse, RoutingDecisionResponse, RoutingDecisionsQuery,
     RoutingDecisionsResponse, SafetySignals, SearchResponse, SearchResultItem, ServiceStatus,
     StackResponse, SystemHealthResponse, SystemHealthTransitionEvent, SystemOverviewResponse,
@@ -67,7 +68,8 @@ pub use client::{
     RegisterRepositoryResponse, RepositoryDetailResponse, RepositoryInfo, RepositoryListResponse,
     RevokeApiKeyResponse, RoutingRuleResponse, RoutingRulesResponse, ScanJobResponse,
     ScanRepositoryRequest, SeedModelRequest, SeedModelResponse, SessionInfo, TenantListResponse,
-    TenantSummary, UploadDatasetResponse, UserResponse, WorkerMetricsResponse,
+    TenantSummary, UploadDatasetResponse, UserResponse, ValidateDatasetRequest,
+    ValidateDatasetResponse, WorkerMetricsResponse,
 };
 
 pub use diagnostic_bundle::DiagnosticBundle;
@@ -136,11 +138,17 @@ fn settings_api_base_url_override() -> Option<String> {
     None
 }
 
+#[cfg(target_arch = "wasm32")]
 fn browser_origin_base_url() -> Result<String, ApiBaseUrlError> {
     let candidate = web_sys::window()
         .and_then(|w| w.location().origin().ok())
         .unwrap_or_default();
     validate_base_url(candidate)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn browser_origin_base_url() -> Result<String, ApiBaseUrlError> {
+    validate_base_url(adapteros_api_types::defaults::DEFAULT_SERVER_URL.to_string())
 }
 
 /// Base URL for API requests (configured at runtime)

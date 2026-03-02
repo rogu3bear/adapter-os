@@ -1,7 +1,7 @@
 #!/bin/bash
 # Quick inference pipeline test - minimal curl commands
 
-SERVER="${AOS_SERVER_URL:-http://localhost:8080}"
+SERVER="${AOS_SERVER_URL:-http://localhost:18080}"
 
 echo "Testing adapterOS Inference Pipeline"
 echo "======================================"

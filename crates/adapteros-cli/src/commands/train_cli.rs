@@ -87,7 +87,7 @@ pub struct TrainStartArgs {
     pub assurance_tier: Option<String>,
 
     /// Control plane base URL
-    #[arg(long, default_value = "http://127.0.0.1:8080")]
+    #[arg(long, default_value = "http://127.0.0.1:18080")]
     pub base_url: String,
 }
 
@@ -97,7 +97,7 @@ pub struct TrainStatusArgs {
     pub job_id: String,
 
     /// Control plane base URL
-    #[arg(long, default_value = "http://127.0.0.1:8080")]
+    #[arg(long, default_value = "http://127.0.0.1:18080")]
     pub base_url: String,
 }
 
@@ -124,7 +124,7 @@ pub struct TrainListArgs {
     pub created_before: Option<String>,
 
     /// Control plane base URL
-    #[arg(long, default_value = "http://127.0.0.1:8080")]
+    #[arg(long, default_value = "http://127.0.0.1:18080")]
     pub base_url: String,
 }
 
@@ -135,7 +135,7 @@ pub struct TrainReportArgs {
     pub id: String,
 
     /// Control plane base URL
-    #[arg(long, default_value = "http://127.0.0.1:8080")]
+    #[arg(long, default_value = "http://127.0.0.1:18080")]
     pub base_url: String,
 
     /// Optional path to save the report JSON
@@ -193,7 +193,7 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
     let config = TrainingConfigRequest {
         rank: 16,
         alpha: 32,
-        targets: vec![],
+        targets: vec!["q_proj".to_string()],
         epochs: 3,
         learning_rate: 0.0001,
         batch_size: 8,
@@ -296,7 +296,7 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
         serde_json::from_str(&body_text).context("failed to parse training response")?;
 
     if output.is_json() {
-        output.result(&serde_json::to_string_pretty(&job)?);
+        output.json(&job)?;
     } else {
         output.success("Training job started");
         output.kv("job_id", &job.id);
@@ -343,7 +343,7 @@ async fn status(args: TrainStatusArgs, output: &OutputWriter) -> Result<()> {
         serde_json::from_str(&text).context("failed to parse training job response")?;
 
     if output.is_json() {
-        output.result(&serde_json::to_string_pretty(&job)?);
+        output.json(&job)?;
         return Ok(());
     }
 
@@ -443,7 +443,7 @@ async fn list(args: TrainListArgs, output: &OutputWriter) -> Result<()> {
     list.total = list.jobs.len();
 
     if output.is_json() {
-        output.result(&serde_json::to_string_pretty(&list)?);
+        output.json(&list)?;
         return Ok(());
     }
 
@@ -644,7 +644,7 @@ mod tests {
             backend: "auto".into(),
             coreml_fallback: None,
             assurance_tier: None,
-            base_url: "http://127.0.0.1:8080".into(),
+            base_url: "http://127.0.0.1:18080".into(),
         }
     }
 

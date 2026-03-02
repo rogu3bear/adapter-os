@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="http://localhost:8080"
+BASE_URL="http://localhost:18080"
 
 if [[ "${AOS_DEV_NO_AUTH:-}" != "1" ]]; then
   echo "AOS_DEV_NO_AUTH=1 is required for this test" >&2

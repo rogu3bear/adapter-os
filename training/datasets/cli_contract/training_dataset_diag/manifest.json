@@ -1,0 +1,38 @@
+{
+  "name": "training_dataset_diag_commands_v1",
+  "description": "CLI contract training data for aosctl train, dataset, and diag command families. Covers training run lifecycle, dataset validation and upload, and diagnostic health/metrics/replay/determinism workflows.",
+  "version": "1.0.0",
+  "category": "cli_contract",
+  "scope": "global",
+  "tier": "high",
+  "rank": 16,
+  "alpha": 32.0,
+  "target_modules": [
+    "q_proj",
+    "v_proj"
+  ],
+  "entries": [
+    {
+      "path": "training-dataset-diag-commands.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "training",
+      "notes": "400 examples spanning aosctl train (130), aosctl dataset (130), and aosctl diag (140) command families with realistic output representations"
+    }
+  ],
+  "provenance": {
+    "created_by": "cli-contract-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Grounded in train_cli.rs, datasets.rs, and diag.rs source; output formats match OutputWriter kv/success/info/section conventions"
+  },
+  "evaluation_gates": [
+    "Train start command includes job_id in success output",
+    "Dataset ingest shows dataset_id, dataset_version_id, trust_state",
+    "Diag health output includes component status and overall pass/fail",
+    "Error messages match actual error codes (DATASET_TRUST_BLOCKED, LINEAGE_REQUIRED, etc)",
+    "JSON flag examples produce machine-readable output",
+    "Cancel and status commands show correct run_id handling"
+  ],
+  "intent": "Teach the adapter the full aosctl train/dataset/diag command surface: argument patterns, success output formats, validation error messages, JSON mode, and common failure modes."
+}

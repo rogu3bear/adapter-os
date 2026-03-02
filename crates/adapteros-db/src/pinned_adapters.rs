@@ -27,7 +27,7 @@ impl Db {
         let row = sqlx::query("SELECT id FROM adapters WHERE tenant_id = ? AND adapter_id = ?")
             .bind(tenant_id)
             .bind(adapter_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?
             .ok_or_else(|| {
@@ -82,7 +82,7 @@ impl Db {
         .bind(pinned_until)
         .bind(reason)
         .bind(pinned_by)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
@@ -96,7 +96,7 @@ impl Db {
         sqlx::query("DELETE FROM pinned_adapters WHERE tenant_id = ? AND adapter_pk = ?")
             .bind(tenant_id)
             .bind(&adapter_pk)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -114,7 +114,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(&adapter_pk)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(count > 0)
@@ -133,7 +133,7 @@ impl Db {
              ORDER BY p.pinned_at DESC",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
@@ -145,7 +145,7 @@ impl Db {
             "DELETE FROM pinned_adapters
              WHERE pinned_until IS NOT NULL AND pinned_until <= datetime('now')",
         )
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(result.rows_affected())

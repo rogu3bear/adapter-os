@@ -18,7 +18,7 @@ impl Db {
             "SELECT body_json FROM policies WHERE tenant_id = ? AND active = 1 LIMIT 1",
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to query tenant policies: {}", e)))?;
 
@@ -51,7 +51,7 @@ impl Db {
         // Deactivate existing policies for this tenant
         sqlx::query("UPDATE policies SET active = 0 WHERE tenant_id = ?")
             .bind(tenant_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to deactivate old policies: {}", e)))?;
 
@@ -63,7 +63,7 @@ impl Db {
         .bind(tenant_id)
         .bind(&hash_b3)
         .bind(&body_json)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to store tenant policies: {}", e)))?;
 

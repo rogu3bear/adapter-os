@@ -9,7 +9,7 @@
 #   AOS_CONFIG=configs/reference.toml ./start up
 #
 # Authentication: Use dev login endpoint to get a token:
-#   curl -X POST http://localhost:8080/v1/auth/dev-login \
+#   curl -X POST http://localhost:18080/v1/auth/dev-login \
 #        -H "Content-Type: application/json" \
 #        -d '{"username": "reference"}'
 #

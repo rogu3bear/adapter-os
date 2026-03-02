@@ -18,7 +18,7 @@ pub enum RepoOps {
     Create(CreateRepoArgs),
     Get {
         repo_id: String,
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
     List {
@@ -28,12 +28,12 @@ pub enum RepoOps {
         base_model_id: Option<String>,
         #[arg(long, default_value_t = false)]
         archived: bool,
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
     Archive {
         repo_id: String,
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
 }
@@ -43,7 +43,7 @@ pub enum VersionOps {
     Draft(CreateDraftArgs),
     Get {
         version_id: String,
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
     List {
@@ -52,32 +52,32 @@ pub enum VersionOps {
         branch: Option<String>,
         #[arg(long)]
         state: Option<String>,
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
     Promote {
         repo_id: String,
         version_id: String,
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
     Rollback {
         repo_id: String,
         branch: String,
         target_version_id: String,
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
     Tag {
         version_id: String,
         tag: String,
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
     Resolve {
         repo_id: String,
         selector: String,
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
 }
@@ -99,8 +99,8 @@ pub struct CreateRepoArgs {
     /// Default branch (default: main)
     #[arg(long, default_value = "main")]
     pub default_branch: String,
-    /// Control plane base URL (default: http://127.0.0.1:8080)
-    #[arg(long, default_value = "http://127.0.0.1:8080")]
+    /// Control plane base URL (default: http://127.0.0.1:18080)
+    #[arg(long, default_value = "http://127.0.0.1:18080")]
     pub base_url: String,
 }
 
@@ -115,7 +115,7 @@ pub struct CreateDraftArgs {
     pub code_commit_sha: Option<String>,
     #[arg(long)]
     pub data_spec_hash: Option<String>,
-    #[arg(long, default_value = "http://127.0.0.1:8080")]
+    #[arg(long, default_value = "http://127.0.0.1:18080")]
     pub base_url: String,
 }
 

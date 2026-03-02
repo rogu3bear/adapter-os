@@ -1,7 +1,9 @@
 //! Middleware to ensure all error responses have a machine-readable code.
 //!
-//! This middleware intercepts 4xx/5xx JSON responses and adds a `code` field
-//! if one is missing, deriving it from the HTTP status code.
+//! This middleware intercepts 4xx/5xx JSON responses and ensures `code` is
+//! canonical. Missing or non-canonical codes are normalized.
+
+use crate::error_code_normalization::{canonical_code_for_status, normalize_dynamic_error_code};
 
 use axum::{
     body::Body,
@@ -89,43 +91,46 @@ where
                 }
             };
 
-            // Ensure code field exists and is non-empty
-            let needs_code = if let Some(obj) = json_value.as_object() {
-                obj.get("code")
+            if let Some(obj) = json_value.as_object_mut() {
+                let current_code = obj
+                    .get("code")
                     .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .is_none()
-            } else {
-                false
-            };
+                    .filter(|s| !s.is_empty());
 
-            if needs_code {
-                if let Some(obj) = json_value.as_object_mut() {
-                    let derived_code = derive_code_from_status(status);
+                let normalized = match current_code {
+                    Some(code) => normalize_dynamic_error_code(code, status),
+                    None => normalize_dynamic_error_code(canonical_code_for_status(status), status),
+                };
 
-                    warn!(
-                        status = %status,
-                        derived_code = %derived_code,
-                        "Error response missing code field, injecting derived code"
-                    );
+                let mut changed = false;
+                if current_code != Some(normalized.primary.as_str()) {
+                    if current_code.is_none() {
+                        warn!(
+                            status = %status,
+                            derived_code = %normalized.primary,
+                            "Error response missing code field, injecting derived code"
+                        );
+                    }
+                    obj.insert("code".to_string(), json!(normalized.primary));
+                    changed = true;
+                }
 
-                    obj.insert("code".to_string(), json!(derived_code));
+                if let Some(legacy) = normalized.legacy.as_deref() {
+                    merge_legacy_code(obj, legacy);
+                    changed = true;
+                }
 
-                    // Re-serialize
+                if changed {
                     let new_bytes = match serde_json::to_vec(&json_value) {
                         Ok(b) => Bytes::from(b),
                         Err(_) => bytes,
                     };
 
-                    // Rebuild response with updated body and correct content-length
                     let body_len = new_bytes.len();
                     let mut response = Response::from_parts(parts, Body::from(new_bytes));
-
-                    // Update Content-Length header
                     if let Ok(val) = HeaderValue::from_str(&body_len.to_string()) {
                         response.headers_mut().insert(header::CONTENT_LENGTH, val);
                     }
-
                     return Ok(response);
                 }
             }
@@ -135,28 +140,31 @@ where
     }
 }
 
-/// Derive a machine-readable error code from HTTP status code
-fn derive_code_from_status(status: StatusCode) -> &'static str {
-    match status {
-        StatusCode::BAD_REQUEST => "BAD_REQUEST",
-        StatusCode::UNAUTHORIZED => "UNAUTHORIZED",
-        StatusCode::FORBIDDEN => "FORBIDDEN",
-        StatusCode::NOT_FOUND => "NOT_FOUND",
-        StatusCode::METHOD_NOT_ALLOWED => "METHOD_NOT_ALLOWED",
-        StatusCode::CONFLICT => "CONFLICT",
-        StatusCode::GONE => "GONE",
-        StatusCode::PAYLOAD_TOO_LARGE => "PAYLOAD_TOO_LARGE",
-        StatusCode::UNSUPPORTED_MEDIA_TYPE => "UNSUPPORTED_MEDIA_TYPE",
-        StatusCode::UNPROCESSABLE_ENTITY => "UNPROCESSABLE_ENTITY",
-        StatusCode::TOO_MANY_REQUESTS => "TOO_MANY_REQUESTS",
-        StatusCode::INTERNAL_SERVER_ERROR => "INTERNAL_ERROR",
-        StatusCode::NOT_IMPLEMENTED => "NOT_IMPLEMENTED",
-        StatusCode::BAD_GATEWAY => "BAD_GATEWAY",
-        StatusCode::SERVICE_UNAVAILABLE => "SERVICE_UNAVAILABLE",
-        StatusCode::GATEWAY_TIMEOUT => "GATEWAY_TIMEOUT",
-        _ if status.is_client_error() => "CLIENT_ERROR",
-        _ if status.is_server_error() => "SERVER_ERROR",
-        _ => "UNKNOWN_ERROR",
+fn merge_legacy_code(obj: &mut serde_json::Map<String, Value>, legacy: &str) {
+    match obj.remove("details") {
+        Some(Value::Object(mut details)) => {
+            details
+                .entry("legacy_code".to_string())
+                .or_insert_with(|| Value::String(legacy.to_string()));
+            obj.insert("details".to_string(), Value::Object(details));
+        }
+        Some(other) => {
+            obj.insert(
+                "details".to_string(),
+                json!({
+                    "message": other,
+                    "legacy_code": legacy
+                }),
+            );
+        }
+        None => {
+            obj.insert(
+                "details".to_string(),
+                json!({
+                    "legacy_code": legacy
+                }),
+            );
+        }
     }
 }
 
@@ -664,8 +672,8 @@ mod tests {
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        // Should preserve the original FailureCode, not override with SERVICE_UNAVAILABLE
-        assert_eq!(json["code"], "WORKER_OVERLOADED");
+        // Middleware now canonicalizes known status failures to stable API codes.
+        assert_eq!(json["code"], "SERVICE_UNAVAILABLE");
     }
 
     // ============================================================
@@ -949,57 +957,57 @@ mod tests {
     }
 
     // ============================================================
-    // Test: derive_code_from_status comprehensive tests
+    // Test: canonical_code_for_status comprehensive tests
     // ============================================================
 
     #[test]
-    fn test_derive_code_from_status() {
+    fn test_canonical_code_for_status() {
         assert_eq!(
-            derive_code_from_status(StatusCode::BAD_REQUEST),
+            canonical_code_for_status(StatusCode::BAD_REQUEST),
             "BAD_REQUEST"
         );
         assert_eq!(
-            derive_code_from_status(StatusCode::UNAUTHORIZED),
+            canonical_code_for_status(StatusCode::UNAUTHORIZED),
             "UNAUTHORIZED"
         );
-        assert_eq!(derive_code_from_status(StatusCode::FORBIDDEN), "FORBIDDEN");
-        assert_eq!(derive_code_from_status(StatusCode::NOT_FOUND), "NOT_FOUND");
-        assert_eq!(derive_code_from_status(StatusCode::CONFLICT), "CONFLICT");
         assert_eq!(
-            derive_code_from_status(StatusCode::TOO_MANY_REQUESTS),
+            canonical_code_for_status(StatusCode::FORBIDDEN),
+            "FORBIDDEN"
+        );
+        assert_eq!(
+            canonical_code_for_status(StatusCode::NOT_FOUND),
+            "NOT_FOUND"
+        );
+        assert_eq!(canonical_code_for_status(StatusCode::CONFLICT), "CONFLICT");
+        assert_eq!(
+            canonical_code_for_status(StatusCode::TOO_MANY_REQUESTS),
             "TOO_MANY_REQUESTS"
         );
         assert_eq!(
-            derive_code_from_status(StatusCode::SERVICE_UNAVAILABLE),
+            canonical_code_for_status(StatusCode::SERVICE_UNAVAILABLE),
             "SERVICE_UNAVAILABLE"
         );
         assert_eq!(
-            derive_code_from_status(StatusCode::GATEWAY_TIMEOUT),
+            canonical_code_for_status(StatusCode::GATEWAY_TIMEOUT),
             "GATEWAY_TIMEOUT"
         );
         assert_eq!(
-            derive_code_from_status(StatusCode::INTERNAL_SERVER_ERROR),
+            canonical_code_for_status(StatusCode::INTERNAL_SERVER_ERROR),
             "INTERNAL_ERROR"
         );
     }
 
     #[test]
-    fn test_derive_code_for_all_mapped_statuses() {
-        // Test all explicitly mapped status codes
+    fn test_canonical_code_for_all_mapped_statuses() {
         let test_cases = [
             (StatusCode::BAD_REQUEST, "BAD_REQUEST"),
             (StatusCode::UNAUTHORIZED, "UNAUTHORIZED"),
             (StatusCode::FORBIDDEN, "FORBIDDEN"),
             (StatusCode::NOT_FOUND, "NOT_FOUND"),
-            (StatusCode::METHOD_NOT_ALLOWED, "METHOD_NOT_ALLOWED"),
             (StatusCode::CONFLICT, "CONFLICT"),
-            (StatusCode::GONE, "GONE"),
             (StatusCode::PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE"),
-            (StatusCode::UNSUPPORTED_MEDIA_TYPE, "UNSUPPORTED_MEDIA_TYPE"),
-            (StatusCode::UNPROCESSABLE_ENTITY, "UNPROCESSABLE_ENTITY"),
             (StatusCode::TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS"),
             (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
-            (StatusCode::NOT_IMPLEMENTED, "NOT_IMPLEMENTED"),
             (StatusCode::BAD_GATEWAY, "BAD_GATEWAY"),
             (StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE"),
             (StatusCode::GATEWAY_TIMEOUT, "GATEWAY_TIMEOUT"),
@@ -1007,7 +1015,7 @@ mod tests {
 
         for (status, expected_code) in test_cases {
             assert_eq!(
-                derive_code_from_status(status),
+                canonical_code_for_status(status),
                 expected_code,
                 "Status {:?} should map to {}",
                 status,
@@ -1017,30 +1025,29 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_code_for_unmapped_client_error() {
+    fn test_canonical_code_for_unmapped_client_error() {
         // 418 I'm a teapot - not explicitly mapped
         let status = StatusCode::IM_A_TEAPOT;
-        assert_eq!(derive_code_from_status(status), "CLIENT_ERROR");
+        assert_eq!(canonical_code_for_status(status), "BAD_REQUEST");
     }
 
     #[test]
-    fn test_derive_code_for_unmapped_server_error() {
+    fn test_canonical_code_for_unmapped_server_error() {
         // 508 Loop Detected - not explicitly mapped
         let status = StatusCode::LOOP_DETECTED;
-        assert_eq!(derive_code_from_status(status), "SERVER_ERROR");
+        assert_eq!(canonical_code_for_status(status), "INTERNAL_ERROR");
     }
 
     #[test]
-    fn test_derive_code_for_success_status_returns_unknown() {
-        // Success statuses should return UNKNOWN_ERROR (shouldn't happen in practice)
-        assert_eq!(derive_code_from_status(StatusCode::OK), "UNKNOWN_ERROR");
+    fn test_canonical_code_for_success_status_defaults_internal() {
+        assert_eq!(canonical_code_for_status(StatusCode::OK), "INTERNAL_ERROR");
         assert_eq!(
-            derive_code_from_status(StatusCode::CREATED),
-            "UNKNOWN_ERROR"
+            canonical_code_for_status(StatusCode::CREATED),
+            "INTERNAL_ERROR"
         );
         assert_eq!(
-            derive_code_from_status(StatusCode::NO_CONTENT),
-            "UNKNOWN_ERROR"
+            canonical_code_for_status(StatusCode::NO_CONTENT),
+            "INTERNAL_ERROR"
         );
     }
 

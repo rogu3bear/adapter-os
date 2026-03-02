@@ -797,7 +797,7 @@ mod tests {
         adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
             .bind(&tenant_id)
             .bind(&ds1)
-            .execute(db.pool())
+            .execute(db.pool_result().expect("db pool available"))
             .await
             .unwrap();
         let file1_path = datasets_root.join("files").join(&ds1).join("file.jsonl");
@@ -839,7 +839,7 @@ mod tests {
         adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
             .bind(&tenant_id)
             .bind(&ds2)
-            .execute(db.pool())
+            .execute(db.pool_result().expect("db pool available"))
             .await
             .unwrap();
         let missing_path = datasets_root.join("files").join(&ds2).join("missing.jsonl");
@@ -902,7 +902,7 @@ mod tests {
         adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
             .bind(&tenant_id)
             .bind(&ds)
-            .execute(db.pool())
+            .execute(db.pool_result().expect("db pool available"))
             .await
             .unwrap();
 
@@ -965,7 +965,7 @@ mod tests {
         adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
             .bind(&tenant_id)
             .bind(&ds)
-            .execute(db.pool())
+            .execute(db.pool_result().expect("db pool available"))
             .await
             .unwrap();
 
@@ -1026,7 +1026,7 @@ mod tests {
         adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
             .bind(&tenant_id)
             .bind(&ds)
-            .execute(db.pool())
+            .execute(db.pool_result().expect("db pool available"))
             .await
             .unwrap();
 
@@ -1139,7 +1139,7 @@ mod tests {
         adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
             .bind(&tenant_id)
             .bind(&ds)
-            .execute(db.pool())
+            .execute(db.pool_result().expect("db pool available"))
             .await
             .unwrap();
 
@@ -1290,7 +1290,7 @@ mod tests {
         adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
             .bind(&tenant1_id)
             .bind(&ds1)
-            .execute(db.pool())
+            .execute(db.pool_result().expect("db pool available"))
             .await
             .unwrap();
 
@@ -1331,7 +1331,7 @@ mod tests {
         adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
             .bind(&tenant2_id)
             .bind(&ds2)
-            .execute(db.pool())
+            .execute(db.pool_result().expect("db pool available"))
             .await
             .unwrap();
 
@@ -1408,7 +1408,7 @@ mod tests {
         adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
             .bind(&tenant_id)
             .bind(&ds)
-            .execute(db.pool())
+            .execute(db.pool_result().expect("db pool available"))
             .await
             .unwrap();
 

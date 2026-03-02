@@ -87,7 +87,7 @@ async fn test_ensure_system_tenant_repairs_missing_policies() -> Result<()> {
         "INSERT INTO tenants (id, name, itar_flag, created_at)
          VALUES ('system', 'System', 0, datetime('now'))",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Verify tenant exists but policies are missing
@@ -155,7 +155,7 @@ async fn test_validate_bootstrap_state_reports_missing_policies() -> Result<()> 
         "INSERT INTO tenants (id, name, itar_flag, created_at)
          VALUES ('system', 'System', 0, datetime('now'))",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     let status = db.validate_bootstrap_state().await?;
@@ -230,12 +230,14 @@ async fn test_seed_dev_data_ensures_local_node_even_when_users_exist() -> Result
     // Seed once to create users/tenant, then simulate a partial/dev-corrupt state where
     // nodes are missing but users exist (this is the scenario that breaks worker registration).
     db.seed_dev_data().await?;
-    sqlx::query("DELETE FROM nodes").execute(db.pool()).await?;
+    sqlx::query("DELETE FROM nodes")
+        .execute(db.pool_result()?)
+        .await?;
 
     db.seed_dev_data().await?;
 
     let local_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nodes WHERE id = 'local'")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await?;
     assert_eq!(
         local_exists, 1,

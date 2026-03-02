@@ -250,6 +250,7 @@ fn test_streaming_request_clone() {
         effective_adapter_ids: None,
         stop_policy: None,
         context: None,
+        bit_identical: false,
     };
 
     let cloned = original.clone();

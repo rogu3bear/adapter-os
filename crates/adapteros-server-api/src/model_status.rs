@@ -19,7 +19,6 @@ pub fn normalize_status(raw: &str) -> ModelLoadStatus {
 /// Precedence:
 /// - ready if any ready
 /// - loading if any loading (and none ready)
-/// - checking if any checking (and none ready/loading)
 /// - unloading if any unloading (and none ready/loading)
 /// - error if any error (and none ready/loading)
 /// - otherwise no-model
@@ -30,7 +29,6 @@ where
     let mut latest: Option<&'a DbBaseModelStatus> = None;
     let mut has_ready = false;
     let mut has_loading = false;
-    let mut has_checking = false;
     let mut has_unloading = false;
     let mut has_error = false;
 
@@ -49,7 +47,8 @@ where
         match normalized {
             ModelLoadStatus::Ready => has_ready = true,
             ModelLoadStatus::Loading => has_loading = true,
-            ModelLoadStatus::Checking => has_checking = true,
+            // Legacy "checking" is treated as canonical "loading".
+            ModelLoadStatus::Checking => has_loading = true,
             ModelLoadStatus::Unloading => has_unloading = true,
             ModelLoadStatus::Error => has_error = true,
             ModelLoadStatus::NoModel => {}
@@ -60,8 +59,6 @@ where
         ModelLoadStatus::Ready
     } else if has_loading {
         ModelLoadStatus::Loading
-    } else if has_checking {
-        ModelLoadStatus::Checking
     } else if has_unloading {
         ModelLoadStatus::Unloading
     } else if has_error {

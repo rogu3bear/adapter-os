@@ -109,7 +109,7 @@ pub fn TrainingJobList(
                             variant=ButtonVariant::Primary
                             on_click=Callback::new(move |_| cb.run(()))
                         >
-                            "Create Adapter"
+                            "Create new adapter"
                         </Button>
                     })}
                 </div>

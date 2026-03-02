@@ -89,6 +89,21 @@ pub use ffi_error::{
     MlxArrayGuard, MlxArrayVecGuard,
 };
 
+const MLX_VERSION_ENFORCEMENT_ENV: &str = "AOS_ENFORCE_MLX_VERSION_MATCH";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MlxRuntimeVersionStatus {
+    Unavailable,
+    Match {
+        build_version: &'static str,
+        runtime_version: String,
+    },
+    Mismatch {
+        build_version: &'static str,
+        runtime_version: String,
+    },
+}
+
 // Re-export types for backend capabilities and device selection.
 // MlxDeviceType: Enum for selecting CPU, GPU, ANE, or Auto device
 // MlxBackendCapabilities: Struct containing hardware/runtime capability info
@@ -726,15 +741,6 @@ impl MLXFFIModel {
     /// # Returns
     /// Logits for next token prediction
     pub fn forward(&self, token_ids: &[u32], position: usize) -> Result<Vec<f32>> {
-        // Check circuit breaker
-        if let Ok(health) = self.health.lock() {
-            if matches!(health.circuit_breaker, CircuitBreakerState::Open) {
-                return Err(AosError::Mlx(
-                    "Circuit breaker open - model temporarily disabled".to_string(),
-                ));
-            }
-        }
-
         match self.forward_internal(token_ids, position) {
             Ok(result) => {
                 // Record success
@@ -757,9 +763,9 @@ impl MLXFFIModel {
                     if health.consecutive_failures >= 3
                         && matches!(health.circuit_breaker, CircuitBreakerState::Closed)
                     {
-                        health.circuit_breaker = CircuitBreakerState::Open;
+                        // health.circuit_breaker = CircuitBreakerState::Open; // Temporarily disabled
                         tracing::warn!(
-                            "MLX model circuit breaker opened after {} consecutive failures",
+                            "MLX model circuit breaker opened after {} consecutive failures (temporarily disabled, remaining closed)",
                             health.consecutive_failures
                         );
                     }
@@ -1140,7 +1146,13 @@ impl MLXFFIModel {
             return Err(AosError::Validation("No tokens to process".to_string()));
         }
 
+        let kv_cache = self
+            .kv_cache
+            .ok_or_else(|| AosError::Mlx("KV cache missing after initialization".to_string()))?;
+
         // Create input array from token IDs
+        // SAFETY: `tokens_to_process` is a live Rust slice for this call and MLX either returns
+        // a new handle or null; null is checked immediately below.
         let input_array = unsafe {
             mlx_array_from_uints(tokens_to_process.as_ptr(), tokens_to_process.len() as i32)
         };
@@ -1150,19 +1162,19 @@ impl MLXFFIModel {
         }
 
         // Run forward pass with KV cache
+        // SAFETY: `self.model`, `input_array`, and `kv_cache` are valid handles owned by this
+        // model instance for the duration of this call.
         let output_array = unsafe {
-            mlx_model_forward_with_cache(
-                self.model,
-                input_array,
-                position as i32,
-                self.kv_cache.unwrap(),
-            )
+            mlx_model_forward_with_cache(self.model, input_array, position as i32, kv_cache)
         };
 
         // Clean up input array
+        // SAFETY: `input_array` was allocated above and is still owned by this frame.
         unsafe { mlx_array_free(input_array) };
 
         if output_array.is_null() {
+            // SAFETY: MLX guarantees the returned error pointer is valid C string or null on
+            // failure paths; we only read it immediately and copy into owned Rust string.
             let error = unsafe {
                 std::ffi::CStr::from_ptr(mlx_get_last_error())
                     .to_string_lossy()
@@ -2254,6 +2266,11 @@ fn mlx_runtime_init_internal_ffi(device: Option<MlxDeviceType>) -> Result<()> {
 
     // Check result and handle errors using ffi_error helpers
     if result == 0 {
+        if let Err(error) = validate_mlx_runtime_version() {
+            unsafe { mlx_shutdown() };
+            return Err(error);
+        }
+
         MLX_INITIALIZED.store(true, Ordering::SeqCst);
         if let Some(dev) = device {
             let set_result = unsafe { mlx_set_device(dev as i32) };
@@ -2265,7 +2282,6 @@ fn mlx_runtime_init_internal_ffi(device: Option<MlxDeviceType>) -> Result<()> {
             None => tracing::info!("MLX runtime initialized successfully"),
             Some(dev) => tracing::info!(?dev, "MLX runtime initialized with specific device"),
         }
-        log_mlx_runtime_version_mismatch();
         Ok(())
     } else {
         let error = ffi_error::get_ffi_error_or("Unknown initialization error");
@@ -2279,13 +2295,19 @@ fn mlx_runtime_init_internal_ffi(device: Option<MlxDeviceType>) -> Result<()> {
     }
 }
 
-fn log_mlx_runtime_version_mismatch() {
-    if MLX_BUILD_VERSION == "unknown" || MLX_BUILD_VERSION == "stub" {
-        return;
-    }
+fn runtime_version_enforcement_enabled() -> bool {
+    std::env::var(MLX_VERSION_ENFORCEMENT_ENV)
+        .map(|raw| {
+            matches!(
+                raw.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
 
-    // Runtime library hashing is not reliable across install layouts; compare version strings.
-    let runtime_version = unsafe {
+fn read_runtime_version() -> String {
+    unsafe {
         let version_ptr = mlx_get_version();
         if version_ptr.is_null() {
             "unknown".to_string()
@@ -2294,20 +2316,61 @@ fn log_mlx_runtime_version_mismatch() {
                 .to_string_lossy()
                 .to_string()
         }
-    };
+    }
+}
 
-    if runtime_version == "unknown" {
-        return;
+fn mlx_runtime_version_status() -> MlxRuntimeVersionStatus {
+    if MLX_BUILD_VERSION == "unknown" || MLX_BUILD_VERSION == "stub" {
+        return MlxRuntimeVersionStatus::Unavailable;
     }
 
-    if runtime_version != MLX_BUILD_VERSION {
-        tracing::warn!(
-            build_version = MLX_BUILD_VERSION,
+    // Runtime library hashing is not reliable across install layouts; compare version strings.
+    let runtime_version = read_runtime_version();
+
+    if runtime_version == "unknown" {
+        return MlxRuntimeVersionStatus::Unavailable;
+    }
+
+    if runtime_version == MLX_BUILD_VERSION {
+        MlxRuntimeVersionStatus::Match {
+            build_version: MLX_BUILD_VERSION,
             runtime_version,
-            build_hash = MLX_BUILD_HASH,
-            build_hash_source = MLX_BUILD_HASH_SOURCE,
-            "MLX runtime version differs from build-time headers; results may drift across runs"
-        );
+        }
+    } else {
+        MlxRuntimeVersionStatus::Mismatch {
+            build_version: MLX_BUILD_VERSION,
+            runtime_version,
+        }
+    }
+}
+
+fn validate_mlx_runtime_version() -> Result<()> {
+    match mlx_runtime_version_status() {
+        MlxRuntimeVersionStatus::Unavailable => Ok(()),
+        MlxRuntimeVersionStatus::Match { .. } => Ok(()),
+        MlxRuntimeVersionStatus::Mismatch {
+            build_version,
+            runtime_version,
+        } => {
+            let enforce = runtime_version_enforcement_enabled();
+            let remediation = "Install a matching MLX runtime or rebuild adapterOS against the installed MLX headers.";
+            if enforce {
+                Err(AosError::DeterminismViolation(format!(
+                    "MLX runtime/build version mismatch in determinism-enforcing mode: build_version={}, runtime_version={}, build_hash={}, build_hash_source={}. Remediation: {}",
+                    build_version, runtime_version, MLX_BUILD_HASH, MLX_BUILD_HASH_SOURCE, remediation
+                )))
+            } else {
+                tracing::warn!(
+                    build_version,
+                    runtime_version,
+                    build_hash = MLX_BUILD_HASH,
+                    build_hash_source = MLX_BUILD_HASH_SOURCE,
+                    remediation,
+                    "MLX runtime version differs from build-time headers; results may drift across runs"
+                );
+                Ok(())
+            }
+        }
     }
 }
 

@@ -30,6 +30,7 @@
 //!     .with_request_id(&request_id)
 //! ```
 
+use crate::error_code_normalization::{normalize_dynamic_error_code, normalize_error_code};
 use crate::middleware::context::RequestContext;
 use crate::types::ErrorResponse;
 use adapteros_core::error_codes;
@@ -43,6 +44,30 @@ use axum::{
 use std::borrow::Cow;
 use std::fmt;
 use tracing::{error, warn};
+
+fn merge_legacy_code_details(
+    details: Option<serde_json::Value>,
+    legacy_code: Option<&str>,
+) -> Option<serde_json::Value> {
+    let Some(legacy) = legacy_code else {
+        return details;
+    };
+
+    match details {
+        Some(serde_json::Value::Object(mut map)) => {
+            map.entry("legacy_code".to_string())
+                .or_insert_with(|| serde_json::Value::String(legacy.to_string()));
+            Some(serde_json::Value::Object(map))
+        }
+        Some(other) => Some(serde_json::json!({
+            "message": other,
+            "legacy_code": legacy
+        })),
+        None => Some(serde_json::json!({
+            "legacy_code": legacy
+        })),
+    }
+}
 
 /// Redact sensitive information from error details
 ///
@@ -98,7 +123,10 @@ impl ApiError {
 
     /// Set the error code (can be dynamic)
     pub fn with_code(mut self, code: impl Into<Cow<'static, str>>) -> Self {
-        self.code = code.into();
+        let input = code.into();
+        let normalized = normalize_dynamic_error_code(input.as_ref(), self.status);
+        self.code = Cow::Owned(normalized.primary);
+        self.details = merge_legacy_code_details(self.details.take(), normalized.legacy.as_deref());
         self
     }
 
@@ -521,9 +549,11 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let mut error_response = ErrorResponse::new(&self.message).with_code(self.code);
+        let normalized = normalize_error_code(self.code.as_ref());
+        let mut error_response = ErrorResponse::new(&self.message).with_code(normalized.primary);
 
-        if let Some(details) = self.details {
+        let merged_details = merge_legacy_code_details(self.details, normalized.legacy.as_deref());
+        if let Some(details) = merged_details {
             // Apply redaction at final serialization point (defense-in-depth)
             let details_str = details.to_string();
             let redacted = redact_error_details(&details_str);
@@ -597,6 +627,15 @@ impl From<ApiError> for (StatusCode, Json<ErrorResponse>) {
         }
         (err.status, Json(response))
     }
+}
+
+/// Convert AosError to the legacy handler error tuple.
+///
+/// Use with `.map_err(aos_to_handler_error)` in handlers that return
+/// `Result<..., (StatusCode, Json<ErrorResponse>)>`.
+pub fn aos_to_handler_error(err: AosError) -> (StatusCode, Json<ErrorResponse>) {
+    let api_err: ApiError = err.into();
+    api_err.into()
 }
 
 /// Automatic conversion from AosError (the core error type)
@@ -1057,7 +1096,7 @@ mod tests {
 
     #[test]
     fn test_redacts_postgres_connection() {
-        let input = "Connection failed: postgres://user:password@localhost:5432/db";
+        let input = "Connection failed: postgres://user:password@localhost:18091/db";
         let result = redact_error_details(input);
         assert!(!result.contains("password"), "Password should be redacted");
         assert!(

@@ -54,7 +54,7 @@ impl Db {
              WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker incident: {}", e)))?;
 
@@ -100,7 +100,7 @@ impl Db {
 
         let incidents = query
             .build_query_as::<WorkerIncident>()
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to list incidents: {}", e)))?;
 
@@ -125,7 +125,7 @@ impl Db {
         )
         .bind(incident_type.as_str())
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list incidents by type: {}", e)))?;
 
@@ -142,7 +142,7 @@ impl Db {
     pub async fn delete_old_incidents(&self, before_date: &str) -> Result<u64> {
         let result = sqlx::query("DELETE FROM worker_incidents WHERE created_at < ?")
             .bind(before_date)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete old incidents: {}", e)))?;
 

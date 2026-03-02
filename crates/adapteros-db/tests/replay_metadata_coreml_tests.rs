@@ -21,7 +21,7 @@ async fn replay_metadata_persists_coreml_hashes() {
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-coreml")
         .bind("CoreML Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("insert tenant");
 
@@ -86,7 +86,7 @@ async fn replay_metadata_persists_coreml_hashes() {
         "#,
     )
     .bind(meta_id)
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result().expect("db pool available"))
     .await
     .expect("row loaded");
 

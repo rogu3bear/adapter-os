@@ -157,7 +157,7 @@ impl Db {
         .bind(&error.details_json)
         .bind(&error.ip_address)
         .bind(&error.session_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -176,7 +176,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -248,7 +248,7 @@ impl Db {
         }
 
         let errors = query_builder
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -277,7 +277,7 @@ impl Db {
             if let Some(s) = since {
                 q = q.bind(s);
             }
-            q.fetch_one(self.pool())
+            q.fetch_one(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?
         };
@@ -298,7 +298,7 @@ impl Db {
             if let Some(s) = since {
                 q = q.bind(s);
             }
-            q.fetch_all(self.pool())
+            q.fetch_all(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?
         };
@@ -319,7 +319,7 @@ impl Db {
             if let Some(s) = since {
                 q = q.bind(s);
             }
-            q.fetch_all(self.pool())
+            q.fetch_all(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?
         };
@@ -341,7 +341,7 @@ impl Db {
             if let Some(s) = since {
                 q = q.bind(s);
             }
-            q.fetch_all(self.pool())
+            q.fetch_all(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?
         };
@@ -406,7 +406,7 @@ impl Db {
         }
 
         let (count,) = q
-            .fetch_one(self.pool())
+            .fetch_one(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -438,7 +438,7 @@ impl Db {
         let errors = sqlx::query_as::<_, ClientError>(&sql)
             .bind(tenant_id)
             .bind(since_timestamp)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -454,7 +454,7 @@ impl Db {
             "#,
         )
         .bind(format!("-{}", retention_days))
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -479,7 +479,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -503,7 +503,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -523,7 +523,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -556,7 +556,7 @@ impl Db {
         .bind(&params.severity)
         .bind(&params.notification_channels_json)
         .bind(&params.created_by)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -594,7 +594,7 @@ impl Db {
         .bind(rule.is_active)
         .bind(&rule.notification_channels_json)
         .bind(&rule.id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -605,7 +605,7 @@ impl Db {
     pub async fn delete_error_alert_rule(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM error_alert_rules WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -617,7 +617,7 @@ impl Db {
         sqlx::query("UPDATE error_alert_rules SET is_active = ? WHERE id = ?")
             .bind(if is_active { 1 } else { 0 })
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -653,7 +653,7 @@ impl Db {
         .bind(tenant_id)
         .bind(error_count)
         .bind(sample_ids_json)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -688,7 +688,7 @@ impl Db {
 
         let history = sqlx::query_as::<_, ErrorAlertHistory>(&sql)
             .bind(tenant_id)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -706,7 +706,7 @@ impl Db {
         )
         .bind(acknowledged_by)
         .bind(id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -724,7 +724,7 @@ impl Db {
         )
         .bind(resolution_note)
         .bind(id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 

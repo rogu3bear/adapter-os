@@ -17,14 +17,14 @@ async fn setup_tenants(db: &Db) -> (String, String) {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_a)
         .bind("Tenant A")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("create tenant A");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_b)
         .bind("Tenant B")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("create tenant B");
 
@@ -55,7 +55,7 @@ async fn create_test_model(db: &Db, tenant_id: &str, name: &str) -> String {
     .bind(&config_hash)
     .bind(&tok_hash)
     .bind(&tok_cfg_hash)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("create model");
 
@@ -81,7 +81,7 @@ async fn create_test_adapter(db: &Db, tenant_id: &str, name: &str) -> String {
     .bind(&adapter_id)
     .bind("active")
     .bind(1)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("create adapter");
 
@@ -98,7 +98,7 @@ async fn create_test_repo(db: &Db, tenant_id: &str, name: &str) -> String {
     .bind(tenant_id)
     .bind(name)
     .bind("main")
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .expect("create repo");
 
@@ -131,7 +131,7 @@ async fn test_base_model_triggers_reject_adapters_cross_tenant_insert() {
     .bind("active")
     .bind(1)
     .bind(&model_b)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -166,7 +166,7 @@ async fn test_base_model_triggers_allow_adapters_same_tenant_insert() {
     .bind("active")
     .bind(1)
     .bind(&model_a)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -187,7 +187,7 @@ async fn test_base_model_triggers_reject_adapters_cross_tenant_update() {
     let result = sqlx::query("UPDATE adapters SET base_model_id = ? WHERE id = ?")
         .bind(&model_b)
         .bind(&adapter_a)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(
@@ -207,7 +207,7 @@ async fn test_base_model_triggers_allow_adapters_same_tenant_update() {
     let result = sqlx::query("UPDATE adapters SET base_model_id = ? WHERE id = ?")
         .bind(&model_a)
         .bind(&adapter_a)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(
@@ -234,7 +234,7 @@ async fn test_base_model_triggers_reject_repositories_cross_tenant_insert() {
     .bind("Cross-tenant Repo Base Model Test")
     .bind("main")
     .bind(&model_b)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -260,7 +260,7 @@ async fn test_base_model_triggers_allow_repositories_same_tenant_insert() {
     .bind("Same-tenant Repo Base Model Test")
     .bind("main")
     .bind(&model_a)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await;
 
     assert!(
@@ -281,7 +281,7 @@ async fn test_base_model_triggers_reject_repositories_cross_tenant_update() {
     let result = sqlx::query("UPDATE adapter_repositories SET base_model_id = ? WHERE id = ?")
         .bind(&model_b)
         .bind(&repo_a)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(
@@ -301,7 +301,7 @@ async fn test_base_model_triggers_allow_repositories_same_tenant_update() {
     let result = sqlx::query("UPDATE adapter_repositories SET base_model_id = ? WHERE id = ?")
         .bind(&model_a)
         .bind(&repo_a)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await;
 
     assert!(

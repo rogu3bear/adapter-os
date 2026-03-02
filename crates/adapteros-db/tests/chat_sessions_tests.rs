@@ -7,16 +7,18 @@
 //! - Message handling
 
 use adapteros_core::{AosError, Result};
-use adapteros_db::chat_sessions::{AddMessageParams, CreateChatSessionParams};
+use adapteros_db::chat_sessions::{
+    AddMessageParams, CreateChatSessionParams, UpdateChatSessionParams,
+};
 use adapteros_db::sqlx;
-use adapteros_db::Db;
+use adapteros_db::{Db, KvDb, StorageMode};
 
 /// Helper to create a tenant
 async fn create_tenant(db: &Db, tenant_id: &str, name: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind(name)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
     Ok(())
@@ -30,7 +32,7 @@ async fn create_user(db: &Db, user_id: &str, email: &str, role: &str) -> Result<
     .bind(email)
     .bind(email)
     .bind(role)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(e.to_string()))?;
     Ok(())
@@ -270,13 +272,13 @@ async fn test_update_session_collection() -> Result<()> {
     sqlx::query(
         "INSERT INTO document_collections (id, tenant_id, name) VALUES ('collection-1', 'tenant-1', 'Test Collection 1')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(e.to_string()))?;
     sqlx::query(
         "INSERT INTO document_collections (id, tenant_id, name) VALUES ('collection-2', 'tenant-1', 'Test Collection 2')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -301,6 +303,98 @@ async fn test_update_session_collection() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_update_chat_session_mutable_fields_sql() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+    create_tenant(&db, "tenant-1", "Test Tenant").await?;
+    create_session(&db, "session-1", "tenant-1", "Original Name", None).await?;
+
+    db.update_chat_session(
+        "session-1",
+        "tenant-1",
+        UpdateChatSessionParams {
+            name: Some("Renamed Session".to_string()),
+            title: Some("Updated Title".to_string()),
+            stack_id: None,
+            collection_id: None,
+            document_id: None,
+            source_type: Some("general".to_string()),
+            metadata_json: Some(Some(r#"{"topic":"alpha"}"#.to_string())),
+            tags_json: Some(Some(r#"["tag-a","tag-b"]"#.to_string())),
+            codebase_adapter_id: None,
+        },
+    )
+    .await?;
+
+    let updated = db.get_chat_session("session-1").await?.unwrap();
+    assert_eq!(updated.name, "Renamed Session");
+    assert_eq!(updated.title.as_deref(), Some("Updated Title"));
+    assert_eq!(
+        updated.metadata_json.as_deref(),
+        Some(r#"{"topic":"alpha"}"#)
+    );
+    assert_eq!(updated.tags_json.as_deref(), Some(r#"["tag-a","tag-b"]"#));
+
+    db.update_chat_session(
+        "session-1",
+        "tenant-1",
+        UpdateChatSessionParams {
+            name: None,
+            title: None,
+            stack_id: None,
+            collection_id: None,
+            document_id: None,
+            source_type: None,
+            metadata_json: Some(None),
+            tags_json: Some(None),
+            codebase_adapter_id: None,
+        },
+    )
+    .await?;
+
+    let cleared = db.get_chat_session("session-1").await?.unwrap();
+    assert!(cleared.metadata_json.is_none());
+    assert!(cleared.tags_json.is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_update_chat_session_syncs_kv_for_kv_primary_reads() -> Result<()> {
+    let mut db = Db::new_in_memory().await?;
+    create_tenant(&db, "tenant-1", "Test Tenant").await?;
+    db.attach_kv_backend(KvDb::init_in_memory()?);
+    db.set_storage_mode(StorageMode::DualWrite)?;
+
+    create_session(&db, "session-1", "tenant-1", "Original Name", None).await?;
+
+    db.update_chat_session(
+        "session-1",
+        "tenant-1",
+        UpdateChatSessionParams {
+            name: Some("KV Synced Name".to_string()),
+            title: Some("KV Synced Title".to_string()),
+            stack_id: None,
+            collection_id: None,
+            document_id: None,
+            source_type: Some("general".to_string()),
+            metadata_json: Some(Some(r#"{"kv":"true"}"#.to_string())),
+            tags_json: Some(Some(r#"["kv"]"#.to_string())),
+            codebase_adapter_id: None,
+        },
+    )
+    .await?;
+
+    db.set_storage_mode(StorageMode::KvPrimary)?;
+    let updated = db.get_chat_session("session-1").await?.unwrap();
+    assert_eq!(updated.name, "KV Synced Name");
+    assert_eq!(updated.title.as_deref(), Some("KV Synced Title"));
+    assert_eq!(updated.metadata_json.as_deref(), Some(r#"{"kv":"true"}"#));
+    assert_eq!(updated.tags_json.as_deref(), Some(r#"["kv"]"#));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_source_types_and_messages_persist() -> Result<()> {
     let db = Db::new_in_memory().await?;
     create_tenant(&db, "tenant-1", "Tenant 1").await?;
@@ -311,7 +405,7 @@ async fn test_source_types_and_messages_persist() -> Result<()> {
     sqlx::query(
         "INSERT INTO document_collections (id, tenant_id, name) VALUES ('collection-main', 'tenant-1', 'Main Collection')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -319,7 +413,7 @@ async fn test_source_types_and_messages_persist() -> Result<()> {
         "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, page_count)
          VALUES ('doc-main', 'tenant-1', 'Doc Main', 'hash', 'var/doc', 1, 'text/plain', NULL)",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(e.to_string()))?;
 

@@ -144,7 +144,7 @@ impl FederationManager {
     /// This retrieves the latest tick hash from the deterministic executor
     /// if available, for linking to federation signatures.
     pub async fn get_latest_tick_hash(&self) -> Option<String> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result().ok()?;
         let row = sqlx::query(
             r#"
             SELECT event_hash
@@ -442,7 +442,7 @@ impl FederationManager {
         );
 
         // Step 1: Query tick_ledger_entries for this bundle_hash
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let entries = sqlx::query(
             r#"
             SELECT id, tick, tenant_id, host_id, task_id, event_type, event_hash,
@@ -674,7 +674,7 @@ impl FederationManager {
 
     /// Count active peers in the federation
     async fn count_active_peers(&self) -> Result<usize> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         let row = sqlx::query("SELECT COUNT(*) as count FROM federation_peers WHERE active = 1")
             .fetch_optional(pool)
@@ -709,7 +709,7 @@ impl FederationManager {
 
         // Query tick_ledger_consistency_reports for this bundle's tick range
         // to see if there are any known inconsistencies.
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         if local_entries.is_empty() {
             return Ok(true);
@@ -864,7 +864,7 @@ impl FederationManager {
     }
 
     async fn list_active_peer_ids(&self) -> Result<Vec<String>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let rows = sqlx::query(
             r#"
             SELECT host_id
@@ -890,7 +890,7 @@ impl FederationManager {
         &self,
         bundle_hash: &str,
     ) -> Result<Vec<FederationSignature>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         let rows = sqlx::query(
             r#"
@@ -929,7 +929,7 @@ impl FederationManager {
         host_id: &str,
         limit: usize,
     ) -> Result<Vec<FederationSignature>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let limit = limit as i64;
 
         let rows = sqlx::query(
@@ -967,7 +967,7 @@ impl FederationManager {
 
     /// Mark a signature as verified
     pub async fn mark_verified(&self, signature_id: &str) -> Result<()> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         sqlx::query(
             r#"
@@ -991,7 +991,7 @@ impl FederationManager {
 
     /// Store signature in database
     async fn store_signature(&self, signature: &FederationSignature) -> Result<()> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let created_at = signature.created_at.to_rfc3339();
         let verified = if signature.verified { 1 } else { 0 };
 
@@ -1034,7 +1034,7 @@ impl FederationManager {
         federation_signature: &str,
         prev_host_hash: Option<&str>,
     ) -> Result<()> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         let result = sqlx::query(
             r#"
@@ -1088,17 +1088,13 @@ pub use signature::{BundleSignatureExchange, QuorumManager, QuorumStatus, Verifi
 mod tests {
     use super::*;
     use adapteros_core::B3Hash;
-    use tempfile::TempDir;
-
-    fn new_test_tempdir() -> TempDir {
-        TempDir::with_prefix("aos-test-").expect("failed to create temporary directory for federation daemon test: system tmp directory should be writable")
-    }
 
     async fn setup_test_db() -> Result<Db> {
-        let temp_dir = new_test_tempdir();
-        let db_path = temp_dir
-            .path()
-            .join(format!("test_{}.db", std::process::id()));
+        let db_path = std::env::temp_dir().join(format!(
+            "aos-federation-test-{}-{}.db",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
         let db = Db::connect(db_path.to_str().unwrap()).await?;
         db.migrate().await?;
         Ok(db)
@@ -1217,7 +1213,7 @@ mod tests {
             "tenant-001".to_string(),
         )?;
 
-        let pool = db.pool();
+        let pool = db.pool_result()?;
         sqlx::query(
             r#"
             INSERT INTO tick_ledger_entries
@@ -1321,7 +1317,7 @@ mod tests {
             "tenant-001".to_string(),
         )?;
 
-        let pool = db.pool();
+        let pool = db.pool_result()?;
         sqlx::query(
             r#"
             INSERT INTO tick_ledger_entries
@@ -1405,7 +1401,7 @@ mod tests {
             "tenant-001".to_string(),
         )?;
 
-        let pool = db.pool();
+        let pool = db.pool_result()?;
         let host_a_key = hex::encode(Keypair::generate().public_key().to_bytes());
         let host_b_key = hex::encode(Keypair::generate().public_key().to_bytes());
 

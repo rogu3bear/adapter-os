@@ -1,7 +1,7 @@
 //! Configuration types and structures
 
 use crate::path_resolver::DEV_MODEL_PATH;
-use adapteros_core::defaults::DEFAULT_DB_PATH;
+use adapteros_core::defaults::{DEFAULT_DB_PATH, DEFAULT_SERVER_PORT};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -397,8 +397,8 @@ pub struct ModelServerConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    /// gRPC server address (e.g., "http://127.0.0.1:50051")
-    /// Default: "http://127.0.0.1:50051"
+    /// gRPC server address (e.g., "http://127.0.0.1:18085")
+    /// Default: "http://127.0.0.1:18085"
     #[serde(default = "default_model_server_addr")]
     pub server_addr: String,
 
@@ -432,9 +432,9 @@ impl Default for ModelServerConfig {
 }
 
 /// Default Model Server gRPC address.
-/// Returns "http://127.0.0.1:50051".
+/// Returns "http://127.0.0.1:18085".
 pub fn default_model_server_addr() -> String {
-    "http://127.0.0.1:50051".to_string()
+    "http://127.0.0.1:18085".to_string()
 }
 
 /// Resolve Model Server address with environment variable override.
@@ -499,6 +499,9 @@ pub struct InvariantsConfig {
     /// Disable DAT-007: Audit chain initialization check (FAILS OPEN - warning only)
     #[serde(default)]
     pub disable_dat_007_audit_chain: bool,
+    /// Disable DAT-008: Required schema contract check
+    #[serde(default)]
+    pub disable_dat_008_schema_contract: bool,
     /// Disable LIF-002: Executor initialization check
     #[serde(default)]
     pub disable_lif_002_executor_init: bool,
@@ -751,7 +754,7 @@ impl Default for DeterministicSchema {
             FieldDefinition {
                 field_type: "integer".to_string(),
                 required: false,
-                default_value: Some("8080".to_string()),
+                default_value: Some(DEFAULT_SERVER_PORT.to_string()),
                 description: Some("Server port number".to_string()),
                 validation_rules: Some(vec!["range:1-65535".to_string()]),
             },

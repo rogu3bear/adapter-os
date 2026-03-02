@@ -30,6 +30,9 @@ pub fn BreadcrumbTrail(
     /// Custom breadcrumb items (overrides auto-generation)
     #[prop(optional)]
     items: Option<Vec<BreadcrumbItem>>,
+    /// Additional CSS classes to apply to the root <nav> element
+    #[prop(optional, into)]
+    class: String,
 ) -> impl IntoView {
     let location = use_location();
 
@@ -43,7 +46,7 @@ pub fn BreadcrumbTrail(
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
 
         if segments.is_empty() {
-            return vec![BreadcrumbItem::current("Dashboard")];
+            return vec![BreadcrumbItem::current("Home")];
         }
 
         let mut result = vec![BreadcrumbItem::new("Home", "/")];
@@ -67,38 +70,51 @@ pub fn BreadcrumbTrail(
         result
     };
 
+    let base_class = "flex items-center text-sm text-muted-foreground";
+    let combined_class = if class.is_empty() {
+        base_class.to_string()
+    } else {
+        format!("{} {}", base_class, class)
+    };
+
     view! {
-        <nav aria-label="Breadcrumb" class="flex items-center gap-1 text-sm text-muted-foreground">
-            {move || crumbs().into_iter().enumerate().map(|(i, crumb)| {
-                let is_first = i == 0;
-                let _is_last = crumb.href.is_none();
+        <nav aria-label="Breadcrumb" class=combined_class>
+            <ol class="flex flex-wrap items-center gap-1.5">
+                {move || crumbs().into_iter().enumerate().map(|(i, crumb)| {
+                    let is_first = i == 0;
+                    let _is_last = crumb.href.is_none();
 
-                view! {
-                    // Separator (except for first item)
-                    {(!is_first).then(|| view! {
-                        <IconChevronRight class="h-4 w-4 text-muted-foreground/50".to_string()/>
-                    })}
+                    view! {
+                        <li class="flex items-center gap-1.5">
+                            // Separator (except for first item)
+                            {(!is_first).then(|| view! {
+                                <IconChevronRight class="h-4 w-4 text-muted-foreground/50 shrink-0".to_string()/>
+                            })}
 
-                    // Breadcrumb item
-                    {if let Some(href) = crumb.href {
-                        view! {
-                            <a
-                                href=href
-                                class="hover:text-foreground transition-colors flex items-center gap-1"
-                            >
-                                {is_first.then(|| view! {
-                                    <IconHome class="h-4 w-4".to_string()/>
-                                })}
-                                <span>{crumb.label}</span>
-                            </a>
-                        }.into_any()
-                    } else {
-                        view! {
-                            <span class="text-foreground font-medium" aria-current="page">{crumb.label}</span>
-                        }.into_any()
-                    }}
-                }
-            }).collect::<Vec<_>>()}
+                            // Breadcrumb item
+                            {if let Some(href) = crumb.href {
+                                view! {
+                                    <a
+                                        href=href
+                                        class="hover:text-foreground transition-colors flex items-center gap-1.5"
+                                    >
+                                        {is_first.then(|| view! {
+                                            <IconHome class="h-4 w-4 shrink-0".to_string()/>
+                                        })}
+                                        <span class="truncate">{crumb.label}</span>
+                                    </a>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <span class="text-foreground font-medium truncate" aria-current="page">
+                                        {crumb.label}
+                                    </span>
+                                }.into_any()
+                            }}
+                        </li>
+                    }
+                }).collect::<Vec<_>>()}
+            </ol>
         </nav>
     }
 }

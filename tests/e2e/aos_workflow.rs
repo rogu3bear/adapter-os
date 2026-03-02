@@ -41,7 +41,7 @@ async fn test_aos_complete_workflow() -> Result<()> {
         .await?;
     assert!(output.status.success());
     
-    // 3. Deploy .aos adapter (assume server running on localhost:8080)
+    // 3. Deploy .aos adapter (assume server running on localhost:18080)
     // Start a test server if needed, but for e2e assume it's running
     let deploy_output = Command::new("aosctl")
         .args(&["aos", "load", "--path", aos_path.to_str().unwrap()])
@@ -56,7 +56,7 @@ async fn test_aos_complete_workflow() -> Result<()> {
     let inference_prompt = "Explain how adapterOS works in one sentence.";
     let inference_output = Command::new("curl")
         .args(&[
-            "-X", "POST", "http://localhost:8080/v1/infer",
+            "-X", "POST", "http://localhost:18080/v1/infer",
             "-H", "Content-Type: application/json",
             "-d", &format!(r#"{{"prompt": "{}", "adapter_id": "e2e_test_adapter", "max_tokens": 50}}"#, inference_prompt),
         ])

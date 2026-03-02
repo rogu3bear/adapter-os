@@ -10,7 +10,7 @@
 
 Backend + worker. Port 8080. UI served from `crates/adapteros-server/static/`.
 
-**Script:** `./start` sources `scripts/lib/env-loader.sh`, `scripts/lib/freeze-guard.sh`. Runs `adapteros-server` and `aos-worker` (or via service manager).
+**Script:** `./start` sources `scripts/lib/freeze-guard.sh`, `scripts/lib/env-loader.sh`, `scripts/lib/manifest-reader.sh`, and `scripts/lib/ports.sh`. Runs `adapteros-server` and `aos-worker` (or via service manager).
 
 ---
 

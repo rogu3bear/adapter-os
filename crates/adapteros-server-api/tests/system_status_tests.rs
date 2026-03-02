@@ -39,7 +39,7 @@ async fn seed_model(state: &AppState, model_id: &str, name: &str) {
     .bind(format!("config-{model_hash}"))
     .bind(format!("tokenizer-{model_hash}"))
     .bind(format!("tokenizer-cfg-{model_hash}"))
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert model");
 }
@@ -66,7 +66,7 @@ async fn seed_worker_and_model(state: &AppState) {
     .bind(&manifest_id)
     .bind("tenant-1")
     .bind(&manifest_hash)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert manifest");
 
@@ -80,7 +80,7 @@ async fn seed_worker_and_model(state: &AppState) {
     .bind(&manifest_hash)
     .bind("[]")
     .bind(&layout_hash)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert plan");
 
@@ -91,7 +91,7 @@ async fn seed_worker_and_model(state: &AppState) {
     .bind("node-1")
     .bind("node-1-host")
     .bind("http://localhost:0")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert node");
 
@@ -106,7 +106,7 @@ async fn seed_worker_and_model(state: &AppState) {
     .bind("node-1")
     .bind(&plan_id)
     .bind("registered")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert worker");
 }
@@ -117,7 +117,7 @@ async fn system_status_handles_db_down() {
     state.boot_state = Some(boot_to_ready().await);
     let claims = common::test_admin_claims();
 
-    state.db.pool().close().await;
+    state.db.pool_result().expect("db pool").close().await;
 
     let response = get_system_status(State(state), Extension(claims))
         .await

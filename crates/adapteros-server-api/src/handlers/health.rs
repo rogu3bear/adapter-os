@@ -13,8 +13,9 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::query;
+use sqlx::{query, Row};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -65,6 +66,12 @@ const CANARY_PROMPT: &str = "ping";
 
 /// System tenant used for canary probe requests.
 const CANARY_TENANT: &str = "system";
+
+/// Replay guard entries older than this are treated as stale in strict mode.
+const REPLAY_GUARD_STALE_AFTER: Duration = Duration::from_secs(15 * 60);
+
+/// Timeout for querying replay-guard status from `determinism_checks`.
+const REPLAY_GUARD_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn canary_cache() -> &'static RwLock<Option<CanaryCache>> {
     static CACHE: OnceLock<RwLock<Option<CanaryCache>>> = OnceLock::new();
@@ -262,6 +269,37 @@ pub struct ReadyzCheck {
     pub latency_ms: Option<u64>,
 }
 
+/// Replay guard freshness state for determinism health signaling.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplayGuardState {
+    Fresh,
+    Failing,
+    Stale,
+    Missing,
+    Unknown,
+}
+
+/// Replay determinism guard status surfaced via `/readyz`.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReplayGuardCheck {
+    pub ok: bool,
+    pub state: ReplayGuardState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub divergences: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age_seconds: Option<u64>,
+    pub stale_after_seconds: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ReadyzChecks {
     pub db: ReadyzCheck,
@@ -296,6 +334,9 @@ pub struct ReadyzResponse {
     /// Canary inference probe result (only present when `?deep=true`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canary: Option<CanaryProbeResult>,
+    /// Replay determinism guard state (strict mode only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_guard: Option<ReplayGuardCheck>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
@@ -314,6 +355,214 @@ pub struct ReadyMetrics {
 pub struct BootPhaseDuration {
     pub state: String,
     pub elapsed_ms: u64,
+}
+
+fn parse_replay_guard_last_run(last_run: &str) -> Option<DateTime<Utc>> {
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(last_run) {
+        return Some(parsed.with_timezone(&Utc));
+    }
+
+    NaiveDateTime::parse_from_str(last_run, "%Y-%m-%d %H:%M:%S")
+        .ok()
+        .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+}
+
+/// Evaluate replay guard state from a determinism-check snapshot.
+///
+/// This helper is intentionally pure so integration tests can validate
+/// stale/failing semantics without constructing full `AppState`.
+pub fn evaluate_replay_guard_status(
+    last_run: Option<&str>,
+    result: Option<&str>,
+    runs: Option<i64>,
+    divergences: Option<i64>,
+    now: DateTime<Utc>,
+    stale_after: Duration,
+) -> ReplayGuardCheck {
+    let stale_after_seconds = stale_after.as_secs();
+    let runs = runs.and_then(|v| u64::try_from(v).ok());
+    let divergences = divergences.and_then(|v| u64::try_from(v).ok());
+
+    let Some(last_run_raw) = last_run else {
+        return ReplayGuardCheck {
+            ok: false,
+            state: ReplayGuardState::Missing,
+            hint: Some("replay guard has no recorded runs".to_string()),
+            last_run: None,
+            result: None,
+            runs,
+            divergences,
+            age_seconds: None,
+            stale_after_seconds,
+        };
+    };
+
+    let normalized_result = result.map(|r| r.trim().to_ascii_lowercase());
+    if normalized_result.as_deref() != Some("pass") {
+        return ReplayGuardCheck {
+            ok: false,
+            state: ReplayGuardState::Failing,
+            hint: Some("latest replay guard run did not pass".to_string()),
+            last_run: Some(last_run_raw.to_string()),
+            result: normalized_result,
+            runs,
+            divergences,
+            age_seconds: None,
+            stale_after_seconds,
+        };
+    }
+
+    let Some(parsed_last_run) = parse_replay_guard_last_run(last_run_raw) else {
+        return ReplayGuardCheck {
+            ok: false,
+            state: ReplayGuardState::Stale,
+            hint: Some("unable to parse replay guard last_run timestamp".to_string()),
+            last_run: Some(last_run_raw.to_string()),
+            result: Some("pass".to_string()),
+            runs,
+            divergences,
+            age_seconds: None,
+            stale_after_seconds,
+        };
+    };
+
+    let age_signed = now.signed_duration_since(parsed_last_run).num_seconds();
+    if age_signed < 0 {
+        return ReplayGuardCheck {
+            ok: false,
+            state: ReplayGuardState::Stale,
+            hint: Some("replay guard last_run timestamp is in the future".to_string()),
+            last_run: Some(last_run_raw.to_string()),
+            result: Some("pass".to_string()),
+            runs,
+            divergences,
+            age_seconds: None,
+            stale_after_seconds,
+        };
+    }
+
+    let age_seconds = age_signed as u64;
+    if age_seconds > stale_after_seconds {
+        return ReplayGuardCheck {
+            ok: false,
+            state: ReplayGuardState::Stale,
+            hint: Some(format!(
+                "replay guard is stale ({age_seconds}s old > {stale_after_seconds}s)"
+            )),
+            last_run: Some(last_run_raw.to_string()),
+            result: Some("pass".to_string()),
+            runs,
+            divergences,
+            age_seconds: Some(age_seconds),
+            stale_after_seconds,
+        };
+    }
+
+    ReplayGuardCheck {
+        ok: true,
+        state: ReplayGuardState::Fresh,
+        hint: None,
+        last_run: Some(last_run_raw.to_string()),
+        result: Some("pass".to_string()),
+        runs,
+        divergences,
+        age_seconds: Some(age_seconds),
+        stale_after_seconds,
+    }
+}
+
+/// Strict mode treats replay guard failures as readiness blockers.
+pub fn replay_guard_allows_ready(
+    readiness_mode: &ReadinessMode,
+    replay_guard: Option<&ReplayGuardCheck>,
+) -> bool {
+    match readiness_mode {
+        ReadinessMode::Strict => replay_guard.map(|check| check.ok).unwrap_or(false),
+        ReadinessMode::Relaxed { .. } | ReadinessMode::DevBypass => true,
+    }
+}
+
+async fn fetch_replay_guard_check(state: &AppState) -> ReplayGuardCheck {
+    let replay_guard_probe = timeout(REPLAY_GUARD_QUERY_TIMEOUT, async {
+        let Some(pool) = state.db.pool_opt() else {
+            return Err(sqlx::Error::Configuration(
+                "SQL pool not available (kv-only mode)".into(),
+            ));
+        };
+
+        sqlx::query(
+            "SELECT last_run, result, runs, divergences
+             FROM determinism_checks
+             ORDER BY last_run DESC
+             LIMIT 1",
+        )
+        .fetch_optional(pool)
+        .await
+    })
+    .await;
+
+    match replay_guard_probe {
+        Ok(Ok(Some(row))) => {
+            let last_run: Option<String> = row.try_get("last_run").ok();
+            let result: Option<String> = row.try_get("result").ok();
+            let runs: Option<i64> = row.try_get("runs").ok();
+            let divergences: Option<i64> = row.try_get("divergences").ok();
+            evaluate_replay_guard_status(
+                last_run.as_deref(),
+                result.as_deref(),
+                runs,
+                divergences,
+                Utc::now(),
+                REPLAY_GUARD_STALE_AFTER,
+            )
+        }
+        Ok(Ok(None)) => evaluate_replay_guard_status(
+            None,
+            None,
+            None,
+            None,
+            Utc::now(),
+            REPLAY_GUARD_STALE_AFTER,
+        ),
+        Ok(Err(err)) => {
+            let err_message = err.to_string();
+            if err_message.contains("no such table") && err_message.contains("determinism_checks") {
+                return evaluate_replay_guard_status(
+                    None,
+                    None,
+                    None,
+                    None,
+                    Utc::now(),
+                    REPLAY_GUARD_STALE_AFTER,
+                );
+            }
+
+            ReplayGuardCheck {
+                ok: false,
+                state: ReplayGuardState::Unknown,
+                hint: Some(format!(
+                    "failed to query replay guard status: {err_message}"
+                )),
+                last_run: None,
+                result: None,
+                runs: None,
+                divergences: None,
+                age_seconds: None,
+                stale_after_seconds: REPLAY_GUARD_STALE_AFTER.as_secs(),
+            }
+        }
+        Err(_) => ReplayGuardCheck {
+            ok: false,
+            state: ReplayGuardState::Unknown,
+            hint: Some("replay guard query timeout".to_string()),
+            last_run: None,
+            result: None,
+            runs: None,
+            divergences: None,
+            age_seconds: None,
+            stale_after_seconds: REPLAY_GUARD_STALE_AFTER.as_secs(),
+        },
+    }
 }
 
 /// Readiness check
@@ -371,6 +620,11 @@ pub async fn ready(
     } else {
         ReadinessMode::Strict
     };
+    let replay_guard = if matches!(readiness_mode, ReadinessMode::Strict) {
+        Some(fetch_replay_guard_check(&state).await)
+    } else {
+        None
+    };
 
     // Check boot state - only return ready if in Ready state
     let Some(ref boot_state) = state.boot_state else {
@@ -401,6 +655,7 @@ pub async fn ready(
                 boot_warnings: Vec::new(),
                 build_id: None,
                 canary: None,
+                replay_guard,
             }),
         );
     };
@@ -625,8 +880,11 @@ pub async fn ready(
     // - Strict: all checks must pass
     // - Relaxed: skip specified checks (e.g., worker check when skip_worker_check is set)
     // - DevBypass: all checks informational only
+    let replay_guard_ok = replay_guard_allows_ready(&readiness_mode, replay_guard.as_ref());
     let ready = match &readiness_mode {
-        ReadinessMode::Strict => db_check.ok && worker_check.ok && models_seeded_check.ok,
+        ReadinessMode::Strict => {
+            db_check.ok && worker_check.ok && models_seeded_check.ok && replay_guard_ok
+        }
         ReadinessMode::Relaxed { relaxed_checks } => {
             // Start with db check (always required)
             let mut result = db_check.ok;
@@ -659,6 +917,22 @@ pub async fn ready(
         registry
             .set_gauge("readyz_models_latency_ms".to_string(), latency as f64)
             .await;
+    }
+    if let Some(ref guard) = replay_guard {
+        registry
+            .set_gauge(
+                "readyz_replay_guard_ok".to_string(),
+                if guard.ok { 1.0 } else { 0.0 },
+            )
+            .await;
+        if let Some(age_seconds) = guard.age_seconds {
+            registry
+                .set_gauge(
+                    "readyz_replay_guard_age_seconds".to_string(),
+                    age_seconds as f64,
+                )
+                .await;
+        }
     }
 
     let boot_phase_metrics = boot_state
@@ -744,6 +1018,7 @@ pub async fn ready(
             boot_warnings: boot_state.get_boot_warnings(),
             build_id: Some(adapteros_core::version::BUILD_ID.to_string()),
             canary,
+            replay_guard,
         }),
     )
 }
@@ -1242,6 +1517,7 @@ mod canary_probe_tests {
             boot_warnings: vec![],
             build_id: None,
             canary: None,
+            replay_guard: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert!(
@@ -1283,6 +1559,7 @@ mod canary_probe_tests {
                 hint: None,
                 latency_ms: Some(15),
             }),
+            replay_guard: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         let canary = json.get("canary").expect("canary should be present");

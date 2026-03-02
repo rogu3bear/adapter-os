@@ -3,10 +3,10 @@
 PRD-UI-010: Utility Usage Audit Script
 
 Scans the UI codebase and produces:
-- reports/ui_util_usage.md       - Full usage report
-- reports/ui_util_unused.txt     - Allowlisted but never referenced
-- reports/ui_util_defined_unused.txt - Defined in CSS but never referenced
-- reports/ui_util_reject_remove.txt  - Reject utilities status
+- var/reports/ui_util/ui_util_usage.md       - Full usage report
+- var/reports/ui_util/ui_util_unused.txt     - Allowlisted but never referenced
+- var/reports/ui_util/ui_util_defined_unused.txt - Defined in CSS but never referenced
+- var/reports/ui_util/ui_util_reject_remove.txt  - Reject utilities status
 """
 
 import os
@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Configuration
 UI_ROOT = Path(__file__).parent.parent / "crates" / "adapteros-ui"
-REPORTS_DIR = Path(__file__).parent.parent / "reports"
+REPORTS_DIR = Path(__file__).parent.parent / "var" / "reports" / "ui_util"
 
 RS_FILES = list(UI_ROOT.glob("src/**/*.rs"))
 CSS_FILES = list(UI_ROOT.glob("dist/*.css"))
@@ -246,7 +246,7 @@ def parse_referenced_classes(rs_files: list, html_file: Path, defined_classes: s
 def generate_reports(allowlist: dict, defined: set, references: dict):
     """Generate all report files."""
 
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Categorize
     allowlisted_classes = set(allowlist.keys())

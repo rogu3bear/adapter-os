@@ -1,0 +1,148 @@
+{
+  "name": "adversarial_inputs_v1",
+  "description": "Adversarial input detection and defense dataset covering malformed adapter bundles, data poisoning, prompt injection in training data, API hardening, path traversal, resource exhaustion, and defense-in-depth validation. Trains the system to recognize and reject hostile inputs across all ingestion surfaces.",
+  "version": "1.0.0",
+  "category": "security",
+  "scope": "system",
+  "tier": "persistent",
+  "rank": 9,
+  "alpha": 16.0,
+  "target_modules": ["gate_proj", "up_proj", "down_proj"],
+  "entries": [
+    {
+      "path": "adversarial-inputs.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "mixed",
+      "notes": "2000 examples across 7 categories: malformed_bundles (300), data_poisoning (300), prompt_injection (300), api_hardening (300), path_traversal (300), resource_exhaustion (300), defense_in_depth (200)"
+    }
+  ],
+  "subcategories": {
+    "malformed_bundles": {
+      "count": 300,
+      "subtypes": [
+        "corrupted_magic_bytes",
+        "truncated_payload",
+        "blake3_mismatch",
+        "invalid_manifest_json",
+        "tampered_weights",
+        "missing_segments",
+        "oversized_header",
+        "zero_length_bundle",
+        "duplicate_segment_ids",
+        "malformed_index",
+        "valid_bundle_accepted",
+        "partial_corruption_detected"
+      ]
+    },
+    "data_poisoning": {
+      "count": 300,
+      "subtypes": [
+        "label_flip_attack",
+        "gradient_manipulation",
+        "backdoor_trigger",
+        "statistical_anomaly_detection",
+        "quality_score_regression",
+        "behavioral_regression",
+        "clean_label_attack",
+        "distribution_shift",
+        "outlier_injection",
+        "benign_data_accepted"
+      ]
+    },
+    "prompt_injection": {
+      "count": 300,
+      "subtypes": [
+        "system_prompt_override",
+        "instruction_smuggling",
+        "role_hijack",
+        "delimiter_escape",
+        "encoding_obfuscation",
+        "multi_turn_escalation",
+        "indirect_injection",
+        "pattern_detection",
+        "quality_filter_trigger",
+        "clean_example_accepted"
+      ]
+    },
+    "api_hardening": {
+      "count": 300,
+      "subtypes": [
+        "sql_injection",
+        "json_bomb",
+        "oversized_payload",
+        "type_confusion",
+        "header_injection",
+        "unicode_smuggling",
+        "null_byte_injection",
+        "parameter_pollution",
+        "content_type_mismatch",
+        "valid_request_accepted"
+      ]
+    },
+    "path_traversal": {
+      "count": 300,
+      "subtypes": [
+        "dot_dot_escape",
+        "symlink_attack",
+        "null_byte_termination",
+        "encoding_bypass",
+        "absolute_path_injection",
+        "double_encoding",
+        "canonicalization_race",
+        "sandbox_enforcement",
+        "jail_validation",
+        "valid_path_accepted"
+      ]
+    },
+    "resource_exhaustion": {
+      "count": 300,
+      "subtypes": [
+        "vram_exhaustion",
+        "adapter_loading_storm",
+        "training_job_flooding",
+        "tick_ledger_overflow",
+        "kv_cache_exhaustion",
+        "concurrent_job_limit",
+        "integer_overflow_tick",
+        "memory_allocation_bomb",
+        "rate_limit_enforcement",
+        "normal_load_accepted"
+      ]
+    },
+    "defense_in_depth": {
+      "count": 200,
+      "subtypes": [
+        "schema_then_content_validation",
+        "hash_then_policy_check",
+        "multi_layer_rejection",
+        "cascading_defense",
+        "fail_closed_behavior",
+        "audit_trail_completeness",
+        "defense_bypass_attempt",
+        "all_layers_pass"
+      ]
+    }
+  },
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#security-model",
+      "docs/architecture/MasterPlan.md#adapter-integrity",
+      "docs/architecture/MasterPlan.md#dataset-validation"
+    ],
+    "created_by": "adversarial-inputs-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Comprehensive adversarial input dataset covering all ingestion surfaces. Examples reference real adapterOS types (B3Hash, AosError, .aos format, BLAKE3 verification, token-bucket rate limiting, KV cache quotas, tenant isolation)."
+  },
+  "evaluation_gates": [
+    "Malformed bundle detection recall >= 99%",
+    "Data poisoning detection precision >= 95%",
+    "Prompt injection detection recall >= 98%",
+    "API input validation zero false negatives on known attack patterns",
+    "Path traversal sandbox escape detection = 100%",
+    "Resource exhaustion prevention under sustained attack load",
+    "Defense-in-depth: no single-layer bypass achieves full access"
+  ],
+  "intent": "Train the system to detect, classify, and reject adversarial inputs across all attack surfaces — from corrupted .aos bundles and poisoned training data to API-level injection attacks and resource exhaustion attempts. The dataset emphasizes defense-in-depth: every input passes through multiple independent validation layers (schema, content, hash, policy), and the model must learn that partial validation is never sufficient."
+}

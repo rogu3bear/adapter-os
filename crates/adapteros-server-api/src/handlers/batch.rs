@@ -359,6 +359,24 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
                     .with_string_details(msg),
             ),
         },
+        InferenceError::BitIdenticalAdapterPinRequired(msg) => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("validation failed")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(msg),
+            ),
+        },
+        InferenceError::BitIdenticalAdapterPinInvalid(msg) => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("validation failed")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(msg),
+            ),
+        },
         InferenceError::WorkerNotAvailable(msg) => BatchInferItemResponse {
             id,
             response: None,
@@ -1085,6 +1103,12 @@ async fn process_batch_job(
                     Ok(Err(err)) => {
                         let error_code = match &err {
                             crate::types::InferenceError::ValidationError(_) => "BAD_REQUEST",
+                            crate::types::InferenceError::BitIdenticalAdapterPinRequired(_) => {
+                                "BAD_REQUEST"
+                            }
+                            crate::types::InferenceError::BitIdenticalAdapterPinInvalid(_) => {
+                                "BAD_REQUEST"
+                            }
                             crate::types::InferenceError::WorkerNotAvailable(_) => {
                                 "SERVICE_UNAVAILABLE"
                             }

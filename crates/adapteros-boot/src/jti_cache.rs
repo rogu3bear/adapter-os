@@ -29,7 +29,7 @@ use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+// time imports not needed
 
 /// Default JTI cache size (entries).
 ///
@@ -234,39 +234,22 @@ impl JtiCacheStore {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Generate unique temp file name
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let temp_path = self.persist_path.with_extension(format!("tmp.{}", nanos));
+        // We use tempfile to automatically handle atomic writing and OS-specific secure file permissions
+        // (e.g. 0o600 on UNIX) gracefully, while also handling cleanup if a panic occurs.
+        let parent = self.persist_path.parent().unwrap_or_else(|| Path::new("."));
+        let mut temp_file = tempfile::Builder::new()
+            .prefix("jti_cache_")
+            .suffix(".json.tmp")
+            .tempfile_in(parent)?;
 
-        // Write to temp file with 0600 permissions
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&temp_path)?;
+        let json = serde_json::to_string_pretty(&entries)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-            let json = serde_json::to_string_pretty(&entries)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            file.write_all(json.as_bytes())?;
-            file.sync_all()?;
-        }
+        temp_file.write_all(json.as_bytes())?;
+        temp_file.as_file_mut().sync_all()?;
 
-        #[cfg(not(unix))]
-        {
-            let json = serde_json::to_string_pretty(&entries)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            std::fs::write(&temp_path, json)?;
-        }
-
-        // Atomic rename
-        std::fs::rename(&temp_path, &self.persist_path)?;
+        // Atomically rename to the ultimate destination file
+        temp_file.persist(&self.persist_path).map_err(|e| e.error)?;
 
         tracing::info!(
             path = %self.persist_path.display(),

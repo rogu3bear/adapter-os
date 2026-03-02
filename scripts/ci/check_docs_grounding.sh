@@ -46,8 +46,8 @@ check "No false React/pnpm claim for main UI" \
 check "No download_model.sh (use download-model.sh)" \
     "scripts/download_model\.sh"
 
-check "No http://localhost:8080/api/v1/ (use /v1/)" \
-    "http://localhost:8080/api/v1/"
+check "No http://localhost:18080/api/v1/ (use /v1/)" \
+    "http://localhost:18080/api/v1/"
 
 echo ""
 if [[ $FAILED -eq 1 ]]; then

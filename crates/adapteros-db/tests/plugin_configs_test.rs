@@ -52,10 +52,10 @@ async fn test_tenant_plugin_enables() -> Result<(), Box<dyn std::error::Error>> 
 
     // Seed tenants required for FK constraints
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-123', 'Tenant 123')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-456', 'Tenant 456')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Set up global plugin config (disabled by default)
@@ -106,10 +106,10 @@ async fn test_plugin_global_vs_tenant_precedence() -> Result<(), Box<dyn std::er
 
     // Seed tenants required for FK constraints
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-888', 'Tenant 888')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-999', 'Tenant 999')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Set up global plugin config (enabled by default)

@@ -36,7 +36,7 @@ impl Db {
         .bind(template_hash.to_hex())
         .bind(req.priority.unwrap_or(0))
         .bind(req.enabled.unwrap_or(true))
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -61,7 +61,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -84,7 +84,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -114,7 +114,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(mode_str)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -134,7 +134,7 @@ impl Db {
                 "#,
             )
             .bind(tenant_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -181,7 +181,7 @@ impl Db {
         .bind(priority)
         .bind(enabled)
         .bind(id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -200,7 +200,7 @@ impl Db {
     pub async fn delete_prefix_template(&self, id: &str) -> Result<bool> {
         let result = sqlx::query("DELETE FROM prefix_templates WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -211,7 +211,7 @@ impl Db {
     pub async fn delete_prefix_templates_for_tenant(&self, tenant_id: &str) -> Result<u64> {
         let result = sqlx::query("DELETE FROM prefix_templates WHERE tenant_id = ?")
             .bind(tenant_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -255,14 +255,14 @@ mod tests {
         sqlx::query(
             "INSERT INTO tenants (id, name, itar_flag) VALUES ('tenant-1', 'Test Tenant', 0)",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("Failed to create test tenant");
         db
     }
 
     #[tokio::test]
-    async fn test_create_and_get_prefix_template() {
+    async fn test_create_and_get_prefix_template() -> Result<()> {
         let db = setup_db().await;
 
         let req = CreatePrefixTemplateRequest {
@@ -287,10 +287,12 @@ mod tests {
         let fetched = db.get_prefix_template(&template.id).await.unwrap().unwrap();
         assert_eq!(fetched.id, template.id);
         assert_eq!(fetched.template_text, "You are a helpful assistant.");
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_list_prefix_templates() {
+    async fn test_list_prefix_templates() -> Result<()> {
         let db = setup_db().await;
 
         // Create multiple templates
@@ -318,10 +320,12 @@ mod tests {
         assert_eq!(templates[0].priority, 20); // Builder
         assert_eq!(templates[1].priority, 10); // User
         assert_eq!(templates[2].priority, 5); // System
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_get_prefix_template_for_mode() {
+    async fn test_get_prefix_template_for_mode() -> Result<()> {
         let db = setup_db().await;
 
         // Create user-mode template
@@ -368,10 +372,12 @@ mod tests {
             .await
             .unwrap();
         assert!(none_template.is_none());
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_update_prefix_template() {
+    async fn test_update_prefix_template() -> Result<()> {
         let db = setup_db().await;
 
         let template = db
@@ -407,10 +413,12 @@ mod tests {
         // Verify hash was recomputed
         let expected_hash = B3Hash::hash(b"Updated text");
         assert_eq!(updated.template_hash_b3, expected_hash);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_delete_prefix_template() {
+    async fn test_delete_prefix_template() -> Result<()> {
         let db = setup_db().await;
 
         let template = db
@@ -435,5 +443,7 @@ mod tests {
         // Delete again - should return false
         let deleted_again = db.delete_prefix_template(&template.id).await.unwrap();
         assert!(!deleted_again);
+
+        Ok(())
     }
 }

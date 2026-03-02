@@ -199,6 +199,7 @@ mod e2e_workflow_tests {
             position: 0,
             attention_entropy: None,
             activations: None,
+            session_id: None,
         };
 
         // Step 4: Run multiple inference steps
@@ -301,6 +302,7 @@ mod e2e_workflow_tests {
                 position: 0,
                 attention_entropy: None,
                 activations: None,
+                session_id: None,
             };
 
             let result = ctx.backend.run_step(&ring, &mut io);
@@ -334,6 +336,7 @@ mod e2e_workflow_tests {
             position: 0,
             attention_entropy: None,
             activations: None,
+            session_id: None,
         };
 
         let result = ctx.backend.run_step(&ring, &mut io);
@@ -370,6 +373,7 @@ mod e2e_workflow_tests {
             position: 0,
             attention_entropy: None,
             activations: None,
+            session_id: None,
         };
 
         // Run a few steps with adapter A
@@ -431,6 +435,7 @@ mod e2e_workflow_tests {
             position: 0,
             attention_entropy: None,
             activations: None,
+            session_id: None,
         };
 
         // Start with code adapter
@@ -483,6 +488,7 @@ mod e2e_workflow_tests {
             position: 0,
             attention_entropy: None,
             activations: None,
+            session_id: None,
         };
 
         // Gradual transition: A=100%, A=75%/B=25%, A=50%/B=50%, A=25%/B=75%, B=100%
@@ -569,6 +575,7 @@ mod e2e_workflow_tests {
             position: 0,
             attention_entropy: None,
             activations: None,
+            session_id: None,
         };
 
         let result = ctx.backend.run_step(&ring, &mut io);
@@ -647,6 +654,7 @@ mod e2e_workflow_tests {
                 position: 0,
                 attention_entropy: None,
                 activations: None,
+                session_id: None,
             };
             ctx.backend.run_step(&ring, &mut io).unwrap();
 
@@ -706,6 +714,7 @@ mod e2e_workflow_tests {
                 position: 0,
                 attention_entropy: None,
                 activations: None,
+                session_id: None,
             };
 
             // Collect outputs for this run
@@ -763,6 +772,7 @@ mod e2e_workflow_tests {
                     position,
                     attention_entropy: None,
                     activations: None,
+                    session_id: None,
                 };
 
                 ctx.backend.run_step(&ring, &mut io).unwrap();
@@ -811,6 +821,7 @@ mod e2e_workflow_tests {
                 position: 0,
                 attention_entropy: None,
                 activations: None,
+                session_id: None,
             };
 
             ctx.backend.run_step(&ring, &mut io).unwrap();
@@ -1102,6 +1113,7 @@ mod e2e_workflow_tests {
                 position: 0,
                 attention_entropy: None,
                 activations: None,
+                session_id: None,
             };
 
             for step in 0..5 {
@@ -1123,6 +1135,7 @@ mod e2e_workflow_tests {
             position: 0,
             attention_entropy: None,
             activations: None,
+            session_id: None,
         };
 
         ctx.backend.run_step(&ring, &mut io).unwrap();
@@ -1169,6 +1182,7 @@ mod e2e_workflow_tests {
             position: 0,
             attention_entropy: None,
             activations: None,
+            session_id: None,
         };
 
         ctx.backend.run_step(&ring, &mut io).unwrap();

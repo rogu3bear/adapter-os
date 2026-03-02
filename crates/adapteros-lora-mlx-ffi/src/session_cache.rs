@@ -65,6 +65,8 @@ impl SessionCacheManager {
         }
 
         // Create new cache
+        // SAFETY: FFI constructor takes plain numeric parameters only; no borrowed pointers.
+        // Null is checked immediately after the call.
         let cache_ptr =
             unsafe { crate::mlx_kv_cache_new(num_layers, num_heads, head_dim, max_seq_len) };
 
@@ -106,6 +108,8 @@ impl SessionCacheManager {
     /// Clear the cache for a specific session.
     pub fn clear(&mut self, session_id: &str) {
         if let Some(entry) = self.caches.remove(session_id) {
+            // SAFETY: `entry.cache_ptr` was allocated by `mlx_kv_cache_new` and ownership is
+            // transferred to this manager; each entry is removed/freed at most once.
             unsafe { crate::mlx_kv_cache_free(entry.cache_ptr) };
             tracing::debug!(session_id = session_id, "Cleared KV cache for session");
         }
@@ -114,6 +118,7 @@ impl SessionCacheManager {
     /// Clear all session caches.
     pub fn clear_all(&mut self) {
         for (session_id, entry) in self.caches.drain() {
+            // SAFETY: draining the map guarantees unique ownership of each pointer during free.
             unsafe { crate::mlx_kv_cache_free(entry.cache_ptr) };
             tracing::trace!(session_id = session_id, "Cleared KV cache");
         }
@@ -131,6 +136,7 @@ impl SessionCacheManager {
 
         if let Some(key) = oldest {
             if let Some(entry) = self.caches.remove(&key) {
+                // SAFETY: removed entry gives exclusive ownership of the raw pointer.
                 unsafe { crate::mlx_kv_cache_free(entry.cache_ptr) };
                 tracing::debug!(
                     session_id = key,

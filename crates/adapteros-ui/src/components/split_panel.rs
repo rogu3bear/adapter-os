@@ -104,9 +104,7 @@ where
                 return prev_mode.unwrap_or(SplitMode::Desktop);
             };
             if prev_mode != Some(current) {
-                web_sys::console::log_1(
-                    &format!("[layout] split_panel mode: {:?}", current).into(),
-                );
+                crate::debug_log!("[layout] split_panel mode: {:?}", current);
             }
             current
         });
@@ -131,18 +129,21 @@ where
                 SplitMode::Desktop => {
                     // Desktop: two-column layout with always-in-DOM detail panel for CSS transitions
                     let list_class = if selected {
-                        format!("split-panel-list {} pr-4 min-w-0 box-border", ratio.list_class())
+                        format!("split-panel-list split-panel-list--selected {}", ratio.list_class())
                     } else {
-                        "split-panel-list flex-1 pr-4 min-w-0 box-border".to_string()
+                        "split-panel-list split-panel-list--full".to_string()
                     };
                     let detail_class = if selected {
-                        format!("split-panel-detail split-panel-detail--open {} border-l px-4 min-w-0 box-border", ratio.detail_class())
+                        format!(
+                            "split-panel-detail split-panel-detail--open split-panel-detail--selected {}",
+                            ratio.detail_class()
+                        )
                     } else {
-                        "split-panel-detail min-w-0 box-border".to_string()
+                        "split-panel-detail".to_string()
                     };
 
                     view! {
-                        <div class="split-panel flex min-w-0">
+                        <div class="split-panel">
                             // List panel
                             <div class=list_class>
                                 {list_fn()}
@@ -162,7 +163,7 @@ where
                             <div class="space-y-4 min-w-0">
                                 // Back button with 44px minimum touch target for mobile accessibility
                                 <button
-                                    class="split-panel-back-btn"
+                                    class="btn btn-ghost split-panel-back-btn"
                                     on:click=move |_| on_close.run(())
                                     aria-label=back_text.clone()
                                 >

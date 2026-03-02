@@ -227,7 +227,7 @@ run_replay_harness() {
 
     # MUST run with --test-threads=1 for serial execution
     run_with_timeout "$REPLAY_TIMEOUT" "Replay harness" \
-        cargo test --test determinism_replay_harness -- \
+        cargo test -p adapter-os --no-default-features --test determinism_replay_harness -- \
             --test-threads="${REPLAY_THREADS}" \
             --nocapture
 }

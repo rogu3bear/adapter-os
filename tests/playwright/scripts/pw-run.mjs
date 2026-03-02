@@ -51,7 +51,7 @@ async function canListenOnPort(port) {
 async function resolveServerPort(runId, explicitPort) {
   if (Number.isFinite(explicitPort)) return explicitPort;
 
-  const minPort = 18080;
+  const minPort = 18180;
   const span = 10_000;
   const hash = createHash('sha256').update(runId).digest();
   const baseOffset = hash.readUInt16BE(0) % span;
@@ -63,7 +63,7 @@ async function resolveServerPort(runId, explicitPort) {
     if (await canListenOnPort(candidate)) return candidate;
   }
 
-  return 8080;
+  return 18180;
 }
 
 function parseArgs(argv) {

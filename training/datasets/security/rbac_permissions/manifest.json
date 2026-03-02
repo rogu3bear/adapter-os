@@ -1,0 +1,203 @@
+{
+  "name": "rbac_permissions_v1",
+  "description": "RBAC permissions matrix training dataset for adapterOS K-sparse LoRA routing system. Covers the 5-role hierarchy (Admin > Operator > SRE > Compliance > Viewer) with 20+ permissions, permission inheritance chains, privilege escalation detection, least-privilege assignment, multi-tenant scoping, and permission boundary edge cases. 2000 examples with detailed reasoning about why access is granted or denied.",
+  "version": "1.0.0",
+  "category": "security",
+  "scope": "system",
+  "tier": "critical",
+  "rank": 9,
+  "alpha": 16.0,
+  "target_modules": [
+    "gate_proj",
+    "q_proj",
+    "k_proj",
+    "v_proj"
+  ],
+  "entries": [
+    {
+      "path": "rbac-permissions.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "mixed",
+      "notes": "2000 examples: 400 permission checks, 300 role assignment scenarios, 400 privilege escalation attempts (negative), 300 least-privilege patterns, 300 multi-tenant RBAC, 300 permission boundaries. Shuffled with deterministic seed."
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#rbac",
+      "docs/architecture/MasterPlan.md#security",
+      "docs/architecture/MasterPlan.md#multi-tenancy"
+    ],
+    "created_by": "rbac-permissions-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Synthetic dataset generated from the adapterOS RBAC permission matrix. All permission checks validated against the 5-role hierarchy with inheritance. Privilege escalation examples include audit trail and alert behavior. Multi-tenant examples enforce strict tenant isolation boundaries."
+  },
+  "evaluation_gates": [
+    "Permission checks correctly map each permission to its minimum required role",
+    "Role inheritance is consistent: every permission available to role R is available to all roles above R",
+    "Privilege escalation attempts always result in denial with audit log entry and alert",
+    "Shared permissions (AdapterList, AdapterView, TrainingView, PolicyView, MetricsView) are accessible by all 5 roles",
+    "Admin-exclusive permissions (AdapterDelete, PolicySign, TenantManage, NodeManage, SystemConfig) are denied for all non-Admin roles",
+    "Multi-tenant examples enforce strict tenant isolation: Admin of tenant-a cannot access tenant-b resources",
+    "Cross-tenant access requires SystemAdmin role, never tenant-scoped Admin",
+    "Least-privilege recommendations never suggest a higher role than necessary",
+    "SRE role cannot modify adapters or training state in any example",
+    "Compliance role cannot execute inference or modify any resource in any example",
+    "All negative-label examples describe denied operations with correct error codes and audit behavior",
+    "Permission boundary edge cases correctly distinguish between similar-sounding permissions across roles"
+  ],
+  "quality_thresholds": {
+    "min_quality_score": 0.88,
+    "target_quality_score": 0.95,
+    "max_below_threshold": 50,
+    "threshold_enforcement": "hard",
+    "notes": "Security-critical dataset: quality floor is higher than behavioral datasets because incorrect RBAC training could teach the model to hallucinate permissions that don't exist."
+  },
+  "intent": "Train the adapter to reason precisely about adapterOS RBAC: which roles hold which permissions, how inheritance works, why privilege escalation is blocked, how to assign least-privilege roles for operational scenarios, how multi-tenant isolation works, and where permission boundaries create surprising but correct access decisions.",
+  "subcategory_breakdown": {
+    "permission_checks": {
+      "count": 400,
+      "description": "Direct permission check questions: Can role X perform action Y?",
+      "subcategories": [
+        "admin_exclusive_check",
+        "operator_permission_check",
+        "sre_permission_check",
+        "compliance_permission_check",
+        "viewer_permission_check",
+        "shared_permission_check",
+        "inherited_permission_check",
+        "cross_role_comparison"
+      ],
+      "label_distribution": {
+        "positive": 240,
+        "negative": 160
+      }
+    },
+    "role_assignment": {
+      "count": 300,
+      "description": "Scenario-based role selection: given requirements, which role fits?",
+      "subcategories": [
+        "monitoring_only",
+        "operations_team",
+        "security_audit",
+        "infrastructure_debug",
+        "full_control",
+        "mixed_requirements",
+        "role_comparison",
+        "onboarding_scenario"
+      ],
+      "label_distribution": {
+        "positive": 300,
+        "negative": 0
+      }
+    },
+    "privilege_escalation": {
+      "count": 400,
+      "description": "Attempts to use permissions above role level. All negative label.",
+      "subcategories": [
+        "operator_escalation",
+        "sre_escalation",
+        "compliance_escalation",
+        "viewer_escalation",
+        "api_bypass_attempt",
+        "role_impersonation",
+        "token_manipulation",
+        "indirect_escalation"
+      ],
+      "label_distribution": {
+        "positive": 0,
+        "negative": 400
+      }
+    },
+    "least_privilege": {
+      "count": 300,
+      "description": "Designing minimal permission sets for operational needs.",
+      "subcategories": [
+        "training_operator",
+        "inference_only",
+        "audit_compliance",
+        "debug_sre",
+        "readonly_dashboard",
+        "scoped_operator",
+        "temporary_elevation",
+        "service_account"
+      ],
+      "label_distribution": {
+        "positive": 300,
+        "negative": 0
+      }
+    },
+    "multi_tenant": {
+      "count": 300,
+      "description": "Tenant-scoped permissions and cross-tenant isolation.",
+      "subcategories": [
+        "tenant_isolation",
+        "cross_tenant_denial",
+        "system_admin_access",
+        "tenant_admin_scope",
+        "resource_ownership",
+        "tenant_migration",
+        "shared_resource_access",
+        "tenant_hierarchy"
+      ],
+      "label_distribution": {
+        "positive": 150,
+        "negative": 150
+      }
+    },
+    "permission_boundaries": {
+      "count": 300,
+      "description": "Edge cases where permission boundaries create non-obvious decisions.",
+      "subcategories": [
+        "sre_adapter_restart",
+        "compliance_dataset_view",
+        "operator_policy_read",
+        "viewer_metrics_scope",
+        "sre_training_view",
+        "compliance_lineage_chain",
+        "operator_node_inspect",
+        "boundary_overlap"
+      ],
+      "label_distribution": {
+        "positive": 180,
+        "negative": 120
+      }
+    }
+  },
+  "domain": {
+    "role_hierarchy": {
+      "roles": ["Admin", "Operator", "SRE", "Compliance", "Viewer"],
+      "inheritance": "Admin > Operator > SRE > Compliance > Viewer",
+      "description": "Each role inherits all permissions of roles below it in the hierarchy."
+    },
+    "permissions": {
+      "admin_exclusive": ["AdapterDelete", "PolicySign", "TenantManage", "NodeManage", "SystemConfig"],
+      "operator": ["AdapterRegister", "AdapterLoad", "AdapterUnload", "TrainingStart", "TrainingCancel", "InferenceExecute", "StackCreate", "StackActivate"],
+      "sre": ["SystemMetrics", "NodeInspect", "ProcessList", "LogAccess", "PerformanceProfile"],
+      "compliance": ["AuditView", "PolicyValidate", "LineageInspect", "DataRetentionAudit"],
+      "shared": ["AdapterList", "AdapterView", "TrainingView", "PolicyView", "MetricsView", "StackView"]
+    },
+    "multi_tenancy": {
+      "isolation_model": "strict",
+      "cross_tenant_role": "SystemAdmin",
+      "tenant_scoped_roles": ["Admin", "Operator", "SRE", "Compliance", "Viewer"],
+      "shared_resources": "require SystemAdmin or explicit cross-tenant grant"
+    },
+    "enforcement": {
+      "denial_response": "403 Forbidden with error body containing required_permission and current_role",
+      "audit_logging": "All denied requests logged to immutable audit trail with timestamp, principal, action, resource, and denial_reason",
+      "alert_on_escalation": "Repeated denied attempts trigger security alert to tenant Admin and SystemAdmin"
+    }
+  },
+  "statistics": {
+    "total_examples": 2000,
+    "roles_covered": ["Admin", "Operator", "SRE", "Compliance", "Viewer", "SystemAdmin"],
+    "permissions_covered": 25,
+    "label_balance": {
+      "positive": 1170,
+      "negative": 830
+    },
+    "avg_quality_score": 0.94
+  }
+}

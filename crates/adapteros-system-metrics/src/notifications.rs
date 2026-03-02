@@ -270,7 +270,7 @@ impl NotificationService {
         .bind(&notification.recipient)
         .bind(&notification.message)
         .bind("pending")
-        .execute(self.db.pool())
+        .execute(self.db.pool_result()?)
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!(
@@ -303,7 +303,7 @@ impl NotificationService {
         .bind(status)
         .bind(&error_message)
         .bind(notification_id)
-        .execute(self.db.pool())
+        .execute(self.db.pool_result()?)
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!(
@@ -626,7 +626,7 @@ impl NotificationService {
             "SELECT id, alert_id, notification_type, recipient, message, status, sent_at, delivered_at, error_message, retry_count, created_at FROM process_monitoring_notifications WHERE alert_id = ? ORDER BY created_at DESC",
         )
         .bind(alert_id)
-        .fetch_all(self.db.pool())
+        .fetch_all(self.db.pool_result()?)
         .await
         .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get notification status: {}", e)))?;
 
@@ -667,7 +667,7 @@ impl NotificationService {
              ORDER BY created_at ASC LIMIT 10",
         )
         .bind(retry_attempts)
-        .fetch_all(self.db.pool())
+        .fetch_all(self.db.pool_result()?)
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to get failed notifications: {}", e))
@@ -682,7 +682,7 @@ impl NotificationService {
                 "UPDATE process_monitoring_notifications SET retry_count = retry_count + 1 WHERE id = ?",
             )
             .bind(&id)
-            .execute(self.db.pool())
+            .execute(self.db.pool_result()?)
             .await
             .map_err(|e| adapteros_core::AosError::Database(format!("Failed to update retry count: {}", e)))?;
 

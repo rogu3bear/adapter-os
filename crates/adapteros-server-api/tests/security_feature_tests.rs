@@ -46,7 +46,7 @@ async fn init_test_db() -> Db {
             expires_at TEXT NOT NULL
         )",
     )
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool"))
     .await
     .expect("Failed to create revoked_tokens table");
 
@@ -60,7 +60,7 @@ async fn init_test_db() -> Db {
             last_updated TEXT NOT NULL DEFAULT (datetime('now'))
         )",
     )
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool"))
     .await
     .expect("Failed to create rate_limit_buckets table");
 
@@ -78,7 +78,7 @@ async fn init_test_db() -> Db {
             reason TEXT
         )",
     )
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool"))
     .await
     .expect("Failed to create ip_access_control table");
 
@@ -92,7 +92,7 @@ async fn init_test_db() -> Db {
             failure_reason TEXT
         )",
     )
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool"))
     .await
     .expect("Failed to create auth_attempts table");
 
@@ -112,7 +112,7 @@ async fn init_test_db() -> Db {
             token_rotated_at TEXT
         )",
     )
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool"))
     .await
     .expect("Failed to create users table");
 
@@ -134,7 +134,7 @@ async fn init_test_db() -> Db {
             locked INTEGER NOT NULL DEFAULT 0
         )",
     )
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool"))
     .await
     .expect("Failed to create user_sessions table");
 
@@ -305,7 +305,7 @@ mod token_revocation_tests {
         .bind("user-revoke-all@example.com")
         .bind("Revoke All User")
         .bind(tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool"))
         .await
         .expect("Failed to insert test user");
 
@@ -778,7 +778,7 @@ mod auth_attempt_tracking_tests {
         .bind("hash")
         .bind("operator")
         .bind("default")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool"))
         .await
         .expect("Failed to insert user");
 
@@ -828,7 +828,7 @@ mod auth_attempt_tracking_tests {
         .bind("hash")
         .bind("operator")
         .bind("default")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool"))
         .await
         .expect("Failed to insert user");
 

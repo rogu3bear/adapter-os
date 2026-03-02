@@ -50,7 +50,7 @@ cargo test --test integration -- --nocapture
 cargo test --test integration tenant_isolation -- --nocapture
 
 # Run with environment variables
-MPLORA_TEST_URL=http://localhost:9443 \
+MPLORA_TEST_URL=http://localhost:18080 \
 TENANT_A_TOKEN=token1 \
 TENANT_B_TOKEN=token2 \
 cargo test --test integration -- --nocapture
@@ -58,7 +58,7 @@ cargo test --test integration -- --nocapture
 
 ### Test Configuration
 Tests use the following environment variables:
-- `MPLORA_TEST_URL`: Base URL for adapterOS API (default: http://localhost:9443)
+- `MPLORA_TEST_URL`: Base URL for adapterOS API (default: http://localhost:18080)
 - `TENANT_A_TOKEN`: Authentication token for tenant A
 - `TENANT_B_TOKEN`: Authentication token for tenant B
 - `TENANT_C_TOKEN`: Authentication token for tenant C

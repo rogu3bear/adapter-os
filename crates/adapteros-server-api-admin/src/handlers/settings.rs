@@ -61,7 +61,7 @@ pub async fn get_settings<S: AdminAppState>(
                 .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string()),
         },
         server: ServerSettings {
-            http_port: config.server.http_port.unwrap_or(8080),
+            http_port: config.server.http_port.unwrap_or(18080),
             https_port: config.server.https_port,
             uds_socket_path: config.server.uds_socket.clone(),
             production_mode: config.server.production_mode,

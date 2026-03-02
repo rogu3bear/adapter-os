@@ -220,7 +220,7 @@ async fn test_batch_evidence_storage() -> Result<()> {
     )
     .bind(doc_id)
     .bind(&tenant_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Create chunks for the document (chunk IDs are database record IDs)
@@ -235,7 +235,7 @@ async fn test_batch_evidence_storage() -> Result<()> {
         .bind(doc_id)
         .bind(i as i32)
         .bind((i + 1) as i32) // page_number = chunk_index + 1
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -388,7 +388,7 @@ async fn test_unified_document_id_flow() -> Result<()> {
     )
     .bind(document_uuid)
     .bind(&tenant_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Step 3: Create document chunks with proper FKs (simulates process_document endpoint)
@@ -405,7 +405,7 @@ async fn test_unified_document_id_flow() -> Result<()> {
         .bind(document_uuid)
         .bind(i as i32)
         .bind((i + 1) as i32)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -416,7 +416,7 @@ async fn test_unified_document_id_flow() -> Result<()> {
     )
     .bind(collection_id)
     .bind(&tenant_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
@@ -426,7 +426,7 @@ async fn test_unified_document_id_flow() -> Result<()> {
     .bind(document_uuid)
     .bind(&tenant_id)
     .bind("2024-01-01T00:00:00Z")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Step 5: Verify collection document IDs returns the UUID
@@ -558,7 +558,7 @@ async fn test_unified_flow_collection_filtering() -> Result<()> {
         )
         .bind(doc_id)
         .bind(&tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -569,7 +569,7 @@ async fn test_unified_flow_collection_filtering() -> Result<()> {
     )
     .bind(collection_id)
     .bind(&tenant_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
@@ -579,7 +579,7 @@ async fn test_unified_flow_collection_filtering() -> Result<()> {
     .bind(doc_in_collection)
     .bind(&tenant_id)
     .bind("2024-01-01T00:00:00Z")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Simulate RAG results from both documents
@@ -642,7 +642,7 @@ async fn test_rag_evidence_with_trace_fields() -> Result<()> {
     )
     .bind(doc_id)
     .bind(&tenant_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Create chunk
@@ -654,7 +654,7 @@ async fn test_rag_evidence_with_trace_fields() -> Result<()> {
     .bind(chunk_id)
     .bind(&tenant_id)
     .bind(doc_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Create collection
@@ -664,7 +664,7 @@ async fn test_rag_evidence_with_trace_fields() -> Result<()> {
     )
     .bind(collection_id)
     .bind(&tenant_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Create evidence with RAG trace fields
@@ -862,7 +862,7 @@ async fn test_get_documents_by_ids_preserves_order() -> Result<()> {
         )
         .bind(doc_id)
         .bind(&tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -901,7 +901,7 @@ async fn test_get_documents_handles_missing() -> Result<()> {
          VALUES ('existing-doc', ?, 'test.pdf', 'hash', 'var/test.pdf', 1024, 'application/pdf', 'processed')",
     )
     .bind(&tenant_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Request including non-existent documents

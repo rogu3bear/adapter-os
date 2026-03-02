@@ -358,7 +358,7 @@ impl SystemMetricsDbOps for Db {
         .bind(metrics.disk_usage_percent)
         .bind(metrics.network_bandwidth_mbps)
         .bind(metrics.gpu_memory_total)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to record metrics: {}", e)))?;
 
@@ -389,7 +389,7 @@ impl SystemMetricsDbOps for Db {
         )
         .bind(start_time)
         .bind(limit_i64)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get metrics history: {}", e)))?;
 
@@ -407,7 +407,7 @@ impl SystemMetricsDbOps for Db {
                 ORDER BY timestamp DESC
                 "#,
             )
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
         } else {
             sqlx::query_as::<_, MetricsViolation>(
@@ -418,7 +418,7 @@ impl SystemMetricsDbOps for Db {
                 ORDER BY timestamp DESC
                 "#,
             )
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
         }
         .map_err(|e| AosError::Database(format!("Failed to get violations: {}", e)))?;
@@ -450,7 +450,7 @@ impl SystemMetricsDbOps for Db {
         .bind(current_value)
         .bind(threshold_value)
         .bind(severity)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to record violation: {}", e)))?;
 
@@ -466,7 +466,7 @@ impl SystemMetricsDbOps for Db {
         sqlx::query("UPDATE threshold_violations SET resolved_at = ? WHERE id = ?")
             .bind(timestamp)
             .bind(violation_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to resolve violation: {}", e)))?;
 
@@ -486,7 +486,7 @@ impl SystemMetricsDbOps for Db {
             LIMIT 1
             "#,
         )
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get latest metrics: {}", e)))?;
 
@@ -502,7 +502,7 @@ impl SystemMetricsDbOps for Db {
 
         let result = sqlx::query("DELETE FROM system_metrics WHERE timestamp < ?")
             .bind(cutoff_time)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to cleanup metrics: {}", e)))?;
 
@@ -543,7 +543,7 @@ impl SystemMetricsDbOps for Db {
         .bind(total_network_rx)
         .bind(total_network_tx)
         .bind(sample_count)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to store aggregation: {}", e)))?;
 
@@ -568,7 +568,7 @@ impl SystemMetricsDbOps for Db {
         .bind(window_start)
         .bind(window_end)
         .bind(window_type)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get aggregation: {}", e)))?;
 
@@ -596,7 +596,7 @@ impl SystemMetricsDbOps for Db {
         let row =
             sqlx::query("SELECT config_value FROM system_metrics_config WHERE config_key = ?")
                 .bind(key)
-                .fetch_optional(self.pool())
+                .fetch_optional(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to get config: {}", e)))?;
 
@@ -621,7 +621,7 @@ impl SystemMetricsDbOps for Db {
         .bind(key)
         .bind(value)
         .bind(timestamp)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to set config: {}", e)))?;
 

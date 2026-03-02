@@ -21,11 +21,14 @@
 #![allow(clippy::unused_unit)]
 #![allow(clippy::unit_arg)]
 #![allow(non_snake_case)]
+#![recursion_limit = "1024"]
 
 pub mod api;
 pub mod components;
 pub mod constants;
 pub mod contexts;
+#[macro_use]
+pub mod debug;
 pub mod hooks;
 pub mod pages;
 pub mod search;
@@ -39,10 +42,12 @@ use leptos::tachys::view::any_view::IntoAny;
 use leptos_router::components::*;
 use leptos_router::path;
 
-use crate::api::{report_ui_panic, ApiClient};
+#[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
+use crate::api::report_ui_panic;
+use crate::api::ApiClient;
 use crate::contexts::InFlightProvider;
 use components::{
-    AuthProvider, CommandPalette, ProtectedRoute, RouteErrorBoundary, Shell, ToastContainer,
+    AuthProvider, CommandPalette, ProtectedRoute, RouteErrorBoundary, ShellDispatch, ToastContainer,
 };
 use signals::{
     provide_chat_context, provide_notifications_context, provide_refetch_context,
@@ -152,7 +157,8 @@ pub fn redact_sensitive_info(message: &str) -> String {
 /// Main application component - full app with all routes
 #[component]
 pub fn App() -> impl IntoView {
-    web_sys::console::log_1(&"[App] Rendering App component...".into());
+    #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
+    crate::debug_log!("[App] Rendering App component...");
 
     // Ensure API base URL is configured; fail fast with a clear banner instead of a blank screen
     if let Err(err) = crate::api::api_base_url_checked() {
@@ -174,16 +180,13 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/login") view=pages::Login/>
                         // PRD-UI-000: Safe mode route (no auth required, no API calls)
                         <Route path=path!("/safe") view=pages::Safe/>
-                        // PRD-UI-003: Style audit (dev-only tool, no sensitive data)
-                        <Route path=path!("/style-audit") view=StyleAuditRoute/>
                         // Backward compatibility redirects
                         <Route path=path!("/flight-recorder") view=|| view! { <ProtectedRoute><Redirect path="/runs"/></ProtectedRoute> }/>
                         <Route path=path!("/flight-recorder/:id") view=|| view! { <ProtectedRoute><FlightRecorderIdRedirect/></ProtectedRoute> }/>
 
-                        // All protected routes share a single Shell instance via ParentRoute.
-                        // This prevents Shell (TopBar, Taskbar, SystemTray) from being
-                        // disposed and recreated on every SPA navigation.
-                        <ParentRoute path=path!("") view=|| view! { <ProtectedRoute><Shell/></ProtectedRoute> }>
+                        // All protected routes share a single shell instance via ParentRoute.
+                        // ShellDispatch chooses Shell or HudShell based on UiProfile.
+                        <ParentRoute path=path!("") view=|| view! { <ProtectedRoute><ShellDispatch/></ProtectedRoute> }>
                             <Route path=path!("/") view=pages::Dashboard/>
                             <Route path=path!("/dashboard") view=pages::Dashboard/>
                             <Route path=path!("/adapters") view=pages::Adapters/>
@@ -199,31 +202,18 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/policies") view=pages::Policies/>
                             <Route path=path!("/training") view=pages::Training/>
                             <Route path=path!("/training/:id") view=pages::training::TrainingDetailRoute/>
-                            <Route path=path!("/stacks") view=pages::Stacks/>
-                            <Route path=path!("/stacks/:id") view=pages::StackDetail/>
-                            <Route path=path!("/collections") view=pages::Collections/>
-                            <Route path=path!("/collections/:id") view=pages::CollectionDetail/>
-                            <Route path=path!("/documents") view=pages::Documents/>
-                            <Route path=path!("/documents/:id") view=pages::DocumentDetail/>
                             <Route path=path!("/datasets") view=pages::Datasets/>
                             <Route path=path!("/datasets/:id") view=pages::DatasetDetail/>
+                            <Route path=path!("/documents") view=pages::Documents/>
+                            <Route path=path!("/documents/:id") view=pages::DocumentDetail/>
                             <Route path=path!("/admin") view=pages::Admin/>
                             <Route path=path!("/audit") view=pages::Audit/>
                             <Route path=path!("/runs") view=pages::FlightRecorder/>
                             <Route path=path!("/runs/:id") view=pages::FlightRecorderDetail/>
-                            <Route path=path!("/diff") view=pages::Diff/>
+                            <Route path=path!("/routing") view=|| view! { <Redirect path="/runs"/> }/>
                             <Route path=path!("/workers") view=pages::Workers/>
                             <Route path=path!("/workers/:id") view=pages::WorkerDetail/>
-                            <Route path=path!("/monitoring") view=pages::Monitoring/>
-                            <Route path=path!("/errors") view=pages::Errors/>
-                            <Route path=path!("/routing") view=pages::Routing/>
-                            <Route path=path!("/repositories") view=pages::Repositories/>
-                            <Route path=path!("/repositories/:id") view=pages::RepositoryDetail/>
-                            <Route path=path!("/reviews/:pause_id") view=pages::ReviewDetail/>
-                            <Route path=path!("/reviews") view=pages::Reviews/>
                             <Route path=path!("/welcome") view=pages::Welcome/>
-                            <Route path=path!("/agents") view=pages::Agents/>
-                            <Route path=path!("/files") view=pages::FileBrowser/>
                         </ParentRoute>
                     </Routes>
                             // Global Command Palette overlay
@@ -237,6 +227,18 @@ pub fn App() -> impl IntoView {
         </>
     }
     .into_any()
+}
+
+/// Render the root app to an HTML string for server-side shell injection.
+#[cfg(feature = "ssr")]
+pub fn render_app_html(request_path_and_query: &str) -> String {
+    use leptos_router::location::RequestUrl;
+
+    let owner = Owner::new();
+    owner.with(|| {
+        provide_context(RequestUrl::new(request_path_and_query));
+        App().into_view().to_html()
+    })
 }
 
 /// Fatal error surface for missing API base URL configuration
@@ -289,10 +291,12 @@ fn FlightRecorderIdRedirect() -> impl IntoView {
     let params = use_params_map();
     let path = move || {
         let id = params.get().get("id").unwrap_or_default();
-        // Get query string directly from window location
+        #[cfg(target_arch = "wasm32")]
         let query_string = web_sys::window()
             .and_then(|w| w.location().search().ok())
             .unwrap_or_default();
+        #[cfg(not(target_arch = "wasm32"))]
+        let query_string = String::new();
 
         if query_string.is_empty() {
             format!("/runs/{}", id)
@@ -303,19 +307,8 @@ fn FlightRecorderIdRedirect() -> impl IntoView {
     view! { <Redirect path=path()/> }
 }
 
-#[component]
-fn StyleAuditRoute() -> impl IntoView {
-    #[cfg(feature = "dev-routes")]
-    {
-        view! { <pages::StyleAudit/> }.into_any()
-    }
-    #[cfg(not(feature = "dev-routes"))]
-    {
-        view! { <pages::NotFound/> }.into_any()
-    }
-}
-
 // PRD-UI-000: JS interop for boot diagnostics
+#[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
 #[wasm_bindgen::prelude::wasm_bindgen]
 extern "C" {
     /// Signal that WASM compilation is complete (called when wasm_bindgen start runs)
@@ -338,14 +331,23 @@ extern "C" {
 /// Boot timeline event logger with high-resolution timestamps.
 /// Format: [boot T+{ms}ms] {phase}: {message}
 pub fn boot_log(phase: &str, message: &str) {
-    // Use a static to track boot start time
-    static BOOT_START: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
-    let start = *BOOT_START.get_or_init(now);
-    let elapsed = now() - start;
-    web_sys::console::log_1(&format!("[boot T+{:.0}ms] {}: {}", elapsed, phase, message).into());
+    #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
+    {
+        // Use a static to track boot start time
+        static BOOT_START: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+        let start = *BOOT_START.get_or_init(now);
+        let elapsed = now() - start;
+        crate::debug_log!("[boot T+{:.0}ms] {}: {}", elapsed, phase, message);
+    }
+
+    #[cfg(not(all(feature = "hydrate", target_arch = "wasm32")))]
+    {
+        let _ = (phase, message);
+    }
 }
 
 /// PRD-UI-000: Custom panic hook that displays errors in the DOM with redaction
+#[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
 fn set_dom_panic_hook() {
     use std::panic;
     use std::sync::Once;
@@ -402,6 +404,27 @@ fn set_dom_panic_hook() {
     });
 }
 
+#[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
+fn hydrate_or_mount_app() {
+    use wasm_bindgen::JsCast;
+
+    let root = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id("aos-root"))
+        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok());
+
+    if let Some(root) = root {
+        if root.child_element_count() == 0 {
+            leptos::mount::mount_to(root.clone().into(), App).forget();
+        } else {
+            leptos::mount::hydrate_from(root, App).forget();
+        }
+    } else {
+        leptos::mount::mount_to_body(App);
+    }
+}
+
+#[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn mount() {
     // Boot timeline: T+0ms - WASM binary executing
@@ -433,8 +456,7 @@ pub fn mount() {
     signal_wasm_loaded();
     boot_log("mount", "runtime ready, mounting Leptos app");
 
-    // Mount the Leptos app
-    leptos::mount::mount_to_body(App);
+    hydrate_or_mount_app();
 
     // PRD-UI-000: Signal app is mounted (triggers backend health check)
     signal_mounted();

@@ -85,7 +85,7 @@ async fn run_reasoning_loop(trace_id: &str, context_digest: [u8; 32]) -> LoopRun
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind(&tenant_id)
         .bind(&tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("seed tenant");
     let start = TraceStart {
@@ -202,7 +202,7 @@ async fn load_trace_rows(db: &Db, trace_id: &str) -> Vec<TraceRow> {
         "#,
     )
     .bind(trace_id)
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result().expect("db pool available"))
     .await
     .expect("load trace rows");
 

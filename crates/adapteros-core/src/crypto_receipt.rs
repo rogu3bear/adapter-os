@@ -882,6 +882,7 @@ impl CryptographicReceipt {
             tool_call_inputs_digest_b3: None,
             tool_call_outputs_digest_b3: None,
             disclosure_level: None,
+            adapter_version_bindings_digest_b3: None,
         }
     }
 }

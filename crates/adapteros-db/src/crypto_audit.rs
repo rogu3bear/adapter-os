@@ -106,7 +106,7 @@ impl crate::Db {
         .bind(result)
         .bind(error_message)
         .bind(metadata)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to store audit entry: {}", e)))?;
 
@@ -127,7 +127,7 @@ impl crate::Db {
             LIMIT 1
             "#,
         )
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get latest audit entry: {}", e)))?;
 
@@ -189,7 +189,7 @@ impl crate::Db {
         )
         .bind(start_sequence as i64)
         .bind(end_sequence as i64)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch audit entries: {}", e)))?;
 
@@ -297,7 +297,7 @@ impl crate::Db {
             "#,
         )
         .bind(entry_type)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to query audit entries by operation: {}", e))
@@ -342,7 +342,7 @@ impl crate::Db {
         )
         .bind(start_timestamp as i64)
         .bind(end_timestamp as i64)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -375,7 +375,7 @@ impl crate::Db {
     /// Get total count of audit entries
     pub async fn get_audit_entry_count(&self) -> Result<u64> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM crypto_audit_logs")
-            .fetch_one(self.pool())
+            .fetch_one(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to count audit entries: {}", e)))?;
 

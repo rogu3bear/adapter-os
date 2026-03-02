@@ -150,7 +150,7 @@ pub struct OtelConfig {
     /// Service name for traces (default: "adapteros-server" or OTEL_SERVICE_NAME env var)
     #[serde(default = "default_service_name")]
     pub service_name: String,
-    /// OTLP endpoint (default: "http://localhost:4317" or OTEL_EXPORTER_OTLP_ENDPOINT env var)
+    /// OTLP endpoint (default: "http://localhost:18088" or OTEL_EXPORTER_OTLP_ENDPOINT env var)
     #[serde(default = "default_otlp_endpoint")]
     pub endpoint: String,
     /// Protocol: "grpc" or "http" (default: "grpc" or OTEL_EXPORTER_OTLP_PROTOCOL env var)
@@ -176,7 +176,7 @@ fn default_service_name() -> String {
 
 fn default_otlp_endpoint() -> String {
     std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-        .unwrap_or_else(|_| "http://localhost:4317".to_string())
+        .unwrap_or_else(|_| "http://localhost:18088".to_string())
 }
 
 fn default_protocol() -> String {

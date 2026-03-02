@@ -106,7 +106,7 @@ pub fn SidebarNav() -> impl IntoView {
                     is_expanded=Signal::derive(move || sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false))
                     is_active=Signal::derive(move || {
                         let path = location.pathname.try_get().unwrap_or_default();
-                        path == "/" || path == "/dashboard"
+                        super::nav_registry::is_route_active(&path, DASHBOARD_ITEM.route)
                     })
                 />
 
@@ -137,22 +137,21 @@ pub fn SidebarNav() -> impl IntoView {
 #[component]
 fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl IntoView {
     let location = use_location();
+    let ui_profile = use_ui_profile();
     let (group_open, set_group_open) = signal(!group.collapsed_by_default);
     let items = group.items;
     let label = group.label;
+    let legacy_label = group.legacy_label;
+    let legacy_label_text = group.legacy_label.unwrap_or("");
     let icon_path = group.icon;
     let alt_shortcut = group.alt_shortcut;
 
     // Check if any item in this group is active
     let group_is_active = move || {
         let path = location.pathname.try_get().unwrap_or_default();
-        items.iter().any(|item| {
-            if item.route == "/" {
-                path == "/" || path == "/dashboard"
-            } else {
-                path == item.route || path.starts_with(&format!("{}/", item.route))
-            }
-        })
+        items
+            .iter()
+            .any(|item| super::nav_registry::is_route_active(&path, item.route))
     };
 
     // Single-item groups navigate directly instead of expanding
@@ -176,12 +175,20 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                             if group_is_active() { "sidebar-group-header--active" } else { "" }
                         )
                         title=move || {
-                            if is_expanded.try_get().unwrap_or(false) {
+                            let label_for_tooltip = if legacy_label.is_some()
+                                && ui_profile.try_get().unwrap_or(UiProfile::Primary)
+                                    == UiProfile::Full
+                            {
+                                format!("{label} ({legacy_label_text})")
+                            } else {
                                 label.to_string()
+                            };
+                            if is_expanded.try_get().unwrap_or(false) {
+                                label_for_tooltip
                             } else {
                                 match alt_shortcut {
-                                    Some(n) => format!("{} (Alt+{})", label, n),
-                                    None => label.to_string(),
+                                    Some(n) => format!("{label_for_tooltip} (Alt+{n})"),
+                                    None => label_for_tooltip,
                                 }
                             }
                         }
@@ -194,9 +201,15 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                         </svg>
                         <Show when=move || is_expanded.try_get().unwrap_or(false)>
                             <span class="sidebar-label">{label}</span>
-                            {alt_shortcut.map(|n| view! {
-                                <kbd class="sidebar-kbd">{format!("Alt+{}", n)}</kbd>
-                            })}
+                            <Show when=move || {
+                                legacy_label.is_some()
+                                    && ui_profile.try_get().unwrap_or(UiProfile::Primary)
+                                        == UiProfile::Full
+                            }>
+                                <span class="text-[10px] text-muted-foreground ml-1">
+                                    {"("}{legacy_label_text}{")"}
+                                </span>
+                            </Show>
                         </Show>
                     </a>
                 }.into_any()
@@ -216,7 +229,16 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                                         if group_is_active() { "sidebar-group-header--active" } else { "" }
                                     )
                                     on:click=move |_| set_group_open.update(|v| *v = !*v)
-                                    title=move || label.to_string()
+                                    title=move || {
+                                        if legacy_label.is_some()
+                                            && ui_profile.try_get().unwrap_or(UiProfile::Primary)
+                                                == UiProfile::Full
+                                        {
+                                            format!("{label} ({legacy_label_text})")
+                                        } else {
+                                            label.to_string()
+                                        }
+                                    }
                                     aria-expanded=move || {
                                         group_open
                                             .try_get()
@@ -231,9 +253,16 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                                         <path d=icon_path/>
                                     </svg>
                                     <span class="sidebar-label">{label}</span>
-                                    {alt_shortcut.map(|n| view! {
-                                        <kbd class="sidebar-kbd">{format!("Alt+{}", n)}</kbd>
-                                    })}
+                                    <Show when=move || {
+                                        legacy_label.is_some()
+                                            && ui_profile.try_get().unwrap_or(UiProfile::Primary)
+                                                == UiProfile::Full
+                                    }>
+                                        <span class="text-[10px] text-muted-foreground ml-1">
+                                            {"("}{legacy_label_text}{")"}
+                                        </span>
+                                    </Show>
+
                                     <svg
                                         class=move || format!(
                                             "sidebar-chevron {}",
@@ -263,9 +292,17 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                                         if group_is_active() { "sidebar-group-header--active" } else { "" }
                                     )
                                     title=move || {
+                                        let label_for_tooltip = if legacy_label.is_some()
+                                            && ui_profile.try_get().unwrap_or(UiProfile::Primary)
+                                                == UiProfile::Full
+                                        {
+                                            format!("{label} ({legacy_label_text})")
+                                        } else {
+                                            label.to_string()
+                                        };
                                         match alt_shortcut {
-                                            Some(n) => format!("{} (Alt+{})", label, n),
-                                            None => label.to_string(),
+                                            Some(n) => format!("{label_for_tooltip} (Alt+{n})"),
+                                            None => label_for_tooltip,
                                         }
                                     }
                                 >
@@ -302,11 +339,7 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                                 is_expanded=is_expanded
                                 is_active=Signal::derive(move || {
                                     let path = location.pathname.try_get().unwrap_or_default();
-                                    if item.route == "/" {
-                                        path == "/" || path == "/dashboard"
-                                    } else {
-                                        path == item.route || path.starts_with(&format!("{}/", item.route))
-                                    }
+                                    super::nav_registry::is_route_active(&path, item.route)
                                 })
                             />
                         }
@@ -367,6 +400,8 @@ fn ProfileToggle(is_expanded: Signal<bool>) -> impl IntoView {
         let next = match current {
             UiProfile::Primary => UiProfile::Full,
             UiProfile::Full => UiProfile::Primary,
+            // HUD users shouldn't see sidebar; handle gracefully
+            UiProfile::Hud => UiProfile::Primary,
         };
         update_setting(settings, |s| {
             s.ui_profile = Some(next);
@@ -374,13 +409,15 @@ fn ProfileToggle(is_expanded: Signal<bool>) -> impl IntoView {
     };
 
     let label = move || match ui_profile.try_get().unwrap_or(UiProfile::Primary) {
-        UiProfile::Primary => "Primary",
-        UiProfile::Full => "Full",
+        UiProfile::Primary => "Advanced: Off",
+        UiProfile::Full => "Advanced: On",
+        UiProfile::Hud => "Advanced: Off",
     };
 
     let title = move || match ui_profile.try_get().unwrap_or(UiProfile::Primary) {
-        UiProfile::Primary => "Primary profile \u{2014} click to switch to Full",
-        UiProfile::Full => "Full profile \u{2014} click to switch to Primary",
+        UiProfile::Primary => "Advanced labels are off. Click to show legacy workflow terms.",
+        UiProfile::Full => "Advanced labels are on. Click to return to plain labels.",
+        UiProfile::Hud => "Advanced labels are off. Click to show legacy workflow terms.",
     };
 
     view! {

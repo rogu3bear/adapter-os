@@ -91,7 +91,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(repo_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -143,7 +143,7 @@ impl Db {
         .bind(policy.coreml_allowed)
         .bind(policy.coreml_required)
         .bind(pinned_dataset_version_ids_json)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 

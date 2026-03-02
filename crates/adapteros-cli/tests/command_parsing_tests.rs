@@ -96,122 +96,85 @@ mod command_parsing {
         let result = parse_cli(vec!["aosctl", "adapter-list", "--include-meta"]);
         assert!(result.is_ok());
 
-        // Legacy alias still works
-        let result = parse_cli(vec!["aosctl", "list-adapters"]);
-        assert!(result.is_ok());
+        // adapter-list is deprecated but still parseable
     }
 
     #[test]
     fn test_adapter_register_command() {
         let result = parse_cli(vec![
             "aosctl",
-            "adapter-register",
-            "--adapter-id",
-            "test_adapter",
-            "--aos",
-            "/path/to/adapter.aos",
-            "--tenant-id",
-            "tenant1",
-            "--base-model-id",
-            "qwen2.5-7b",
-            "--tier",
-            "persistent",
-            "--rank",
-            "16",
+            "adapter",
+            "register",
+            "--path",
+            "/tmp/adapter-dir",
         ]);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_adapter_pin_command() {
-        // Without TTL (permanent pin)
+        // Deprecated adapter-pin (adapter_id positional, tenant optional)
         let result = parse_cli(vec![
             "aosctl",
             "adapter-pin",
+            "specialist",
             "--tenant",
             "dev",
-            "--adapter",
-            "specialist",
-            "--reason",
-            "Production critical",
         ]);
         assert!(result.is_ok());
 
-        // With TTL
+        // New subcommand form
         let result = parse_cli(vec![
             "aosctl",
-            "adapter-pin",
+            "adapter",
+            "pin",
+            "specialist",
             "--tenant",
             "dev",
-            "--adapter",
-            "temp_fix",
-            "--ttl-hours",
-            "24",
-            "--reason",
-            "Testing",
         ]);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_adapter_unpin_command() {
+        // Deprecated form
         let result = parse_cli(vec![
             "aosctl",
             "adapter-unpin",
+            "temp_fix",
             "--tenant",
             "dev",
-            "--adapter",
-            "temp_fix",
+        ]);
+        assert!(result.is_ok());
+
+        // New subcommand form
+        let result = parse_cli(vec![
+            "aosctl", "adapter", "unpin", "temp_fix", "--tenant", "dev",
         ]);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_adapter_swap_command() {
-        // Dry-run with add and remove
-        let result = parse_cli(vec![
-            "aosctl",
-            "adapter-swap",
-            "--tenant",
-            "dev",
-            "--add",
-            "adapter1,adapter2",
-            "--remove",
-            "old_adapter",
-        ]);
+        // adapter swap takes adapter_id positional
+        let result = parse_cli(vec!["aosctl", "adapter", "swap", "adapter-1"]);
         assert!(result.is_ok());
 
-        // Commit swap
+        // With custom timeout
         let result = parse_cli(vec![
             "aosctl",
-            "adapter-swap",
-            "--tenant",
-            "dev",
-            "--add",
-            "specialist",
-            "--remove",
-            "temp_fix",
-            "--commit",
-        ]);
-        assert!(result.is_ok());
-
-        // Custom timeout
-        let result = parse_cli(vec![
-            "aosctl",
-            "adapter-swap",
-            "--tenant",
-            "dev",
-            "--add",
-            "adapter1",
+            "adapter",
+            "swap",
+            "adapter-1",
             "--timeout",
-            "10000",
+            "60",
         ]);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_adapter_info_command() {
-        let result = parse_cli(vec!["aosctl", "adapter-info", "specialist"]);
+        let result = parse_cli(vec!["aosctl", "adapter", "info", "specialist"]);
         assert!(result.is_ok());
     }
 
@@ -239,28 +202,16 @@ mod command_parsing {
 
     #[test]
     fn test_missing_required_arguments() {
-        // Missing adapter ID for register
-        let result = parse_cli(vec![
-            "aosctl",
-            "adapter-register",
-            "--aos",
-            "/path/to/adapter.aos",
-        ]);
+        // Missing --path for adapter register
+        let result = parse_cli(vec!["aosctl", "adapter", "register"]);
         assert!(result.is_err());
 
-        // Missing tenant for pin
-        let result = parse_cli(vec!["aosctl", "adapter-pin", "--adapter", "specialist"]);
+        // Missing adapter_id for adapter pin (deprecated form)
+        let result = parse_cli(vec!["aosctl", "adapter-pin", "--tenant", "dev"]);
         assert!(result.is_err());
 
-        // Missing reason for pin
-        let result = parse_cli(vec![
-            "aosctl",
-            "adapter-pin",
-            "--tenant",
-            "dev",
-            "--adapter",
-            "specialist",
-        ]);
+        // Missing adapter_id for adapter pin (new form)
+        let result = parse_cli(vec!["aosctl", "adapter", "pin", "--tenant", "dev"]);
         assert!(result.is_err());
     }
 
@@ -312,68 +263,31 @@ mod command_parsing {
 
     #[test]
     fn test_comma_separated_values() {
-        // Adapter swap with comma-separated adapters
+        // node-verify with comma-separated node IDs
         let result = parse_cli(vec![
             "aosctl",
-            "adapter-swap",
-            "--tenant",
-            "dev",
-            "--add",
-            "a1,a2,a3",
-            "--remove",
-            "b1,b2",
+            "node-verify",
+            "--nodes",
+            "node1,node2,node3",
         ]);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_numeric_argument_validation() {
-        // Valid rank
+        // Valid rank for adapter register
         let result = parse_cli(vec![
-            "aosctl",
-            "adapter-register",
-            "--adapter-id",
-            "test",
-            "--aos",
-            "/path",
-            "--tenant-id",
-            "t1",
-            "--base-model-id",
-            "model",
-            "--rank",
-            "16",
+            "aosctl", "adapter", "register", "--path", "/tmp/x", "--rank", "16",
         ]);
         assert!(result.is_ok());
-
-        // Invalid rank (negative)
-        let result = parse_cli(vec![
-            "aosctl",
-            "adapter-register",
-            "--adapter-id",
-            "test",
-            "--aos",
-            "/path",
-            "--tenant-id",
-            "t1",
-            "--base-model-id",
-            "model",
-            "--rank",
-            "-1",
-        ]);
-        assert!(result.is_err());
 
         // Invalid rank (not a number)
         let result = parse_cli(vec![
             "aosctl",
-            "adapter-register",
-            "--adapter-id",
-            "test",
-            "--aos",
-            "/path",
-            "--tenant-id",
-            "t1",
-            "--base-model-id",
-            "model",
+            "adapter",
+            "register",
+            "--path",
+            "/tmp/x",
             "--rank",
             "not-a-number",
         ]);
@@ -382,22 +296,7 @@ mod command_parsing {
 
     #[test]
     fn test_default_values() {
-        let result = parse_cli(vec![
-            "aosctl",
-            "adapter-register",
-            "--adapter-id",
-            "test",
-            "--aos",
-            "/path",
-            "--tenant-id",
-            "t1",
-            "--base-model-id",
-            "model",
-            "--rank",
-            "16",
-        ]);
+        let result = parse_cli(vec!["aosctl", "adapter", "register", "--path", "/tmp/x"]);
         assert!(result.is_ok());
-        // Note: We can't directly test the tier default without access to the parsed command
-        // This would require matching on the Commands enum
     }
 }

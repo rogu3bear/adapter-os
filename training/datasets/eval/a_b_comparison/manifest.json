@@ -1,0 +1,66 @@
+{
+  "name": "a_b_adapter_comparison_v1",
+  "description": "A/B comparison evaluation dataset for deciding between adapter variants. Covers version comparison, architecture comparison (LoRA rank, target modules), inconclusive results handling, mixed-signal triage, and experimental methodology. All examples grounded in adapterOS adapter lifecycle, statistical testing, and deployment decision frameworks.",
+  "version": "1.0.0",
+  "category": "eval",
+  "scope": "global",
+  "tier": "critical",
+  "rank": 8,
+  "alpha": 8.0,
+  "target_modules": [
+    "gate_proj",
+    "up_proj",
+    "o_proj"
+  ],
+  "entries": [
+    {
+      "path": "a-b-comparison.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "supervised",
+      "notes": "2000 examples across five categories: version_comparison (400), architecture_comparison (400), inconclusive_results (400), mixed_results (400), methodology (400). Each example contains a realistic A/B evaluation scenario with statistical reasoning, metric interpretation, and deployment decisions."
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "crates/adapteros-orchestrator/src/training/service.rs",
+      "crates/adapteros-db/src/adapter_repositories.rs",
+      "crates/adapteros-lora-worker/src/adapter_hotswap.rs",
+      "crates/adapteros-registry/src/models.rs",
+      "crates/adapteros-policy/src/packs/production_readiness.rs",
+      "docs/CONFIGURATION.md"
+    ],
+    "created_by": "a-b-comparison-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "All adapter identifiers, metric names, and deployment workflows reflect actual adapterOS registry and orchestrator patterns. Statistical methodology follows standard paired evaluation practice with bootstrap CI and paired t-test. Decision framework aligned with adapterOS production readiness policy gates."
+  },
+  "evaluation_gates": [
+    "Statistical test is appropriate for the comparison type (paired t-test or bootstrap CI)",
+    "Sample size is at least 100 for any comparison claiming statistical significance",
+    "p-value threshold is 0.05 unless explicitly justified otherwise",
+    "Confidence intervals are reported alongside point estimates",
+    "Deployment decision follows the decision framework: better->deploy, no-diff->keep, worse->reject, mixed->human",
+    "Metric names match adapterOS eval dimensions: accuracy, fluency, relevance, safety, latency_ms, memory_mb",
+    "Adapter identifiers use the adapterOS naming convention: name/rNNN",
+    "Architecture comparisons include resource cost analysis alongside quality metrics",
+    "Inconclusive results explain the null result and recommend next steps",
+    "Mixed results identify the tradeoff dimensions and escalation criteria"
+  ],
+  "intent": "Teach adapters to rigorously compare two adapter variants using statistical methods, interpret multi-dimensional evaluation results, make sound deployment decisions, and design fair A/B experiments. The dataset emphasizes that 'no significant difference' is a valid and informative outcome, and that mixed results require human judgment rather than mechanical rules.",
+  "subcategories": {
+    "version_comparison": "Compare revision r001 vs r002 (or similar) of the same adapter. Clear statistical winner on primary metrics. Includes effect size, confidence interval, and unambiguous deploy/reject decision.",
+    "architecture_comparison": "Compare different LoRA configurations (rank, target modules, alpha) trained on the same data. Tradeoff analysis between quality, inference latency, and memory footprint. Decision depends on deployment constraints.",
+    "inconclusive_results": "No statistically significant difference between adapters. Interpret the null result correctly: underpowered study vs true equivalence. Recommend next steps: increase sample size, refine metrics, or keep current adapter.",
+    "mixed_results": "Adapter A wins on some dimensions, adapter B on others. Multi-criteria decision analysis. When to escalate to human review, how to weight dimensions for a given use case, and how to present the tradeoff clearly.",
+    "methodology": "How to design, execute, and analyze a fair A/B adapter comparison. Controlling confounds, avoiding data contamination, sample size calculation, choosing metrics, and reporting results. Experimental design best practices."
+  },
+  "example_counts": {
+    "version_comparison": 400,
+    "architecture_comparison": 400,
+    "inconclusive_results": 400,
+    "mixed_results": 400,
+    "methodology": 400,
+    "total": 2000
+  }
+}

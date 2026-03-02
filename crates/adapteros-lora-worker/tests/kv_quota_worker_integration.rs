@@ -106,17 +106,17 @@ fn test_kv_cache_quota_exceeded_error() {
 fn test_quota_failure_no_cache_corruption() {
     let quota_manager = Arc::new(TenantKvQuotaManager::new(
         "tenant-test".to_string(),
-        Some(2 * BYTES_PER_MB), // 2MB quota
+        Some(4 * BYTES_PER_MB), // 4MB quota
     ));
 
     let mut cache = KvCache::new_with_quota(8 * BYTES_PER_MB, Some(quota_manager.clone()));
 
-    // First allocation: 64 tokens * 8192 * 2 = ~1MB - should succeed
+    // First allocation: rounded to 128 tokens => ~2MB - should succeed
     let seq_id1 = cache.allocate(64).expect("First allocation should succeed");
     assert!(cache.is_allocated(seq_id1));
     let initial_usage = quota_manager.usage().used_bytes;
 
-    // Second allocation: 256 tokens * 8192 * 2 = ~4MB - should fail (exceeds quota)
+    // Second allocation: rounded to 256 tokens => ~4MB - should fail (exceeds quota)
     let result = cache.allocate(256);
     assert!(matches!(result, Err(AosError::QuotaExceeded { .. })));
 
@@ -134,7 +134,7 @@ fn test_quota_failure_no_cache_corruption() {
         "Quota should only reflect successful allocation"
     );
 
-    // Third allocation: 32 tokens * 8192 * 2 = ~0.5MB - should succeed (within remaining quota)
+    // Third allocation: rounded to 128 tokens => ~2MB - should succeed (within remaining quota)
     let seq_id3 = cache
         .allocate(32)
         .expect("Third allocation should succeed with remaining quota");
@@ -147,14 +147,14 @@ fn test_quota_failure_no_cache_corruption() {
 fn test_multiple_allocations_cumulative_quota() {
     let quota_manager = Arc::new(TenantKvQuotaManager::new(
         "tenant-multi".to_string(),
-        Some(6 * BYTES_PER_MB), // 6MB quota
+        Some(12 * BYTES_PER_MB), // 12MB quota
     ));
 
     let mut cache = KvCache::new_with_quota(16 * BYTES_PER_MB, Some(quota_manager.clone()));
 
     let mut allocated_ids = Vec::new();
 
-    // Allocate multiple sequences, each ~1MB (64 tokens * 8192 * 2)
+    // Allocate multiple sequences, each ~2MB after slab rounding
     for i in 0..5 {
         let seq_id = cache
             .allocate(64)
@@ -164,14 +164,17 @@ fn test_multiple_allocations_cumulative_quota() {
 
     // Check cumulative usage
     let usage = quota_manager.usage();
-    assert!(usage.used_bytes > 5 * BYTES_PER_MB, "Should have ~5MB used");
     assert!(
-        usage.used_bytes < 6 * BYTES_PER_MB,
+        usage.used_bytes > 9 * BYTES_PER_MB,
+        "Should have ~10MB used"
+    );
+    assert!(
+        usage.used_bytes < 12 * BYTES_PER_MB,
         "Should be within quota"
     );
 
-    // Next allocation should fail (would exceed 6MB quota)
-    let result = cache.allocate(128);
+    // Next allocation should fail (would exceed 12MB quota)
+    let result = cache.allocate(256);
     assert!(
         matches!(result, Err(AosError::QuotaExceeded { .. })),
         "Should exceed quota"
@@ -721,11 +724,11 @@ fn test_memory_pressure_eviction_order() {
     );
 
     // Allocate multiple sequences to approach quota limit
-    // Each allocation is ~1MB (64 tokens * 8192 bytes/token * 2 for K+V)
+    // Each allocation rounds to ~2MB (64 -> 128 token slab)
     let mut allocated = Vec::new();
 
-    // Load until we're at ~90% of quota (9MB of 10MB)
-    for i in 0..9 {
+    // Load until we're at quota limit (5 * 2MB = 10MB)
+    for i in 0..5 {
         match cache.allocate(64) {
             Ok(seq_id) => {
                 allocated.push(seq_id);
@@ -848,18 +851,18 @@ fn test_adapter_eviction_under_pressure() {
     // Small quota to quickly trigger pressure
     let quota_manager = Arc::new(TenantKvQuotaManager::new(
         "tenant-adapter-evict".to_string(),
-        Some(5 * BYTES_PER_MB), // 5MB quota
+        Some(9 * BYTES_PER_MB), // 9MB quota
     ));
 
     let mut cache = KvCache::new_with_quota(10 * BYTES_PER_MB, Some(quota_manager.clone()));
 
     // Allocate multiple "adapters" (sequences)
-    let adapter_size = 1 * BYTES_PER_MB; // 1MB per adapter
+    let adapter_size = 1 * BYTES_PER_MB; // rounds to ~2MB effective allocation
     let tokens_per_adapter = (adapter_size / (8192 * 2)) as usize;
 
     let mut adapters = Vec::new();
 
-    // Load first 4 adapters - should succeed (4MB < 5MB quota)
+    // Load first 4 adapters - should succeed (~8MB < 9MB quota)
     for i in 0..4 {
         let seq_id = cache
             .allocate(tokens_per_adapter)
@@ -870,11 +873,11 @@ fn test_adapter_eviction_under_pressure() {
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
-    // Verify we're using ~4MB
+    // Verify we're using ~8MB
     let usage = quota_manager.usage();
     assert!(
-        usage.used_bytes >= 4 * BYTES_PER_MB - BYTES_PER_MB / 2,
-        "Should be using ~4MB"
+        usage.used_bytes >= 8 * BYTES_PER_MB - BYTES_PER_MB / 2,
+        "Should be using ~8MB"
     );
 
     // Attempt to load 5th adapter - should fail (quota exceeded)

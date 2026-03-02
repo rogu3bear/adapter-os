@@ -39,7 +39,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create tenant: {}", e)))?;
     Ok(())
@@ -57,7 +57,7 @@ async fn create_test_user(db: &Db, email: &str, role: Role, tenant_id: &str) -> 
     let _ = sqlx::query("UPDATE users SET tenant_id = ? WHERE id = ?")
         .bind(tenant_id)
         .bind(&user_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await; // Ignore error if column doesn't exist
 
     Ok(user_id)
@@ -99,7 +99,7 @@ async fn create_test_dataset(db: &Db, dataset_id: &str, tenant_id: &str, name: &
     .bind(name)
     .bind(tenant_id)
     .bind("dummy_hash")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(format!("Failed to create test dataset: {}", e)))?;
 
@@ -122,7 +122,7 @@ async fn create_test_training_job(
     .bind(r#"{"rank":16,"alpha":32}"#) // Required training_config_json
     .bind(r#"{"progress":0}"#) // Required progress_json
     .bind(format!("user@{}", tenant_id)) // Use tenant_id in created_by
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(format!("Failed to create test training job: {}", e)))?;
 
@@ -130,7 +130,7 @@ async fn create_test_training_job(
     sqlx::query("UPDATE repository_training_jobs SET tenant_id = ? WHERE id = ?")
         .bind(tenant_id)
         .bind(job_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     Ok(())
@@ -165,7 +165,7 @@ async fn create_test_repo(db: &Db, tenant_id: &str, name: &str) -> Result<String
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     db.create_adapter_repository(CreateRepositoryParams {
@@ -185,7 +185,7 @@ async fn create_test_code_repo(db: &Db, tenant_id: &str, repo_id: &str) -> Resul
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     db.register_repository(
@@ -316,7 +316,7 @@ async fn test_cross_tenant_training_job_access_denied() -> Result<()> {
     .bind("{}")
     .bind("ready")
     .bind("user@tenant-a")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
@@ -332,7 +332,7 @@ async fn test_cross_tenant_training_job_access_denied() -> Result<()> {
     .bind("{}")
     .bind("ready")
     .bind("user@tenant-b")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Create training jobs for each tenant
@@ -432,7 +432,7 @@ async fn test_dataset_validate_enforces_tenant_isolation() -> Result<()> {
     sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
         .bind("tenant-a")
         .bind(dataset_id)
-        .execute(state.db.pool())
+        .execute(state.db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to set tenant: {}", e)))?;
 
@@ -639,7 +639,7 @@ async fn test_cross_tenant_adapter_access_denied() -> Result<()> {
     let adapter_b_row =
         sqlx::query_as::<_, AdapterRecordRow>("SELECT * FROM adapters WHERE id = ?")
             .bind(&adapter_b_id)
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result()?)
             .await?;
 
     assert_eq!(
@@ -693,7 +693,7 @@ async fn test_cross_tenant_base_model_access_denied() -> Result<()> {
         .bind("tokenizer-cfg-hash-a")
         .bind(None::<String>)
         .bind("tenant-a")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     sqlx::query("INSERT INTO models (id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, metadata_json, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -706,7 +706,7 @@ async fn test_cross_tenant_base_model_access_denied() -> Result<()> {
         .bind("tokenizer-cfg-hash-b")
         .bind(None::<String>)
         .bind("tenant-b")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Global model (tenant_id NULL) should be visible to all tenants
@@ -720,7 +720,7 @@ async fn test_cross_tenant_base_model_access_denied() -> Result<()> {
         .bind("tokenizer-cfg-hash-g")
         .bind(None::<String>)
         .bind(None::<String>)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     let tenant_a_model = db.get_model_for_tenant("tenant-a", "model-a-id").await?;

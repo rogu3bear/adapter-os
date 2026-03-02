@@ -13,21 +13,16 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 #[tokio::test]
-async fn test_streaming_event_types() {
+async fn test_streaming_event_types() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(10);
 
     // Send different event types
-    tx.send(StreamEvent::Token("Hello".to_string()))
-        .await
-        .unwrap();
-    tx.send(StreamEvent::Token(" World".to_string()))
-        .await
-        .unwrap();
+    tx.send(StreamEvent::Token("Hello".to_string())).await?;
+    tx.send(StreamEvent::Token(" World".to_string())).await?;
     tx.send(StreamEvent::Done {
         finish_reason: "stop".to_string(),
     })
-    .await
-    .unwrap();
+    .await?;
 
     // Verify events received in order
     match rx.recv().await {
@@ -44,6 +39,8 @@ async fn test_streaming_event_types() {
         Some(StreamEvent::Done { finish_reason }) => assert_eq!(finish_reason, "stop"),
         _ => panic!("Expected Done event"),
     }
+
+    Ok(())
 }
 
 #[tokio::test]
@@ -79,13 +76,13 @@ async fn test_streaming_request_defaults() {
 }
 
 #[tokio::test]
-async fn test_streaming_backpressure() {
+async fn test_streaming_backpressure() -> Result<(), Box<dyn std::error::Error>> {
     // Create channel with small buffer to test backpressure
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(2);
 
     // Fill the buffer
-    tx.send(StreamEvent::Token("1".to_string())).await.unwrap();
-    tx.send(StreamEvent::Token("2".to_string())).await.unwrap();
+    tx.send(StreamEvent::Token("1".to_string())).await?;
+    tx.send(StreamEvent::Token("2".to_string())).await?;
 
     // Next send will block until receiver drains
     let sender = tx.clone();
@@ -102,10 +99,12 @@ async fn test_streaming_backpressure() {
     // Now send should complete
     let result = tokio::time::timeout(Duration::from_millis(100), send_task).await;
     assert!(result.is_ok(), "Send should complete after receiver drains");
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_streaming_concurrent_clients() {
+async fn test_streaming_concurrent_clients() -> Result<(), Box<dyn std::error::Error>> {
     // Simulate multiple concurrent streaming clients
     let mut handles = vec![];
 
@@ -151,41 +150,44 @@ async fn test_streaming_concurrent_clients() {
 
     // Wait for all clients
     for handle in handles {
-        let (token_count, received_done) = handle.await.unwrap();
+        let (token_count, received_done) = handle.await?;
         assert_eq!(token_count, 50, "Client should receive all 50 tokens");
         assert!(received_done, "Client should receive Done event");
     }
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_streaming_error_handling() {
+async fn test_streaming_error_handling() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(10);
 
     // Send error event
     tx.send(StreamEvent::Error("Test error".to_string()))
-        .await
-        .unwrap();
+        .await?;
 
     // Verify error received
     match rx.recv().await {
         Some(StreamEvent::Error(msg)) => assert_eq!(msg, "Test error"),
         _ => panic!("Expected Error event"),
     }
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_streaming_graceful_shutdown() {
+async fn test_streaming_graceful_shutdown() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(10);
 
     // Send some tokens then close channel
-    tx.send(StreamEvent::Token("Hello".to_string()))
-        .await
-        .unwrap();
+    tx.send(StreamEvent::Token("Hello".to_string())).await?;
     drop(tx); // Close channel
 
     // Receiver should get the token then None
     assert!(matches!(rx.recv().await, Some(StreamEvent::Token(_))));
     assert!(rx.recv().await.is_none(), "Channel should be closed");
+
+    Ok(())
 }
 
 /// H6: Keep-Alive Interval Test
@@ -240,7 +242,8 @@ async fn test_streaming_keepalive_interval() {
 /// Verifies that when a client disconnects mid-stream, the server
 /// properly detects it and cleans up resources.
 #[tokio::test]
-async fn test_streaming_client_disconnect_during_inference() {
+async fn test_streaming_client_disconnect_during_inference(
+) -> Result<(), Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel::<StreamEvent>(10);
 
     // Simulate client that disconnects after receiving some tokens
@@ -282,9 +285,11 @@ async fn test_streaming_client_disconnect_during_inference() {
         }
     }
 
-    let received = client_task.await.unwrap();
+    let received = client_task.await?;
     assert_eq!(
         received, 5,
         "Client should receive exactly 5 tokens before disconnect"
     );
+
+    Ok(())
 }

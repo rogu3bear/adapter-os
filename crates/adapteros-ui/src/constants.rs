@@ -36,7 +36,7 @@ pub mod ui_language {
     pub const CONFIG_FINGERPRINT_LOADING: &str = "Fingerprint syncing";
     pub const CONFIG_FINGERPRINT_EMPTY: &str = "Fingerprint unavailable";
     pub const CONFIG_FINGERPRINT_COPY: &str = "Copy fingerprint";
-    pub const CONFIG_FINGERPRINT_PROVENANCE: &str = "View proof trail";
+    pub const CONFIG_FINGERPRINT_PROVENANCE: &str = "View execution records";
     pub const CONFIG_FINGERPRINT_HELP: &str = "The trusted identity of the exact active setup.";
 
     /// Determinism/replay trust states.
@@ -50,16 +50,16 @@ pub mod ui_language {
     pub const BOOT_READY: &str = "Kernel ready";
     pub const BOOTING: &str = "Booting";
     pub const SELF_HEALING_OS: &str = "Self-Healing OS";
-    pub const EVENT_VIEWER: &str = "Event Viewer";
-    pub const SIGNED_SYSTEM_LOGS: &str = "Signed System Logs";
-    pub const SYSTEM_RESTORE_POINTS: &str = "System Restore Points";
-    pub const SAFETY_SHIELD: &str = "Safety Shield";
+    pub const EVENT_VIEWER: &str = "Audit Log";
+    pub const SIGNED_SYSTEM_LOGS: &str = "Execution Receipts";
+    pub const SYSTEM_RESTORE_POINTS: &str = "Execution Records";
+    pub const SAFETY_SHIELD: &str = "Policies";
 
     /// Infrastructure surfaces translated into product language.
-    pub const BASE_MODEL_REGISTRY: &str = "Base Model Registry";
-    pub const REGISTER_NEW_BASE: &str = "Register New Base";
-    pub const INFERENCE_ENGINES: &str = "Inference Engines";
-    pub const UPDATE_CENTER: &str = "Update Center";
+    pub const BASE_MODEL_REGISTRY: &str = "Models";
+    pub const REGISTER_NEW_BASE: &str = "Add Model";
+    pub const INFERENCE_ENGINES: &str = "Workers";
+    pub const UPDATE_CENTER: &str = "Versions";
 }
 
 /// URL helpers for UI navigation.

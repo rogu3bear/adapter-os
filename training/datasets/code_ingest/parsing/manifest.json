@@ -1,0 +1,87 @@
+{
+  "name": "parsing_patterns_v1",
+  "description": "Code and document ingestion parsing patterns: Rust module extraction (function signatures, structs, enums, impl blocks, traits, doc comments, module structure), markdown section-aware chunking (heading hierarchy, code blocks, lists, tables), TOML config parsing (Cargo.toml, config files, workspace, features, profiles), and SQL migration parsing (CREATE TABLE, ALTER TABLE, indexes, constraints, schema changes described in natural language).",
+  "version": "1.0.0",
+  "category": "code_ingest",
+  "scope": "global",
+  "tier": "persistent",
+  "rank": 7,
+  "alpha": 14.0,
+  "target_modules": ["gate_proj", "up_proj", "down_proj"],
+  "entries": [
+    {
+      "path": "parsing-patterns.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "positive",
+      "notes": "800 examples across 4 categories: rust_module_extraction (200), markdown_chunking (200), toml_config_parsing (200), sql_migration_parsing (200)"
+    }
+  ],
+  "subcategories": {
+    "rust_module_extraction": {
+      "count": 200,
+      "subtypes": [
+        "rust_function_extraction",
+        "rust_struct_extraction",
+        "rust_enum_extraction",
+        "rust_impl_extraction",
+        "rust_doc_comment_extraction",
+        "rust_module_structure",
+        "rust_trait_impl_extraction"
+      ]
+    },
+    "markdown_chunking": {
+      "count": 200,
+      "subtypes": [
+        "markdown_heading_chunking",
+        "markdown_code_block_preservation",
+        "markdown_list_preservation",
+        "markdown_table_preservation"
+      ]
+    },
+    "toml_config_parsing": {
+      "count": 200,
+      "subtypes": [
+        "toml_package_metadata",
+        "toml_dependency_list",
+        "toml_feature_flags",
+        "toml_workspace_members",
+        "toml_workspace_dependencies",
+        "toml_config_sections",
+        "toml_binary_targets",
+        "toml_patch_overrides",
+        "toml_profile_config"
+      ]
+    },
+    "sql_migration_parsing": {
+      "count": 200,
+      "subtypes": [
+        "sql_create_table",
+        "sql_alter_table",
+        "sql_create_index",
+        "sql_table_rebuild",
+        "sql_drop_table"
+      ]
+    }
+  },
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#code-ingestion-pipeline",
+      "training/datasets/code_ingest/README.md"
+    ],
+    "created_by": "parsing-patterns-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Realistic adapterOS-domain examples covering all four ingestion format types. Examples use actual crate names, types, and patterns from the adapterOS codebase."
+  },
+  "evaluation_gates": [
+    "Function signature extraction includes visibility, generics, parameters, return type",
+    "Struct extraction includes all field names, types, and visibility modifiers",
+    "Enum extraction includes all variants and their kinds (unit, tuple, struct)",
+    "Markdown chunks preserve code block language tags",
+    "Markdown heading paths are complete from root to leaf",
+    "TOML dependency extraction lists all features and version constraints",
+    "SQL descriptions accurately name tables, columns, types, constraints, and indexes"
+  ],
+  "intent": "Teach the ingestion pipeline to accurately parse and structure code artifacts from Rust projects: extracting typed signatures and definitions from source, splitting documentation by logical section, interpreting Cargo and config TOML files, and narrating SQL schema migrations as human-readable change descriptions."
+}

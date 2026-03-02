@@ -135,7 +135,6 @@ impl GcpKmsProvider {
     }
 
     /// Build a crypto key version resource name
-    #[allow(dead_code)]
     fn crypto_key_version_name(&self, key_id: &str, version: i32) -> String {
         format!(
             "{}/cryptoKeyVersions/{}",

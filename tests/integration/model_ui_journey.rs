@@ -78,7 +78,7 @@ async fn setup_test_env() -> anyhow::Result<(AppState, Claims)> {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind("Test Tenant E2E")
-        .execute(app_state.db.pool())
+        .execute(app_state.db.pool_result().unwrap())
         .await?;
 
     let claims = Claims {
@@ -105,7 +105,7 @@ async fn test_model_ui_journey_e2e() -> anyhow::Result<()> {
     .bind("qwen2.5-7b-e2e")
     .bind("unloaded")
     .bind(false)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().unwrap())
     .await?;
 
     // --- Step 1: Import a new base model ---
@@ -131,7 +131,7 @@ async fn test_model_ui_journey_e2e() -> anyhow::Result<()> {
     let import_status: String =
         sqlx::query_scalar("SELECT status FROM base_model_imports WHERE id = ?")
             .bind(import_id)
-            .fetch_one(state.db.pool())
+            .fetch_one(state.db.pool_result().unwrap())
             .await?;
     assert_eq!(import_status, "validating");
 
@@ -142,7 +142,7 @@ async fn test_model_ui_journey_e2e() -> anyhow::Result<()> {
     let (status, is_loaded): (String, i64) =
         sqlx::query_as("SELECT status, is_loaded FROM base_model_status WHERE model_id = ?")
             .bind(&model_id)
-            .fetch_one(state.db.pool())
+            .fetch_one(state.db.pool_result().unwrap())
             .await?;
     assert_eq!(status, "loaded");
     assert!(is_loaded > 0);
@@ -162,7 +162,7 @@ async fn test_model_ui_journey_e2e() -> anyhow::Result<()> {
     let (final_status, final_is_loaded): (String, i64) =
         sqlx::query_as("SELECT status, is_loaded FROM base_model_status WHERE model_id = ?")
             .bind(&model_id)
-            .fetch_one(state.db.pool())
+            .fetch_one(state.db.pool_result().unwrap())
             .await?;
     assert_eq!(final_status, "unloaded");
     assert!(final_is_loaded == 0);
@@ -173,7 +173,7 @@ async fn test_model_ui_journey_e2e() -> anyhow::Result<()> {
     )
     .bind(&claims.tenant_id)
     .bind(&claims.sub)
-    .fetch_all(state.db.pool())
+    .fetch_all(state.db.pool_result().unwrap())
     .await?;
     
     assert_eq!(journey_steps.len(), 1, "Should have one journey step for model_loaded");

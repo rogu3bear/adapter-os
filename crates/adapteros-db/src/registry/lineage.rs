@@ -86,7 +86,7 @@ pub async fn is_descendant_of(db: &Db, child_id: &str, potential_ancestor_id: &s
     )
     .bind(child_id)
     .bind(potential_ancestor_id)
-    .fetch_optional(db.pool())
+    .fetch_optional(db.pool_result()?)
     .await
     .map_err(|e| AosError::Registry(format!("Ancestry check failed: {}", e)))?;
 
@@ -118,7 +118,7 @@ pub async fn validate_revision_for_registration(
     .bind(tenant)
     .bind(domain)
     .bind(purpose)
-    .fetch_optional(db.pool())
+    .fetch_optional(db.pool_result()?)
     .await
     .map_err(|e| AosError::Registry(format!("Failed to get latest revision: {}", e)))?;
 
@@ -183,7 +183,7 @@ pub async fn next_revision_number(db: &Db, tenant: &str, domain: &str, purpose: 
     .bind(tenant)
     .bind(domain)
     .bind(purpose)
-    .fetch_optional(db.pool())
+    .fetch_optional(db.pool_result()?)
     .await
     .map_err(|e| AosError::Registry(format!("Failed to get latest revision: {}", e)))?;
 
@@ -232,7 +232,7 @@ mod tests {
             VALUES ('a1', 'adapter-a', 'default', 'a', 'abc', 'warm', 8, 32, '[]')
             "#,
         )
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .unwrap();
 

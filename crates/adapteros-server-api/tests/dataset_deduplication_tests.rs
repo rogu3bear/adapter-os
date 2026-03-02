@@ -40,7 +40,7 @@ async fn create_dataset_with_hash(
     adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
         .bind(tenant_id)
         .bind(&dataset_id)
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool"))
         .await
         .expect("set tenant_id");
     dataset_id

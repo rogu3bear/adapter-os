@@ -9,7 +9,7 @@
 //! use adapteros_core::redaction::{redact_sensitive, SecretString};
 //!
 //! // String-based redaction (regex patterns)
-//! let error_msg = "Failed to connect to postgres://user:pass@localhost:5432/db";
+//! let error_msg = "Failed to connect to postgres://user:pass@localhost:18091/db";
 //! let safe_msg = redact_sensitive(error_msg);
 //! assert!(safe_msg.contains("postgres://[REDACTED]"));
 //!
@@ -55,59 +55,72 @@ static REDACTION_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
     vec![
         // Bearer tokens
         (
-            Regex::new(r"(?i)bearer\s+[A-Za-z0-9\-_\.]+").unwrap(),
+            Regex::new(r"(?i)bearer\s+[A-Za-z0-9\-_\.]+").expect("valid regex"),
             "Bearer [REDACTED]",
         ),
         // JWT tokens (three base64 segments)
         (
-            Regex::new(r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+").unwrap(),
+            Regex::new(r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+")
+                .expect("valid regex"),
             "[JWT]",
         ),
         // API keys (common formats)
         (
-            Regex::new(r"(?i)(api[_-]?key|apikey)[=:\s]+[A-Za-z0-9\-_]{16,}").unwrap(),
+            Regex::new(r"(?i)(api[_-]?key|apikey)[=:\s]+[A-Za-z0-9\-_]{16,}").expect("valid regex"),
             "$1=[REDACTED]",
         ),
         // Secrets/tokens/passwords (base64-like values)
         (
-            Regex::new(r"(?i)(secret|password)[=:\s]+[A-Za-z0-9+/]{16,}=*").unwrap(),
+            Regex::new(r"(?i)(secret|password)[=:\s]+[A-Za-z0-9+/]{16,}=*").expect("valid regex"),
             "$1=[REDACTED]",
         ),
         // Social Security Numbers (XXX-XX-XXXX format)
-        (Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").unwrap(), "[SSN]"),
+        (
+            Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").expect("valid regex"),
+            "[SSN]",
+        ),
         // Credit card numbers (16 digits with optional spaces/dashes)
         (
-            Regex::new(r"\b(?:\d{4}[-\s]?){3}\d{4}\b").unwrap(),
+            Regex::new(r"\b(?:\d{4}[-\s]?){3}\d{4}\b").expect("valid regex"),
             "[CREDIT_CARD]",
         ),
         // PostgreSQL connection strings
         (
-            Regex::new(r"postgres://[^@\s]+@[^\s]+").unwrap(),
+            Regex::new(r"postgres://[^@\s]+@[^\s]+").expect("valid regex"),
             "postgres://[REDACTED]",
         ),
         // SQLite paths
         (
-            Regex::new(r"sqlite://[^\s]+\.db").unwrap(),
+            Regex::new(r"sqlite://[^\s]+\.db").expect("valid regex"),
             "sqlite://[REDACTED]",
         ),
         // UDS socket paths (before general paths)
-        (Regex::new(r"/run/[^\s]+\.sock").unwrap(), "[SOCKET]"),
+        (
+            Regex::new(r"/run/[^\s]+\.sock").expect("valid regex"),
+            "[SOCKET]",
+        ),
         // Temp file paths (before general paths)
-        (Regex::new(r"/tmp/[^\s]+").unwrap(), "[TEMP]"),
+        (Regex::new(r"/tmp/[^\s]+").expect("valid regex"), "[TEMP]"),
         // Stack trace locations (file.rs:123:45)
-        (Regex::new(r"\b[a-z_]+\.rs:\d+:\d+\b").unwrap(), "[SOURCE]"),
+        (
+            Regex::new(r"\b[a-z_]+\.rs:\d+:\d+\b").expect("valid regex"),
+            "[SOURCE]",
+        ),
         // Windows file paths (C:\Users\... or \\server\share)
         (
-            Regex::new(r"(?i)([a-z]:\\[^\s]+|\\\\[^\s]+)").unwrap(),
+            Regex::new(r"(?i)([a-z]:\\[^\s]+|\\\\[^\s]+)").expect("valid regex"),
             "[PATH]",
         ),
         // Unix file paths with extension (must have file extension to avoid matching API routes)
         (
-            Regex::new(r"(/[a-zA-Z0-9_\-\.]+){2,}\.[a-zA-Z0-9]+").unwrap(),
+            Regex::new(r"(/[a-zA-Z0-9_\-\.]+){2,}\.[a-zA-Z0-9]+").expect("valid regex"),
             "[PATH]",
         ),
         // Home directory paths
-        (Regex::new(r"~(/[a-zA-Z0-9_\-\.]+)+").unwrap(), "[PATH]"),
+        (
+            Regex::new(r"~(/[a-zA-Z0-9_\-\.]+)+").expect("valid regex"),
+            "[PATH]",
+        ),
     ]
 });
 
@@ -443,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_redacts_postgres_connection() {
-        let input = "Connection failed: postgres://user:password@localhost:5432/db";
+        let input = "Connection failed: postgres://user:password@localhost:18091/db";
         let result = redact_sensitive(input);
         assert!(!result.contains("password"), "Password should be redacted");
         assert!(

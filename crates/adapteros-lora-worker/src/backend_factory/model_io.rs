@@ -723,7 +723,7 @@ fn load_and_merge_shards(model_path: &Path, shard_files: &[String]) -> Result<Ve
     );
 
     // Serialize all tensors into a single SafeTensors buffer
-    let merged_bytes = safetensors::serialize(all_tensors, &None)
+    let merged_bytes = safetensors::serialize(all_tensors, None)
         .map_err(|e| AosError::Config(format!("Failed to serialize merged tensors: {}", e)))?;
 
     info!(

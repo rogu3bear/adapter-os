@@ -289,7 +289,7 @@ impl TrainingService for DefaultTrainingService {
         let running_count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM repository_training_jobs WHERE status = 'running'",
         )
-        .fetch_one(self.state.db.pool())
+        .fetch_one(self.state.db.pool_result()?)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to check running training jobs count");

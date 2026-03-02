@@ -12,7 +12,8 @@
 use adapteros_core::Result;
 use adapteros_db::Db;
 use adapteros_server_api::handlers::health::{
-    ReadinessMode, ReadyMetrics, ReadyzCheck, ReadyzChecks, ReadyzResponse,
+    ReadinessMode, ReadyMetrics, ReadyzCheck, ReadyzChecks, ReadyzResponse, ReplayGuardCheck,
+    ReplayGuardState,
 };
 
 mod common;
@@ -29,7 +30,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     Ok(())
 }
@@ -49,7 +50,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str, status: &
     .bind(&node_id)
     .bind(format!("{}-host", tenant_id))
     .bind("http://localhost:0")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Seed a manifest and plan to satisfy worker FK
@@ -62,7 +63,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str, status: &
     .bind(&manifest_id)
     .bind(tenant_id)
     .bind(&manifest_hash)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     let plan_id = format!("plan-{}", tenant_id);
@@ -74,7 +75,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str, status: &
     .bind(tenant_id)
     .bind(format!("plan-b3-{}", tenant_id))
     .bind(&manifest_hash)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
@@ -86,7 +87,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str, status: &
     .bind(&node_id)
     .bind(&plan_id)
     .bind(status)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     Ok(())
@@ -108,7 +109,7 @@ async fn create_test_model(db: &Db, model_id: &str) -> Result<()> {
     .bind(format!("config-{}", hash))
     .bind(format!("tokenizer-{}", hash))
     .bind(format!("tokenizer-cfg-{}", hash))
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     Ok(())
@@ -184,6 +185,7 @@ fn test_readyz_response_structure() {
         boot_warnings: Vec::new(),
         build_id: None,
         canary: None,
+        replay_guard: None,
     };
     assert!(response.ready);
     assert!(response.checks.db.ok);
@@ -223,6 +225,7 @@ fn test_readyz_response_not_ready() {
         boot_warnings: Vec::new(),
         build_id: None,
         canary: None,
+        replay_guard: None,
     };
     assert!(!response.ready);
     assert!(!response.checks.db.ok);
@@ -307,6 +310,7 @@ fn test_readyz_response_serialization() {
         boot_warnings: Vec::new(),
         build_id: None,
         canary: None,
+        replay_guard: None,
     };
 
     let json = serde_json::to_string(&response).expect("Failed to serialize");
@@ -319,6 +323,90 @@ fn test_readyz_response_serialization() {
     assert!(json.contains("\"latency_ms\":30"));
 }
 
+#[test]
+fn test_readyz_response_omits_replay_guard_when_none() {
+    let response = ReadyzResponse {
+        ready: true,
+        checks: ReadyzChecks {
+            db: ReadyzCheck {
+                ok: true,
+                hint: None,
+                latency_ms: Some(10),
+            },
+            worker: ReadyzCheck {
+                ok: true,
+                hint: None,
+                latency_ms: Some(20),
+            },
+            models_seeded: ReadyzCheck {
+                ok: true,
+                hint: None,
+                latency_ms: Some(30),
+            },
+        },
+        metrics: None,
+        boot_trace_id: String::new(),
+        last_error_code: None,
+        phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
+        build_id: None,
+        canary: None,
+        replay_guard: None,
+    };
+
+    let json = serde_json::to_string(&response).expect("Failed to serialize");
+    assert!(!json.contains("replay_guard"));
+}
+
+#[test]
+fn test_readyz_response_includes_replay_guard_when_set() {
+    let response = ReadyzResponse {
+        ready: false,
+        checks: ReadyzChecks {
+            db: ReadyzCheck {
+                ok: true,
+                hint: None,
+                latency_ms: Some(10),
+            },
+            worker: ReadyzCheck {
+                ok: true,
+                hint: None,
+                latency_ms: Some(20),
+            },
+            models_seeded: ReadyzCheck {
+                ok: true,
+                hint: None,
+                latency_ms: Some(30),
+            },
+        },
+        metrics: None,
+        boot_trace_id: String::new(),
+        last_error_code: None,
+        phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
+        build_id: None,
+        canary: None,
+        replay_guard: Some(ReplayGuardCheck {
+            ok: false,
+            state: ReplayGuardState::Stale,
+            hint: Some("replay guard is stale".to_string()),
+            last_run: Some("2026-02-24 00:00:00".to_string()),
+            result: Some("pass".to_string()),
+            runs: Some(10),
+            divergences: Some(0),
+            age_seconds: Some(3600),
+            stale_after_seconds: 900,
+        }),
+    };
+
+    let json = serde_json::to_string(&response).expect("Failed to serialize");
+    assert!(json.contains("\"replay_guard\""));
+    assert!(json.contains("\"state\":\"stale\""));
+    assert!(json.contains("\"stale_after_seconds\":900"));
+}
+
 // =============================================================================
 // Test 3: Database Query Tests
 // =============================================================================
@@ -328,7 +416,9 @@ async fn test_db_query_successful() {
     let db = setup_test_db().await.expect("Failed to create test DB");
 
     // Test that we can query the database successfully
-    let result = sqlx::query("SELECT 1").execute(db.pool()).await;
+    let result = sqlx::query("SELECT 1")
+        .execute(db.pool_result().expect("db pool"))
+        .await;
 
     assert!(result.is_ok(), "Database query should succeed");
 }
@@ -396,7 +486,7 @@ async fn test_count_models_baseline() {
 
     // Query models count - migration 0171 seeds a default Qwen2.5 model
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result().expect("db pool"))
         .await
         .expect("Failed to count models");
 
@@ -414,7 +504,7 @@ async fn test_count_models_with_seeded_model() {
 
     // Get initial count (includes migration-seeded model)
     let initial_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result().expect("db pool"))
         .await
         .expect("Failed to count models");
 
@@ -424,7 +514,7 @@ async fn test_count_models_with_seeded_model() {
         .expect("Failed to create model");
 
     let final_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result().expect("db pool"))
         .await
         .expect("Failed to count models");
 
@@ -494,6 +584,7 @@ async fn test_readyz_structure_for_no_workers_scenario() {
         boot_warnings: Vec::new(),
         build_id: None,
         canary: None,
+        replay_guard: None,
     };
 
     // Verify structure
@@ -540,6 +631,7 @@ async fn test_readyz_structure_for_no_models_scenario() {
         boot_warnings: Vec::new(),
         build_id: None,
         canary: None,
+        replay_guard: None,
     };
 
     // Verify structure
@@ -589,6 +681,7 @@ async fn test_readyz_structure_for_db_timeout_scenario() {
         boot_warnings: Vec::new(),
         build_id: None,
         canary: None,
+        replay_guard: None,
     };
 
     // Verify structure
@@ -643,6 +736,7 @@ async fn test_readyz_structure_for_db_unreachable_scenario() {
         boot_warnings: Vec::new(),
         build_id: None,
         canary: None,
+        replay_guard: None,
     };
 
     // Verify structure
@@ -749,7 +843,7 @@ async fn test_multiple_models_seeded() {
 
     // Get initial count (includes migration-seeded model)
     let initial_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result().expect("db pool"))
         .await
         .expect("Failed to count models");
 
@@ -761,7 +855,7 @@ async fn test_multiple_models_seeded() {
     }
 
     let final_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result().expect("db pool"))
         .await
         .expect("Failed to count models");
 
@@ -801,6 +895,7 @@ fn test_readyz_response_all_checks_failed() {
         boot_warnings: Vec::new(),
         build_id: None,
         canary: None,
+        replay_guard: None,
     };
 
     assert!(!response.ready);
@@ -843,6 +938,7 @@ fn test_readyz_response_json_roundtrip() {
         boot_warnings: Vec::new(),
         build_id: None,
         canary: None,
+        replay_guard: None,
     };
 
     let json = serde_json::to_string(&original).expect("Failed to serialize");

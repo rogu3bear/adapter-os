@@ -41,8 +41,8 @@ pub enum StatusSubcommand {
 
     /// Show comprehensive system status (meta + health + migrations)
     System {
-        /// Server URL (defaults to AOS_SERVER_URL env var or http://localhost:8080)
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        /// Server URL (defaults to AOS_SERVER_URL env var or http://localhost:18080)
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
         server_url: String,
 
         /// Timeout in seconds
@@ -216,7 +216,7 @@ struct TickDivergence {
 
 async fn tick_status(output: &OutputWriter) -> Result<()> {
     let db = Db::connect_env().await?;
-    let pool = db.pool();
+    let pool = db.pool_result()?;
 
     #[derive(sqlx::FromRow)]
     struct LatestEntry {
@@ -481,7 +481,7 @@ async fn system_status(server_url: &str, timeout: u64, output: &OutputWriter) ->
     let migration_count = match Db::connect_env().await {
         Ok(db) => {
             let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
-                .fetch_one(db.pool())
+                .fetch_one(db.pool_result()?)
                 .await
                 .unwrap_or(0);
             output.kv("Migrations Applied", &count.to_string());

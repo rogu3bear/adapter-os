@@ -235,7 +235,7 @@ impl PeerRegistry {
         // CRITICAL FIX: Validate public key before accepting peer registration
         self.validate_peer_certificate(&pubkey, &host_id)?;
 
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let pubkey_hex = hex::encode(pubkey.to_bytes());
         let attestation_json = attestation_metadata
             .as_ref()
@@ -446,7 +446,7 @@ impl PeerRegistry {
 
     /// Get list of all known peer IDs
     pub async fn get_all_peer_ids(&self) -> Result<Vec<String>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         let rows = sqlx::query(
             r#"
@@ -479,7 +479,7 @@ impl PeerRegistry {
         }
 
         // Load from database
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let row = sqlx::query(
             r#"
             SELECT host_id, pubkey, hostname, registered_at, last_seen_at, last_heartbeat_at,
@@ -567,7 +567,7 @@ impl PeerRegistry {
 
     /// List all active peers
     pub async fn list_active_peers(&self) -> Result<Vec<PeerInfo>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         let rows = sqlx::query(
             r#"
@@ -646,7 +646,7 @@ impl PeerRegistry {
 
     /// List peers by health status
     pub async fn list_peers_by_health(&self, status: PeerHealthStatus) -> Result<Vec<PeerInfo>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let status_str = format!("{:?}", status).to_lowercase();
 
         let rows = sqlx::query(
@@ -699,7 +699,7 @@ impl PeerRegistry {
 
     /// Update peer last seen timestamp
     pub async fn update_last_seen(&self, host_id: &str) -> Result<()> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         sqlx::query(
             r#"
@@ -720,7 +720,7 @@ impl PeerRegistry {
     pub async fn deactivate_peer(&self, host_id: &str) -> Result<()> {
         info!(host_id = %host_id, "Deactivating peer");
 
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         sqlx::query(
             r#"
@@ -754,7 +754,7 @@ impl PeerRegistry {
         response_time_ms: u32,
         error_message: Option<String>,
     ) -> Result<()> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let now = chrono::Utc::now().to_rfc3339();
         let status_str = format!("{:?}", status).to_lowercase();
 
@@ -851,7 +851,7 @@ impl PeerRegistry {
         host_id: &str,
         limit: usize,
     ) -> Result<Vec<PeerHealthCheck>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         let rows = sqlx::query(
             r#"
@@ -899,7 +899,7 @@ impl PeerRegistry {
         action: String,
         participating_hosts: Vec<String>,
     ) -> Result<String> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let decision_id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
         let required_votes = (participating_hosts.len() / 2) + 1; // Majority quorum
@@ -945,7 +945,7 @@ impl PeerRegistry {
         _voting_host: &str,
         _approved: bool,
     ) -> Result<bool> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         // Get decision details
         let decision = sqlx::query(
@@ -1031,7 +1031,7 @@ impl PeerRegistry {
         &self,
         reachable_peers: HashSet<String>,
     ) -> Result<Option<PartitionEvent>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let all_peers = self.get_all_peer_ids().await?;
         let all_peer_set: HashSet<String> = all_peers.into_iter().collect();
 
@@ -1158,7 +1158,7 @@ impl PeerRegistry {
     /// Previously marked isolated peers healthy without checking state consistency.
     /// Now performs health checks and state verification before recovery.
     pub async fn resolve_partition(&self, partition_id: &str) -> Result<()> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         // Get partition details
         let partition =
@@ -1803,7 +1803,7 @@ mod tests {
         .bind(serde_json::to_string(&isolated_peers).unwrap_or_default())
         .bind(serde_json::to_string(&reachable_peers).unwrap_or_default())
         .bind("host1")
-        .execute(registry.db.pool())
+        .execute(registry.db.pool_result()?)
         .await?;
 
         // Resolve partition

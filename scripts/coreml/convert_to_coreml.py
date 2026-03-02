@@ -7,8 +7,8 @@ package optimized for Apple Neural Engine inference.
 
 Usage:
     python convert_to_coreml.py \
-        --input output/synthesis_model_mlx/final \
-        --output output/synthesis_model.mlpackage \
+        --input var/output/synthesis_model_mlx/final \
+        --output var/output/synthesis_model.mlpackage \
         --compute-units cpu_and_ne
 """
 
@@ -161,7 +161,7 @@ def main():
     parser.add_argument(
         "--output", "-o",
         type=str,
-        default="output/synthesis_model.mlpackage",
+        default="var/output/synthesis_model.mlpackage",
         help="Output CoreML package path"
     )
     parser.add_argument(

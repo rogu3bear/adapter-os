@@ -16,6 +16,11 @@ async fn training_pipeline_produces_registered_aos() {
     // threads read or write environment variables concurrently.
     unsafe {
         std::env::set_var("AOS_ALLOW_NONDET_TRAINING", "1");
+        std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
+        // Force MLX capability detection to report unavailable in this test process.
+        // This keeps training on CPU-proxy path even when workspace feature
+        // unification enables MLX in full `cargo test --workspace` runs.
+        std::env::set_var("AOS_MLX_IMPL", "disabled-for-test");
     }
 
     let db = adapteros_db::Db::connect(db_path.to_str().unwrap())
@@ -36,15 +41,40 @@ async fn training_pipeline_produces_registered_aos() {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind("system")
         .bind("system")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
     // Seed a base model in the models table to satisfy FK (minimal placeholder hashes)
     let base_model_dir = temp_dir.path().join("base-model");
     std::fs::create_dir_all(&base_model_dir).unwrap();
+    let model_config_path = base_model_dir.join("config.json");
+    let model_config = serde_json::json!({
+        "hidden_size": 768,
+        "num_hidden_layers": 12,
+        "num_attention_heads": 12,
+        "num_key_value_heads": 2,
+        "intermediate_size": 3072,
+        "vocab_size": 30522,
+        "max_position_embeddings": 512,
+        "rope_theta": 10000.0
+    });
+    std::fs::write(&model_config_path, model_config.to_string()).unwrap();
     let tokenizer_path = base_model_dir.join("tokenizer.json");
     std::fs::write(&tokenizer_path, b"{\"model\":{}}").unwrap();
     let tokenizer_hash_b3 = B3Hash::hash_file(&tokenizer_path).unwrap().to_hex();
+    // SAFETY: This test runs on a single-threaded Tokio runtime, so no other
+    // threads read or write environment variables concurrently.
+    unsafe {
+        std::env::set_var(
+            "AOS_MODEL_CACHE_DIR",
+            temp_dir.path().to_string_lossy().to_string(),
+        );
+        std::env::set_var("AOS_BASE_MODEL_ID", "base-model");
+        std::env::set_var(
+            "AOS_MODEL_PATH",
+            base_model_dir.to_string_lossy().to_string(),
+        );
+    }
     sqlx::query("INSERT INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, license_hash_b3, license_text, model_card_hash_b3, model_path, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind("qwen2.5-7b") // id must match base_model_id supplied to training_service
         .bind("qwen2.5-7b")
@@ -57,7 +87,7 @@ async fn training_pipeline_produces_registered_aos() {
         .bind("placeholder-card")
         .bind(base_model_dir.to_string_lossy().to_string())
         .bind("system")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
     let storage_root = temp_dir.path().to_path_buf();
@@ -160,7 +190,7 @@ async fn training_pipeline_produces_registered_aos() {
     let persisted_repo_id: String =
         sqlx::query_scalar("SELECT repo_id FROM repository_training_jobs WHERE id = ?")
             .bind(&job.id)
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result().unwrap())
             .await
             .expect("training job should be persisted in repository_training_jobs");
     assert_eq!(
@@ -171,7 +201,7 @@ async fn training_pipeline_produces_registered_aos() {
     let direct_repo_count: i64 =
         sqlx::query_scalar("SELECT COUNT(1) FROM git_repositories WHERE repo_id = ?")
             .bind("direct-training")
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result().unwrap())
             .await
             .expect("direct-training synthetic repo should exist");
     assert_eq!(
@@ -187,7 +217,7 @@ async fn training_pipeline_produces_registered_aos() {
                     .as_deref()
                     .expect("completed job should have weights_hash_b3"),
             )
-            .fetch_optional(db.pool())
+            .fetch_optional(db.pool_result().unwrap())
             .await
             .expect("artifact query should succeed");
     assert!(

@@ -11,8 +11,9 @@
 //! - Entropy floor enforcement
 //! - Cross-instance determinism
 //!
-//! Note: Router seed is used for telemetry sampling determinism, not routing decisions.
-//! Routing determinism comes from stable sorting (score desc, then stable_id asc).
+//! Note: Non-adaptive routing determinism comes from stable sorting
+//! (score desc, then stable_id asc). Adaptive mode uses a seeded, reproducible
+//! tie-break order when a determinism context is provided.
 #![allow(clippy::absurd_extreme_comparisons)]
 #![allow(clippy::needless_range_loop)]
 #![allow(clippy::redundant_pattern_matching)]

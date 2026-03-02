@@ -1,0 +1,62 @@
+{
+  "name": "routing_per_tenant_v1",
+  "description": "Per-tenant routing isolation and configuration dataset for the adapterOS K-sparse LoRA router. Covers tenant-specific routing parameters (K, tau, epsilon), adapter pool composition with shared system adapters, cross-tenant isolation guarantees, shared adapter divergent routing outcomes, and per-tenant optimization strategies. All examples assume Q15-quantized gate scores and deterministic top-K selection.",
+  "version": "1.0.0",
+  "category": "tenancy",
+  "scope": "global",
+  "tier": "critical",
+  "rank": 8,
+  "alpha": 16.0,
+  "target_modules": [
+    "gate_proj",
+    "q_proj",
+    "v_proj"
+  ],
+  "entries": [
+    {
+      "path": "routing-per-tenant.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "primary",
+      "notes": "2000 examples across 5 subcategories: tenant_routing_config (400), adapter_pool_composition (400), cross_tenant_isolation (400), shared_adapter_routing (400), routing_optimization (400)"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#k-sparse-routing",
+      "docs/architecture/MasterPlan.md#multi-tenancy"
+    ],
+    "created_by": "per-tenant-routing-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Synthetic dataset covering per-tenant routing isolation, adapter pool composition with system adapters, tenant-specific K/tau/epsilon tuning, cross-tenant independence guarantees, and optimization strategies for diverse tenant workloads."
+  },
+  "evaluation_gates": [
+    "Tenant routing pools include only owned adapters plus system adapters",
+    "Cross-tenant adapter pools never leak dedicated adapters between tenants",
+    "Tenant-specific K value controls the sparsity of adapter selection independently",
+    "Tenant-specific temperature tau reshapes the softmax distribution per-tenant",
+    "Tenant-specific entropy floor epsilon prevents routing collapse per-tenant",
+    "System adapters compete fairly in every tenant's gate scoring",
+    "Identical system adapter produces different routing outcomes across tenants",
+    "Routing decisions for tenant-a are fully independent of tenant-b's state"
+  ],
+  "intent": "Train the adapter to reason about per-tenant routing isolation in a multi-tenant adapterOS deployment: how each tenant's adapter pool is constructed, how tenant-specific K/tau/epsilon parameters shape routing behavior, how system adapters participate across all tenants with independent outcomes, and how to tune routing parameters for different tenant workload profiles.",
+  "subcategories": {
+    "tenant_routing_config": "How each tenant customizes K, tau, epsilon. Impact on routing behavior. When to use K=1 vs K=4.",
+    "adapter_pool_composition": "Tenant has N custom adapters + M system adapters = total pool. How system adapters interact with tenant adapters in the gate.",
+    "cross_tenant_isolation": "Tenant-a's routing decisions do not affect tenant-b. Gate weights are independent per tenant. No state leakage.",
+    "shared_adapter_routing": "System adapter gets high gate score for one tenant but low for another. Same shared adapter, different routing outcomes.",
+    "routing_optimization": "Tuning tau and epsilon for different workloads. High-precision tenant (low tau) vs exploration tenant (high tau)."
+  },
+  "statistics": {
+    "total_examples": 2000,
+    "examples_per_subcategory": 400,
+    "tenant_pool_sizes": [4, 6, 8, 10, 12, 16],
+    "system_adapter_counts": [1, 2, 3, 4],
+    "k_values": [1, 2, 3, 4],
+    "tau_values": [0.01, 0.05, 0.1, 0.3, 0.5, 1.0, 2.0, 5.0],
+    "epsilon_values": [0.0, 0.01, 0.05, 0.1, 0.2],
+    "avg_quality_score": 0.94
+  }
+}

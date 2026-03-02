@@ -90,7 +90,7 @@ Examples:
         evidence_token: Option<String>,
 
         /// API base URL
-        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
 
@@ -652,7 +652,7 @@ impl DiagnosticRunner {
                 let query = "SELECT uid, gid FROM tenants WHERE id = ?";
                 match sqlx::query(query)
                     .bind(tenant_id)
-                    .fetch_optional(db.pool())
+                    .fetch_optional(db.pool_result()?)
                     .await
                 {
                     Ok(Some(row)) => {
@@ -1168,14 +1168,14 @@ async fn collect_database_state(
 
     if let Some(db) = db {
         if let Ok(result) = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM manifests")
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result()?)
             .await
         {
             info.push_str(&format!("Manifests: {}\n", result));
         }
 
         if let Ok(result) = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM adapters")
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result()?)
             .await
         {
             info.push_str(&format!("Adapters: {}\n", result));
@@ -1183,7 +1183,7 @@ async fn collect_database_state(
 
         if let Ok(rows) =
             sqlx::query_as::<_, (String, i64)>("SELECT status, COUNT(*) FROM jobs GROUP BY status")
-                .fetch_all(db.pool())
+                .fetch_all(db.pool_result()?)
                 .await
         {
             info.push_str("\nJobs by status:\n");
@@ -1195,7 +1195,7 @@ async fn collect_database_state(
         if let Ok(rows) = sqlx::query_as::<_, (String, String, String)>(
             "SELECT id, job_type, status FROM jobs ORDER BY created_at DESC LIMIT 20",
         )
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await
         {
             info.push_str("\nRecent jobs:\n");
@@ -1597,7 +1597,7 @@ pub async fn run_determinism_check(
         }
     }
 
-    // Persist results to database (PRD G2 - Fix shortcut)
+    // Persist determinism status source-of-truth for /v1/diagnostics/determinism-status freshness.
     let result_str = if all_deterministic { "pass" } else { "fail" };
     let divergence_count = diffs.len();
     let seed_str = if let Some(ref seed_hex) = seed {
@@ -1621,7 +1621,7 @@ pub async fn run_determinism_check(
             .bind(divergence_count as i64)
             .bind(&actual_stack_id)
             .bind(&seed_str)
-            .execute(db.pool())
+            .execute(db.pool_result()?)
             .await
             {
                 Ok(_) => {
@@ -1670,7 +1670,7 @@ pub async fn run_quarantine_check(
          FROM active_quarantine 
          ORDER BY created_at DESC",
     )
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(format!("Failed to query quarantines: {}", e)))?;
 
@@ -1755,7 +1755,7 @@ pub async fn run_quarantine_check(
          FROM adapter_stacks 
          WHERE active = 1",
     )
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await
     .map_err(|e| AosError::Database(format!("Failed to query stacks: {}", e)))?;
 

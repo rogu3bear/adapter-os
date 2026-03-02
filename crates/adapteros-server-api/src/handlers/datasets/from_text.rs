@@ -73,12 +73,6 @@ pub async fn create_dataset_from_text(
 
     let input_char_count = request.content.len();
 
-    // Generate dataset name if not provided
-    let dataset_name = request.name.unwrap_or_else(|| {
-        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-        format!("text_dataset_{}", timestamp)
-    });
-
     // Convert content to JSONL based on format
     let jsonl_lines = convert_text_to_jsonl(&request.content, request.format);
 
@@ -89,6 +83,12 @@ pub async fn create_dataset_from_text(
     }
 
     let sample_count = jsonl_lines.len();
+    let dataset_name = resolve_text_dataset_name(
+        request.name.clone(),
+        request.source_type,
+        request.format,
+        sample_count,
+    );
 
     // Build JSONL content
     let jsonl_content = jsonl_lines.join("\n");
@@ -363,12 +363,6 @@ pub async fn create_dataset_from_chat(
         .into());
     }
 
-    // Generate dataset name if not provided
-    let dataset_name = request.name.unwrap_or_else(|| {
-        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-        format!("chat_dataset_{}", timestamp)
-    });
-
     // Convert messages to JSONL based on format
     let (jsonl_lines, turn_count) = convert_chat_to_jsonl(
         &filtered_messages,
@@ -383,6 +377,12 @@ pub async fn create_dataset_from_chat(
     }
 
     let sample_count = jsonl_lines.len();
+    let dataset_name = resolve_chat_dataset_name(
+        request.name.clone(),
+        request.format,
+        message_count,
+        turn_count,
+    );
 
     // Build JSONL content
     let jsonl_content = jsonl_lines.join("\n");
@@ -800,6 +800,62 @@ fn count_turns(messages: &[&ChatMessageInput]) -> usize {
     turns
 }
 
+fn resolve_text_dataset_name(
+    _request_name: Option<String>,
+    source_type: TextDatasetSourceType,
+    format: TextDatasetFormat,
+    sample_count: usize,
+) -> String {
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    format!(
+        "{} - {} mode - {} samples - {}",
+        text_dataset_source_label(source_type),
+        text_dataset_format_label(format),
+        sample_count,
+        timestamp
+    )
+}
+
+fn resolve_chat_dataset_name(
+    _request_name: Option<String>,
+    format: ChatDatasetFormat,
+    message_count: usize,
+    turn_count: usize,
+) -> String {
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    format!(
+        "Chat dataset - {} mode - {} messages - {} turns - {}",
+        chat_dataset_format_label(format),
+        message_count,
+        turn_count,
+        timestamp
+    )
+}
+
+fn text_dataset_source_label(source: TextDatasetSourceType) -> &'static str {
+    match source {
+        TextDatasetSourceType::Pasted => "Pasted text dataset",
+        TextDatasetSourceType::Extracted => "Extracted text dataset",
+        TextDatasetSourceType::External => "External text dataset",
+    }
+}
+
+fn text_dataset_format_label(format: TextDatasetFormat) -> &'static str {
+    match format {
+        TextDatasetFormat::Lines => "line_by_line",
+        TextDatasetFormat::Qa => "qa_pairs",
+        TextDatasetFormat::Raw => "raw_text",
+    }
+}
+
+fn chat_dataset_format_label(format: ChatDatasetFormat) -> &'static str {
+    match format {
+        ChatDatasetFormat::Conversation => "conversation",
+        ChatDatasetFormat::InstructionResponse => "instruction_response",
+        ChatDatasetFormat::Raw => "raw_messages",
+    }
+}
+
 /// Clean up dataset on error
 async fn cleanup_dataset(state: &AppState, dataset_id: &str, dataset_path: &std::path::Path) {
     // Delete from database (best effort)
@@ -820,5 +876,55 @@ async fn cleanup_dataset(state: &AppState, dataset_id: &str, dataset_path: &std:
                 "Failed to delete dataset directory during cleanup"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_name_is_derived_from_source_context() {
+        let name = resolve_text_dataset_name(
+            Some("Customer FAQ - qa_pairs".to_string()),
+            TextDatasetSourceType::Pasted,
+            TextDatasetFormat::Qa,
+            24,
+        );
+        assert!(name.starts_with("Pasted text dataset - qa_pairs mode - 24 samples - "));
+    }
+
+    #[test]
+    fn generic_text_name_is_derived_from_source_context() {
+        let name = resolve_text_dataset_name(
+            Some("pasted-text".to_string()),
+            TextDatasetSourceType::Pasted,
+            TextDatasetFormat::Lines,
+            12,
+        );
+        assert!(name.starts_with("Pasted text dataset - line_by_line mode - 12 samples - "));
+    }
+
+    #[test]
+    fn chat_name_is_derived_from_message_context() {
+        let name = resolve_chat_dataset_name(
+            Some("Support triage training chat".to_string()),
+            ChatDatasetFormat::InstructionResponse,
+            38,
+            17,
+        );
+        assert!(name
+            .starts_with("Chat dataset - instruction_response mode - 38 messages - 17 turns - "));
+    }
+
+    #[test]
+    fn rewrites_generic_chat_name() {
+        let name = resolve_chat_dataset_name(
+            Some("chat-selection".to_string()),
+            ChatDatasetFormat::Conversation,
+            16,
+            7,
+        );
+        assert!(name.starts_with("Chat dataset - conversation mode - 16 messages - 7 turns - "));
     }
 }

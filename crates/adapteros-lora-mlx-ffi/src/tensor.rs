@@ -240,6 +240,7 @@ mod ffi_impl {
         // Keep unit tests deterministic, but avoid making integration tests painfully slow by
         // syncing on every operation (integration tests compile this crate with `cfg(test)=false`).
         if cfg!(test) {
+            // SAFETY: this helper is only called with MLX array pointers created by this module.
             let _ = unsafe { crate::mlx_force_eval(array) };
             crate::mlx_sync();
         }
@@ -261,6 +262,8 @@ mod ffi_impl {
         pub fn from_data(data: &[f32], shape: Vec<usize>) -> Result<Self> {
             crate::mlx_test_auto_init();
             let _guard = test_lock_guard();
+            // SAFETY: FFI calls in this block only use pointers derived from Rust slices/vectors
+            // that remain alive for each call; null/error returns are checked after each call.
             unsafe {
                 mlx_clear_error();
                 let array = mlx_array_from_data(data.as_ptr(), data.len() as i32);
@@ -318,6 +321,8 @@ mod ffi_impl {
         pub fn from_ints(data: &[i32], shape: Vec<usize>) -> Result<Self> {
             crate::mlx_test_auto_init();
             let _guard = test_lock_guard();
+            // SAFETY: FFI calls in this block only use pointers derived from Rust slices/vectors
+            // that remain alive for each call; null/error returns are checked after each call.
             unsafe {
                 mlx_clear_error();
                 let array = mlx_array_from_ints(data.as_ptr(), data.len() as i32);
@@ -379,12 +384,16 @@ mod ffi_impl {
 
             let _guard = test_lock_guard();
             test_force_eval(self.inner);
+            // SAFETY: `self.inner` is a live MLX handle owned by this tensor.
             let data_ptr = unsafe { mlx_array_data(self.inner) };
             if data_ptr.is_null() {
                 return Err(AosError::Mlx("Failed to get tensor data".to_string()));
             }
 
+            // SAFETY: `self.inner` is a live MLX handle owned by this tensor.
             let size = unsafe { mlx_array_size(self.inner) };
+            // SAFETY: MLX returns a buffer pointer valid for `size` contiguous `f32` elements
+            // while the backing array is alive; `self` keeps that array alive for this borrow.
             Ok(unsafe { std::slice::from_raw_parts(data_ptr, size as usize) })
         }
 
@@ -416,6 +425,8 @@ mod ffi_impl {
         /// Add two tensors
         pub fn add(&self, other: &Self) -> Result<Self> {
             let _guard = test_lock_guard();
+            // SAFETY: both tensor handles are valid and owned by live Rust wrappers; this call
+            // does not outlive either borrow and null/error is handled below.
             unsafe {
                 mlx_clear_error();
 
@@ -450,6 +461,8 @@ mod ffi_impl {
         /// Multiply two tensors
         pub fn multiply(&self, other: &Self) -> Result<Self> {
             let _guard = test_lock_guard();
+            // SAFETY: both tensor handles are valid and owned by live Rust wrappers; this call
+            // does not outlive either borrow and null/error is handled below.
             unsafe {
                 mlx_clear_error();
 
@@ -484,6 +497,8 @@ mod ffi_impl {
         /// Matrix multiplication
         pub fn matmul(&self, other: &Self) -> Result<Self> {
             let _guard = test_lock_guard();
+            // SAFETY: both tensor handles are valid and owned by live Rust wrappers; this call
+            // does not outlive either borrow and null/error is handled below.
             unsafe {
                 mlx_clear_error();
 
@@ -542,6 +557,8 @@ mod ffi_impl {
             let shape_i32: Vec<i32> = new_shape.iter().map(|&x| x as i32).collect();
 
             let _guard = test_lock_guard();
+            // SAFETY: `self.inner` is a live MLX handle and `shape_i32` has a stable pointer
+            // for this call; null/error is checked below.
             unsafe {
                 mlx_clear_error();
                 let result_array =
@@ -573,6 +590,7 @@ mod ffi_impl {
         /// Transpose tensor
         pub fn transpose(&self) -> Result<Self> {
             let _guard = test_lock_guard();
+            // SAFETY: `self.inner` is a live MLX handle owned by this tensor.
             unsafe {
                 mlx_clear_error();
                 let result_array = mlx_array_transpose(self.inner);
@@ -615,6 +633,8 @@ mod ffi_impl {
                 let mut shape_buf: Vec<i32> = vec![0; max_dims];
 
                 let _guard = test_lock_guard();
+                // SAFETY: `shape_buf` is writable for `max_dims` entries and `self.inner` is a
+                // live MLX handle; MLX writes at most the provided capacity.
                 unsafe {
                     mlx_clear_error();
                     let ndim = mlx_array_shape(self.inner, shape_buf.as_mut_ptr(), max_dims as i32);
@@ -650,6 +670,7 @@ mod ffi_impl {
             #[cfg(not(test))]
             {
                 let _guard = test_lock_guard();
+                // SAFETY: `self.inner` is a live MLX handle owned by this tensor.
                 unsafe {
                     mlx_clear_error();
                     let ndim = crate::mlx_array_ndim(self.inner);
@@ -682,6 +703,7 @@ mod ffi_impl {
             #[cfg(not(test))]
             {
                 let _guard = test_lock_guard();
+                // SAFETY: `self.inner` is a live MLX handle owned by this tensor.
                 unsafe {
                     mlx_clear_error();
                     let size = mlx_array_size(self.inner);
@@ -704,6 +726,7 @@ mod ffi_impl {
             #[cfg(not(test))]
             {
                 let _guard = test_lock_guard();
+                // SAFETY: `self.inner` is a live MLX handle owned by this tensor.
                 unsafe {
                     mlx_clear_error();
                     let dtype = mlx_array_dtype(self.inner);
@@ -715,6 +738,7 @@ mod ffi_impl {
         /// Create a copy of this tensor
         pub fn copy(&self) -> Result<Self> {
             let _guard = test_lock_guard();
+            // SAFETY: `self.inner` is a live MLX handle owned by this tensor.
             unsafe {
                 mlx_clear_error();
                 let result_array = mlx_array_copy(self.inner);
@@ -778,10 +802,13 @@ mod ffi_impl {
             let _guard = test_lock_guard();
             // Get shape from MLX
             let mut shape = vec![0i32; 16];
+            // SAFETY: `inner` is required by API contract to be a valid MLX array handle and
+            // `shape` has capacity for 16 elements.
             let ndim = unsafe { mlx_array_shape(inner, shape.as_mut_ptr(), 16) };
             let shape: Vec<usize> = shape[..ndim as usize].iter().map(|&x| x as usize).collect();
 
             // Get dtype from MLX
+            // SAFETY: `inner` is required by API contract to be a valid MLX array handle.
             let dtype_code = unsafe { mlx_array_dtype(inner) };
             let dtype = match dtype_code {
                 0 => TensorDtype::Float32,
@@ -802,6 +829,7 @@ mod ffi_impl {
         fn drop(&mut self) {
             if !self.inner.is_null() {
                 let _guard = test_lock_guard();
+                // SAFETY: `self.inner` is owned by this wrapper and freed exactly once on drop.
                 unsafe {
                     test_force_eval(self.inner);
                     mlx_array_free(self.inner);
@@ -810,7 +838,8 @@ mod ffi_impl {
         }
     }
 
-    // Safety: MLX FFI tensor is thread-safe
+    // SAFETY: `MLXFFITensor` is a thin handle to MLX-managed storage; shared use is
+    // synchronized by MLX runtime semantics and this crate's call-site locking discipline.
     unsafe impl Send for MLXFFITensor {}
     unsafe impl Sync for MLXFFITensor {}
 }

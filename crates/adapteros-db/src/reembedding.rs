@@ -134,7 +134,7 @@ impl<'a> ReembeddingManager<'a> {
         .bind(source_model_hash)
         .bind(target_model_hash)
         .bind(doc_count)
-        .execute(self.db.pool())
+        .execute(self.db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create re-embedding job: {}", e)))?;
 
@@ -162,7 +162,7 @@ impl<'a> ReembeddingManager<'a> {
             "#,
         )
         .bind(job_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(self.db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get job: {}", e)))?;
 
@@ -212,7 +212,7 @@ impl<'a> ReembeddingManager<'a> {
 
         let rows = sqlx::query(query)
             .bind(tenant_id)
-            .fetch_all(self.db.pool())
+            .fetch_all(self.db.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to list jobs: {}", e)))?;
 
@@ -247,7 +247,7 @@ impl<'a> ReembeddingManager<'a> {
             "#,
         )
         .bind(job_id)
-        .execute(self.db.pool())
+        .execute(self.db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to start job: {}", e)))?;
 
@@ -285,7 +285,7 @@ impl<'a> ReembeddingManager<'a> {
         .bind(&job.tenant_id)
         .bind(&job.source_model_hash)
         .bind(batch_size as i64)
-        .fetch_all(self.db.pool())
+        .fetch_all(self.db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get next batch: {}", e)))?;
 
@@ -317,7 +317,7 @@ impl<'a> ReembeddingManager<'a> {
         .bind(doc_id)
         .bind(status)
         .bind(error_message)
-        .execute(self.db.pool())
+        .execute(self.db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to record progress: {}", e)))?;
 
@@ -345,7 +345,7 @@ impl<'a> ReembeddingManager<'a> {
         .bind(batch_result.skipped as i64)
         .bind(&batch_result.last_doc_id)
         .bind(job_id)
-        .execute(self.db.pool())
+        .execute(self.db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to update progress: {}", e)))?;
 
@@ -373,7 +373,7 @@ impl<'a> ReembeddingManager<'a> {
         .bind(status)
         .bind(error_message)
         .bind(job_id)
-        .execute(self.db.pool())
+        .execute(self.db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to complete job: {}", e)))?;
 
@@ -396,7 +396,7 @@ impl<'a> ReembeddingManager<'a> {
             "#,
         )
         .bind(job_id)
-        .execute(self.db.pool())
+        .execute(self.db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to cancel job: {}", e)))?;
 
@@ -415,7 +415,7 @@ impl<'a> ReembeddingManager<'a> {
         )
         .bind(tenant_id)
         .bind(model_hash)
-        .fetch_one(self.db.pool())
+        .fetch_one(self.db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to count documents: {}", e)))?;
 

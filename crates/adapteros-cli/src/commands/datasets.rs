@@ -102,6 +102,13 @@ pub enum DatasetSubcommand {
   aosctl dataset build ./data.jsonl --tokenizer ./tokenizer.json --dry-run
 "#)]
     Build(BuildArgs),
+
+    /// Delete a dataset (removes DB record and storage files)
+    #[command(after_help = r#"Examples:
+  aosctl dataset delete dst-abc123
+  aosctl dataset delete dst-abc123 --confirm
+"#)]
+    Delete(DeleteArgs),
 }
 
 #[derive(Debug, Args, Clone)]
@@ -252,6 +259,15 @@ pub struct BuildArgs {
     pub dry_run: bool,
 }
 
+#[derive(Debug, Args, Clone)]
+pub struct DeleteArgs {
+    /// Dataset id to delete
+    pub dataset_id: String,
+    /// Skip confirmation prompt
+    #[arg(long)]
+    pub confirm: bool,
+}
+
 #[derive(Debug, Serialize)]
 struct IngestResult {
     dataset_id: String,
@@ -305,6 +321,7 @@ pub async fn run(cmd: DatasetCommand, output: &OutputWriter) -> Result<()> {
         DatasetSubcommand::Show(args) => show_version(args, output).await,
         DatasetSubcommand::Validate(args) => validate_dataset(args, output).await,
         DatasetSubcommand::Build(args) => build_dataset(args, output).await,
+        DatasetSubcommand::Delete(args) => delete_dataset(args, output).await,
     }
 }
 
@@ -891,6 +908,49 @@ async fn build_dataset(args: BuildArgs, output: &OutputWriter) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn delete_dataset(args: DeleteArgs, output: &OutputWriter) -> Result<()> {
+    let mut _auth = load_auth()
+        .map_err(|e| AosError::Io(format!("Failed to load auth: {e}")))?
+        .ok_or_else(|| AosError::Validation("No stored auth; run `aosctl auth login`".into()))?;
+
+    warn_if_tenant_mismatch(None, output);
+
+    if !args.confirm {
+        output.warning("Use --confirm to delete the dataset");
+        return Ok(());
+    }
+
+    let client = Client::builder()
+        .cookie_store(true)
+        .build()
+        .map_err(|e| AosError::Io(format!("HTTP client build failed: {e}")))?;
+
+    let resp = send_with_refresh_from_store(&client, |client, store| {
+        let url = format!(
+            "{}/v1/datasets/{}",
+            store.base_url.trim_end_matches('/'),
+            args.dataset_id
+        );
+        client.delete(url).bearer_auth(&store.token)
+    })
+    .await
+    .map_err(|e| AosError::Io(format!("Delete request failed: {e}")))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(AosError::Http(format!(
+            "Failed to delete dataset: {} {}",
+            status, text
+        )));
+    }
+
+    if !output.is_quiet() {
+        output.success(format!("Deleted dataset: {}", args.dataset_id));
+    }
     Ok(())
 }
 

@@ -16,7 +16,7 @@
 //! Null models return FFI errors during inference. Run with a real model for full coverage.
 
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
-use adapteros_lora_mlx_ffi::backend::{BackendHealth, MLXFFIBackend, MLXResilienceConfig};
+use adapteros_lora_mlx_ffi::backend::{MLXFFIBackend, MLXResilienceConfig};
 use adapteros_lora_mlx_ffi::mock::{create_mock_adapter, create_mock_config};
 use adapteros_lora_mlx_ffi::monitoring::{AlertThresholds, HealthStatus, MonitoringConfig};
 use adapteros_lora_mlx_ffi::MLXFFIModel;
@@ -57,94 +57,6 @@ fn create_backend_with_monitoring(
     backend.with_monitoring(monitoring_config)
 }
 
-/// Simulate a specified number of failures by running inference steps
-///
-/// Note: Since the stub backend always succeeds, this function records
-/// failed requests directly in the health status for testing purposes.
-///
-/// # Arguments
-/// * `backend` - The backend to simulate failures on
-/// * `count` - Number of failures to simulate
-#[allow(dead_code)]
-fn simulate_failure(backend: &MLXFFIBackend, count: u32) {
-    // Access the health status directly and simulate failures
-    // This is necessary because the stub backend always succeeds
-    for _ in 0..count {
-        // We need to manually update the health status since stub mode doesn't fail
-        // In real scenarios, actual MLX failures would trigger this
-        let _health = backend.health_status();
-
-        // Record the failure by running a step and then manually adjusting
-        // Since we can't make the stub fail, we work with the health tracking
-        let mut io = IoBuffers {
-            input_ids: vec![1, 2, 3],
-            output_logits: vec![0.0; 32000],
-            position: 0,
-            attention_entropy: None,
-            activations: None,
-        };
-        let ring = RouterRing::new(0);
-
-        // Run step (will succeed in stub mode)
-        let mut backend_mut = backend.clone();
-        let _ = backend_mut.run_step(&ring, &mut io);
-    }
-}
-
-/// Simulate failures that actually increment the failure streak
-///
-/// This helper directly manipulates health state for testing circuit breaker behavior.
-/// In production, failures come from actual MLX operations.
-#[allow(dead_code)]
-fn simulate_failure_streak(backend: &MLXFFIBackend, streak_count: u32) {
-    // For testing, we need to run successful operations to build up the request count,
-    // then the test can verify behavior based on the health status
-    for i in 0..streak_count {
-        let mut io = IoBuffers {
-            input_ids: vec![1, 2, 3],
-            output_logits: vec![0.0; 32000],
-            position: i as usize,
-            attention_entropy: None,
-            activations: None,
-        };
-        let ring = RouterRing::new(0);
-
-        let mut backend_mut = backend.clone();
-        let _ = backend_mut.run_step(&ring, &mut io);
-    }
-}
-
-/// Assert that the backend health status matches expected values
-///
-/// # Arguments
-/// * `backend` - The backend to check
-/// * `expected` - Expected health status to compare against
-#[allow(dead_code)]
-fn assert_health_status(backend: &MLXFFIBackend, expected: &BackendHealth) {
-    let actual = backend.health_status();
-
-    assert_eq!(
-        actual.operational, expected.operational,
-        "operational mismatch: expected {}, got {}",
-        expected.operational, actual.operational
-    );
-    assert_eq!(
-        actual.stub_fallback_active, expected.stub_fallback_active,
-        "stub_fallback_active mismatch: expected {}, got {}",
-        expected.stub_fallback_active, actual.stub_fallback_active
-    );
-
-    // Allow some tolerance for request counts due to timing
-    if expected.total_requests > 0 {
-        assert!(
-            actual.total_requests >= expected.total_requests,
-            "total_requests mismatch: expected at least {}, got {}",
-            expected.total_requests,
-            actual.total_requests
-        );
-    }
-}
-
 /// Create a default resilience config for testing
 fn create_test_resilience_config() -> MLXResilienceConfig {
     MLXResilienceConfig {
@@ -183,6 +95,7 @@ fn create_test_io_buffers() -> IoBuffers {
         position: 0,
         attention_entropy: None,
         activations: None,
+        session_id: Some("test_session".to_string()),
     }
 }
 
@@ -373,15 +286,15 @@ fn test_health_status_tracking_with_adapters() {
     let adapter1 = create_mock_adapter("adapter1", 4);
     let adapter2 = create_mock_adapter("adapter2", 8);
 
-    backend.register_adapter(1, adapter1).unwrap();
-    backend.register_adapter(2, adapter2).unwrap();
+    let mut backend_mut = backend.clone();
+    backend_mut.register_adapter(1, adapter1).unwrap();
+    backend_mut.register_adapter(2, adapter2).unwrap();
 
-    assert_eq!(backend.adapter_count(), 2, "Should have 2 adapters");
+    assert_eq!(backend_mut.adapter_count(), 2, "Should have 2 adapters");
 
     // Run operations with adapters
     let mut io = create_test_io_buffers();
     let ring = create_test_router_ring();
-    let mut backend_mut = backend.clone();
 
     for i in 0..5 {
         io.position = i;
@@ -498,6 +411,7 @@ fn test_stub_fallback_inference() {
         position: 0,
         attention_entropy: None,
         activations: None,
+        session_id: Some("test_session".to_string()),
     };
     let ring = create_test_router_ring();
 
@@ -536,8 +450,9 @@ fn test_stub_fallback_with_adapters() {
     let adapter1 = create_mock_adapter("code-review", 4);
     let adapter2 = create_mock_adapter("documentation", 8);
 
-    backend.register_adapter(0, adapter1).unwrap();
-    backend.register_adapter(1, adapter2).unwrap();
+    let mut backend_mut = backend.clone();
+    backend_mut.register_adapter(0, adapter1).unwrap();
+    backend_mut.register_adapter(1, adapter2).unwrap();
 
     // Create router ring that activates both adapters
     let mut ring = RouterRing::new(2);
@@ -547,7 +462,6 @@ fn test_stub_fallback_with_adapters() {
     ring.gates_q15[1] = 16384; // 0.5 in Q15
 
     let mut io = create_test_io_buffers();
-    let mut backend_mut = backend.clone();
 
     let result = backend_mut.run_step(&ring, &mut io);
     assert!(result.is_ok(), "Stub with adapters should succeed");

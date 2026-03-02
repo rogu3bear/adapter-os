@@ -10,20 +10,22 @@
 //! Uses Liquid Glass Tier 2 (panels) with 12px blur and 78% alpha.
 //! Deterministic content - no random elements, consistent ordering.
 
-use adapteros_api_types::{AdapterResponse, LifecycleState};
+use adapteros_api_types::{AdapterResponse, LifecycleState, TrainingJobResponse, TrainingListParams};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::hooks::{use_location, use_navigate};
 use std::sync::Arc;
+use urlencoding::encode;
 
-use crate::api::use_api_client;
+use crate::api::{use_api_client, ApiError};
 use crate::components::{
-    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, CopyableId, HashDisplay, ProvenanceBadge, Spinner,
-    VersionTimeline,
+    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonSize, ButtonType, ButtonVariant,
+    Card, ConfirmationDialog, ConfirmationSeverity, CopyableId, DetailGrid, DetailItem, EmptyState,
+    EmptyStateVariant, IconX, Input, ProvenanceBadge, Spinner,
 };
 use crate::contexts::use_in_flight;
 use crate::signals::notifications::use_notifications;
-use crate::utils::format_bytes;
+use crate::utils::{chat_path_with_adapter, format_bytes, humanize};
 
 /// Suggestion context explaining why an adapter was suggested.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -109,27 +111,22 @@ pub fn AdapterDetailPanel(
 #[component]
 fn AdapterDetailEmpty() -> impl IntoView {
     view! {
-        <div class="adapter-detail-empty">
-            <div class="adapter-detail-empty-icon">
-                <svg
-                    class="w-12 h-12 text-muted-foreground/50"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    xmlns="http://www.w3.org/2000/svg"
-                >
-                    <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.5"
-                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                    />
-                </svg>
-            </div>
-            <p class="adapter-detail-empty-hint">
-                "Select a skill to view details, trust context, and update controls."
-            </p>
-        </div>
+        <EmptyState
+            variant=EmptyStateVariant::Empty
+            title="No skill selected".to_string()
+            description="Select a skill to view details, trust context, and update controls.".to_string()
+        />
+    }
+}
+
+fn rename_error_message(action: &str, error: &ApiError) -> String {
+    if matches!(error, ApiError::Forbidden(_)) || error.code() == Some("FORBIDDEN") {
+        format!(
+            "You do not have permission to {}. Ask an administrator for adapter-management access.",
+            action
+        )
+    } else {
+        format!("Unable to {}: {}", action, error.user_message())
     }
 }
 
@@ -146,6 +143,14 @@ fn AdapterDetailContent(
 ) -> impl IntoView {
     // Access in-flight context
     let in_flight = use_in_flight();
+    let client = use_api_client();
+
+    // Rename state
+    let name_editing = RwSignal::new(false);
+    let name_draft = RwSignal::new(String::new());
+    let renaming = RwSignal::new(false);
+    let action_error = RwSignal::new(None::<String>);
+    let action_success = RwSignal::new(None::<String>);
 
     // Clone values needed for closures
     let adapter_id_for_pin = adapter.adapter_id.clone();
@@ -207,7 +212,50 @@ fn AdapterDetailContent(
     let memory_bytes = adapter.memory_bytes;
     let is_pinned = adapter.pinned.unwrap_or(false);
     let repo_id = adapter.repo_id.clone();
-    let repo_id_for_timeline = repo_id.clone();
+    let repo_id_for_versions = repo_id.clone();
+    let adapter_stats_for_relationships = adapter.stats.clone();
+    let adapter_stats_for_overview = adapter.stats.clone();
+    let adapter_chat_path = chat_path_with_adapter(&adapter_id);
+    let compatibility_text = describe_adapter_compatibility(framework.as_deref(), &languages);
+    let readiness_text = lifecycle_readiness_text(adapter.lifecycle_state, adapter.runtime_state.as_deref());
+    let relationship_version = version.clone();
+
+    // Related training context for relationship surfaces.
+    let related_training_job = RwSignal::new(None::<TrainingJobResponse>);
+    let related_training_loading = RwSignal::new(true);
+    let related_training_error = RwSignal::new(None::<String>);
+    {
+        let client = Arc::clone(&client);
+        let adapter_name_for_lookup = name.clone();
+        let adapter_id_for_lookup = adapter_id.clone();
+        spawn_local(async move {
+                let params = TrainingListParams {
+                    page: Some(1),
+                    page_size: Some(100),
+                    adapter_name: Some(adapter_name_for_lookup.clone()),
+                    ..Default::default()
+                };
+            match client.list_training_jobs(Some(&params)).await {
+                Ok(resp) => {
+                    let latest = resp
+                        .jobs
+                        .into_iter()
+                        .filter(|job| {
+                            job.adapter_id.as_deref() == Some(adapter_id_for_lookup.as_str())
+                                || job.adapter_name == adapter_name_for_lookup
+                        })
+                        .max_by(|left, right| left.created_at.cmp(&right.created_at));
+                    related_training_job.set(latest);
+                    related_training_error.set(None);
+                }
+                Err(err) => {
+                    related_training_job.set(None);
+                    related_training_error.set(Some(err.user_message()));
+                }
+            }
+            related_training_loading.set(false);
+        });
+    }
 
     // Suggestion context values
     let has_suggestion = suggestion_context.reason.is_some()
@@ -224,13 +272,178 @@ fn AdapterDetailContent(
     // Derive reactive in-flight status
     let is_in_flight = Signal::derive(move || in_flight.is_in_flight(&adapter_id_for_flight));
 
+    // Rename allowed only for Draft and Training (backend PolicyViolation otherwise)
+    let can_rename = matches!(
+        adapter.lifecycle_state,
+        LifecycleState::Draft | LifecycleState::Training
+    );
+    let rename_aria_label = if can_rename {
+        "Rename adapter".to_string()
+    } else {
+        format!(
+            "Rename not available for adapters in {} state",
+            lifecycle_state.clone()
+        )
+    };
+
+    // Rename callbacks
+    let name_for_start = name.clone();
+    let start_rename = Callback::new(move |_| {
+        name_draft.set(name_for_start.clone());
+        name_editing.set(true);
+    });
+
+    let cancel_rename = Callback::new(move |_| {
+        name_editing.set(false);
+        name_draft.set(String::new());
+    });
+
+    let save_rename = Callback::new({
+        let client = client.clone();
+        let adapter_id_for_rename = adapter_id.clone();
+        move |_| {
+            if renaming.get() {
+                return;
+            }
+            let new_name = name_draft.get().trim().to_string();
+            if new_name.is_empty() {
+                action_error.set(Some("Name cannot be empty.".to_string()));
+                return;
+            }
+            renaming.set(true);
+            action_error.set(None);
+            action_success.set(None);
+
+            let client = client.clone();
+            let adapter_id = adapter_id_for_rename.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client
+                    .patch_adapter(&adapter_id, Some(new_name.trim()))
+                    .await
+                {
+                    Ok(_) => {
+                        name_editing.set(false);
+                        name_draft.set(String::new());
+                        action_success.set(Some("Adapter renamed.".to_string()));
+                        if let Some(ref cb) = on_refetch {
+                            cb.run(());
+                        }
+                    }
+                    Err(e) => {
+                        action_error.set(Some(rename_error_message("rename this adapter", &e)));
+                    }
+                }
+                renaming.set(false);
+            });
+        }
+    });
+
+    let clear_alias = Callback::new({
+        let client = client.clone();
+        let adapter_id_for_clear = adapter_id.clone();
+        move |_| {
+            if renaming.get() {
+                return;
+            }
+            renaming.set(true);
+            action_error.set(None);
+            action_success.set(None);
+
+            let client = client.clone();
+            let adapter_id = adapter_id_for_clear.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.patch_adapter(&adapter_id, None).await {
+                    Ok(_) => {
+                        name_editing.set(false);
+                        name_draft.set(String::new());
+                        action_success.set(Some("Custom name cleared; using default.".to_string()));
+                        if let Some(ref cb) = on_refetch {
+                            cb.run(());
+                        }
+                    }
+                    Err(e) => {
+                        action_error.set(Some(rename_error_message("clear custom name", &e)));
+                    }
+                }
+                renaming.set(false);
+            });
+        }
+    });
+
     view! {
         <div class="adapter-detail-content">
+            // Action feedback
+            {move || action_error.get().map(|message| view! {
+                <div class="mb-3 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
+                    <p class="text-sm text-destructive">{message}</p>
+                </div>
+            })}
+            {move || action_success.get().map(|message| view! {
+                <div class="mb-3 rounded-lg border border-status-success/50 bg-status-success/5 p-3">
+                    <p class="text-sm text-status-success">{message}</p>
+                </div>
+            })}
+
             // Header with close button
             <div class="adapter-detail-header">
                 <div class="adapter-detail-header-info">
-                    <h2 class="adapter-detail-title">{name}</h2>
-                    <CopyableId id=adapter_id.clone() truncate=28 />
+                    {move || if name_editing.get() {
+                        view! {
+                            <div class="flex items-center gap-2" role="group" aria-label="Edit adapter name">
+                                <Input
+                                    value=name_draft
+                                    placeholder="Adapter name".to_string()
+                                    class="flex-1".to_string()
+                                />
+                                <Button
+                                    button_type=ButtonType::Button
+                                    variant=ButtonVariant::Primary
+                                    disabled=Signal::derive(move || renaming.get())
+                                    loading=Signal::derive(move || renaming.get())
+                                    on_click=save_rename
+                                    aria_label="Save adapter name"
+                                >
+                                    "Save"
+                                </Button>
+                                <Button
+                                    button_type=ButtonType::Button
+                                    variant=ButtonVariant::Ghost
+                                    disabled=Signal::derive(move || renaming.get())
+                                    on_click=clear_alias
+                                    aria_label="Clear custom name and use default"
+                                >
+                                    "Use default"
+                                </Button>
+                                <Button
+                                    button_type=ButtonType::Button
+                                    variant=ButtonVariant::Ghost
+                                    disabled=Signal::derive(move || renaming.get())
+                                    on_click=cancel_rename
+                                    aria_label="Cancel editing"
+                                >
+                                    "Cancel"
+                                </Button>
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <div class="flex items-center gap-2">
+                                <h2 class="adapter-detail-title flex-1">{name.clone()}</h2>
+                                <Button
+                                    button_type=ButtonType::Button
+                                    variant=ButtonVariant::Ghost
+                                    disabled=Signal::derive(move || !can_rename)
+                                    on_click=start_rename
+                                    aria_label=rename_aria_label.clone()
+                                >
+                                    "Rename"
+                                </Button>
+                            </div>
+                        }.into_any()
+                    }}
+                    <p class="text-xs text-muted-foreground">
+                        "IDs and hashes are in Technical Details below."
+                    </p>
                 </div>
                 <button
                     type="button"
@@ -238,9 +451,7 @@ fn AdapterDetailContent(
                     on:click=move |_| on_close.run(())
                     aria-label="Close detail panel"
                 >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
+                    <IconX class="w-5 h-5"/>
                 </button>
             </div>
 
@@ -298,41 +509,176 @@ fn AdapterDetailContent(
                 }
             })}
 
-            // Core Metadata
-            <Card title="Trust Details">
-                <dl class="adapter-detail-metadata">
-                    <div class="adapter-detail-metadata-item">
-                        <dt>"Skill Fingerprint"</dt>
-                        <dd><HashDisplay hash=hash_b3 /></dd>
+            <Card title="Relationships">
+                <div class="space-y-3">
+                    <div>
+                        <p class="text-sm">{compatibility_text.clone()}</p>
+                        <p class="text-xs text-muted-foreground">{readiness_text.clone()}</p>
                     </div>
-                    <div class="adapter-detail-metadata-item">
-                        <dt>"Version"</dt>
-                        <dd>{version}</dd>
-                    </div>
-                    <div class="adapter-detail-metadata-item">
-                        <dt>"Tier"</dt>
-                        <dd>{tier}</dd>
-                    </div>
-                    <div class="adapter-detail-metadata-item">
-                        <dt>"Category"</dt>
-                        <dd>{category}</dd>
-                    </div>
-                    <div class="adapter-detail-metadata-item">
-                        <dt>"Coverage"</dt>
-                        <dd>{scope}</dd>
-                    </div>
-                    <div class="adapter-detail-metadata-item">
-                        <dt>"Capacity"</dt>
-                        <dd>{rank.to_string()}</dd>
-                    </div>
-                    {memory_bytes.map(|bytes| view! {
-                        <div class="adapter-detail-metadata-item">
-                            <dt>"Memory Usage"</dt>
-                            <dd>{format_bytes(bytes)}</dd>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div class="rounded-md border border-border/50 bg-muted/20 p-3">
+                            <p class="text-xs text-muted-foreground">"Adapter Version"</p>
+                            <p class="text-sm font-medium">{relationship_version.clone()}</p>
                         </div>
-                    })}
-                </dl>
+                        <div class="rounded-md border border-border/50 bg-muted/20 p-3">
+                            <p class="text-xs text-muted-foreground">"Base Model"</p>
+                            <p class="text-sm font-medium">
+                                {move || {
+                                    related_training_job
+                                        .try_get()
+                                        .flatten()
+                                        .and_then(|job| job.base_model_id)
+                                        .unwrap_or_else(|| "Not exposed in current adapter relationship data".to_string())
+                                }}
+                            </p>
+                        </div>
+                    </div>
+
+                    {move || {
+                        if related_training_loading.try_get().unwrap_or(false) {
+                            return view! {
+                                <p class="text-xs text-muted-foreground">
+                                    "Loading relationship links from recent training jobs..."
+                                </p>
+                            }.into_any();
+                        }
+
+                        if let Some(err) = related_training_error.try_get().flatten() {
+                            return view! {
+                                <p class="text-xs text-muted-foreground">
+                                    {format!("Training relationship lookup unavailable: {}", err)}
+                                </p>
+                            }.into_any();
+                        }
+
+                        if let Some(job) = related_training_job.try_get().flatten() {
+                            let dataset_refs = job
+                                .dataset_version_trust
+                                .clone()
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(|entry| {
+                                    let dataset_version_id = entry.dataset_version_id.clone();
+                                    let label = entry
+                                        .dataset_name
+                                        .clone()
+                                        .unwrap_or_else(|| format!("Dataset version {}", dataset_version_id));
+                                    (entry.dataset_id, dataset_version_id, label)
+                                })
+                                .collect::<Vec<_>>();
+                            let dataset_ref_count = dataset_refs.len();
+                            let source_documents_text = if let Some(collection_id) = job.collection_id.clone() {
+                                format!(
+                                    "Document collection {} was used. Individual source documents are not listed in this payload.",
+                                    collection_id
+                                )
+                            } else {
+                                "Source documents are not exposed by current adapter relationship data.".to_string()
+                            };
+                            let report_href = format!("/v1/training/jobs/{}/report", job.id);
+                            let job_href = format!("/training/{}", job.id);
+                            view! {
+                                <div class="space-y-3">
+                                    <div>
+                                        <p class="text-xs text-muted-foreground">"Upstream Dataset Versions"</p>
+                                        {if dataset_refs.is_empty() {
+                                            view! {
+                                                <p class="text-sm">
+                                                    "No dataset version links were attached to the latest related training job."
+                                                </p>
+                                            }.into_any()
+                                        } else {
+                                            view! {
+                                                <div class="space-y-1">
+                                                    {dataset_refs.into_iter().map(|(dataset_id, dataset_version_id, label)| {
+                                                        view! {
+                                                            <div class="flex flex-wrap items-center gap-2 text-sm">
+                                                                {if let Some(did) = dataset_id {
+                                                                    view! {
+                                                                        <a href=format!("/datasets/{}", did) class="text-primary hover:underline">{label.clone()}</a>
+                                                                    }.into_any()
+                                                                } else {
+                                                                    view! {
+                                                                        <span>{label}</span>
+                                                                    }.into_any()
+                                                                }}
+                                                                <span class="text-xs text-muted-foreground font-mono">{dataset_version_id}</span>
+                                                            </div>
+                                                        }
+                                                    }).collect_view()}
+                                                    <p class="text-xs text-muted-foreground">
+                                                        {format!("Provenance count: {} linked dataset versions.", dataset_ref_count)}
+                                                    </p>
+                                                </div>
+                                            }.into_any()
+                                        }}
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-muted-foreground">"Source Documents"</p>
+                                        <p class="text-sm">{source_documents_text}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-muted-foreground">"Related Training and Report"</p>
+                                        <div class="flex flex-wrap items-center gap-3 text-sm">
+                                            <a href=job_href.clone() class="text-primary hover:underline">
+                                                {format!("Open training job {}", job.id)}
+                                            </a>
+                                            <a href=report_href class="text-primary hover:underline">
+                                                "Open report artifact"
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <div class="space-y-2">
+                                    <p class="text-xs text-muted-foreground">"Upstream Dataset Versions"</p>
+                                    <p class="text-sm">
+                                        "No related training job was found for this adapter in the current list response."
+                                    </p>
+                                    <p class="text-xs text-muted-foreground">
+                                        "Training/report links and source-document relationships are partial until that linkage is present."
+                                    </p>
+                                </div>
+                            }.into_any()
+                        }
+                    }}
+
+                    <div class="rounded-md border border-border/50 bg-muted/20 p-3">
+                        <p class="text-xs text-muted-foreground">"Chats Used"</p>
+                        <p class="text-sm">
+                            {adapter_stats_for_relationships.clone().map(|stats| {
+                                format!(
+                                    "{} routed selections recorded. Individual chat sessions are not exposed on this adapter endpoint.",
+                                    stats.selected_count
+                                )
+                            }).unwrap_or_else(|| "Usage counts are not available for this adapter yet.".to_string())}
+                        </p>
+                        <a href=adapter_chat_path.clone() class="text-xs text-primary hover:underline">
+                            "Start a chat with this adapter"
+                        </a>
+                    </div>
+                </div>
             </Card>
+
+            // Overview grid section
+            <div class="mt-6 mb-4">
+                <h4 class="text-sm font-medium mb-3">"Overview"</h4>
+                <DetailGrid class="bg-muted/30 p-4 rounded-md border text-sm text-foreground">
+                    {adapter_stats_for_overview.clone().map(|stats| view! {
+                        <DetailItem label="Activations" value=stats.total_activations.to_string() />
+                    })}
+                    <DetailItem label="Adapter Version" value=version.clone() mono=true />
+                    <DetailItem label="Tier" value=tier />
+                    <DetailItem label="Category" value=category />
+                    <DetailItem label="Coverage" value=scope />
+                    <DetailItem label="Capacity" value=rank.to_string() />
+                    {memory_bytes.map(|bytes| view! {
+                        <DetailItem label="Memory Usage" value=format_bytes(bytes) />
+                    })}
+                </DetailGrid>
+            </div>
 
             // Languages & Framework
             {(!languages.is_empty() || framework.is_some()).then(move || {
@@ -388,8 +734,26 @@ fn AdapterDetailContent(
                 </dl>
             </Card>
 
+            <Card title="Technical Details">
+                <details class="group">
+                    <summary class="cursor-pointer text-sm text-muted-foreground">
+                        "Show IDs, hashes, and internal metadata"
+                    </summary>
+                    <div class="mt-3 space-y-3">
+                        <CopyableId id=adapter_id.clone() truncate=28 />
+                        <DetailGrid class="bg-muted/20 p-3 rounded-md border text-sm text-foreground">
+                            <DetailItem label="Adapter ID" value=adapter_id.to_string() mono=true is_id=true />
+                            <DetailItem label="Skill Fingerprint" value=hash_b3 mono=true />
+                            {repo_id.clone().map(|rid| view! {
+                                <DetailItem label="Repository ID" value=rid mono=true />
+                            })}
+                        </DetailGrid>
+                    </div>
+                </details>
+            </Card>
+
             // Update Center — stage rail + lifecycle transition controls
-            <Card title="Update Center">
+            <Card title="Versions">
                 <PromotionStageRail current_state=lifecycle_state_for_controls.clone() />
                 <AdapterLifecycleControls
                     adapter_id=adapter_id_for_lifecycle
@@ -404,13 +768,8 @@ fn AdapterDetailContent(
             </Card>
 
             // Version Promotion (shown when repo_id is available)
-            {repo_id.map(|rid| view! {
+            {repo_id_for_versions.map(|rid| view! {
                 <AdapterVersionPromotionSection repo_id=rid />
-            })}
-
-            // Version History Timeline (shown when repo_id is available)
-            {repo_id_for_timeline.map(|rid| view! {
-                <VersionTimeline repo_id=rid />
             })}
 
             // Actions
@@ -490,6 +849,53 @@ fn trust_state_badge_variant(trust_state: &str) -> BadgeVariant {
     }
 }
 
+fn describe_adapter_compatibility(framework: Option<&str>, languages: &[String]) -> String {
+    let language_summary = match languages {
+        [] => "general workflows".to_string(),
+        [one] => one.clone(),
+        [first, second] => format!("{} and {}", first, second),
+        [first, second, rest @ ..] => {
+            format!("{}, {}, and {} more", first, second, rest.len())
+        }
+    };
+
+    match framework {
+        Some(framework_name) if !framework_name.trim().is_empty() => format!(
+            "Designed for {} projects with {}.",
+            framework_name, language_summary
+        ),
+        _ if !languages.is_empty() => format!("Designed for {}.", language_summary),
+        _ => "Compatibility metadata is limited in the current adapter payload.".to_string(),
+    }
+}
+
+fn lifecycle_readiness_text(state: LifecycleState, runtime_state: Option<&str>) -> String {
+    let runtime_label = runtime_state_label(runtime_state);
+    match state {
+        LifecycleState::Active => format!(
+            "This adapter is serving production traffic now. Runtime status: {}.",
+            runtime_label
+        ),
+        LifecycleState::Staging => format!(
+            "This adapter is reviewed and ready for promotion. Runtime status: {}.",
+            runtime_label
+        ),
+        LifecycleState::Deprecated => format!(
+            "This adapter is paused. Run checkout to reactivate when needed. Runtime status: {}.",
+            runtime_label
+        ),
+        LifecycleState::Retired => format!(
+            "This adapter is retired and should stay out of production. Runtime status: {}.",
+            runtime_label
+        ),
+        LifecycleState::Draft | LifecycleState::Training => format!(
+            "This adapter is still preparing for review. Runtime status: {}.",
+            runtime_label
+        ),
+        _ => format!("Runtime status: {}.", runtime_label),
+    }
+}
+
 fn lifecycle_stage_label(state: LifecycleState) -> &'static str {
     match state {
         LifecycleState::Draft => "Draft",
@@ -532,9 +938,37 @@ fn release_state_label(release_state: &str) -> &'static str {
     }
 }
 
+fn timeline_event_label(event_type: &str) -> String {
+    if let Some(state) = event_type.strip_prefix("state_change:") {
+        return format!("State change to {}", humanize(state));
+    }
+    humanize(event_type)
+}
+
+fn training_feed_target(repo_id: &str, return_to: &str, context: Option<(&str, &str)>) -> String {
+    match context {
+        Some((branch, source_version_id))
+            if !branch.trim().is_empty() && !source_version_id.trim().is_empty() =>
+        {
+            format!(
+                "/training?open_wizard=1&repo_id={}&branch={}&source_version_id={}&return_to={}",
+                encode(repo_id),
+                encode(branch),
+                encode(source_version_id),
+                encode(return_to)
+            )
+        }
+        _ => format!(
+            "/training?open_wizard=1&repo_id={}&return_to={}",
+            encode(repo_id),
+            encode(return_to)
+        ),
+    }
+}
+
 /// Adapter version promotion section.
 ///
-/// Fetches versions for a repository and allows promoting, rolling back,
+/// Fetches versions for a repository and allows promoting, checking out,
 /// and inspecting trust state and dataset lineage per version.
 #[component]
 fn AdapterVersionPromotionSection(
@@ -542,24 +976,33 @@ fn AdapterVersionPromotionSection(
     #[prop(into)]
     repo_id: String,
 ) -> impl IntoView {
+    const ARIA_RUN_PROMOTE_VERSION: &str = "Run Promote for this version";
+    const ARIA_RUN_CHECKOUT_VERSION: &str = "Run Checkout for this version";
+    const ARIA_FEED_DATASET_VERSION: &str = "Feed Dataset from this version context";
+
     let client = use_api_client();
     let notifications = use_notifications();
+    let navigate = use_navigate();
+    let location = use_location();
 
     // Versions list signal, loaded on mount
     let versions = RwSignal::new(Vec::<crate::api::types::AdapterVersionSummary>::new());
     let versions_loading = RwSignal::new(true);
     let versions_error = RwSignal::new(None::<String>);
+    let timeline = RwSignal::new(Vec::<crate::api::types::TimelineEvent>::new());
+    let timeline_loading = RwSignal::new(true);
+    let timeline_error = RwSignal::new(None::<String>);
 
     // Promotion dialog state
     let show_promote_dialog = RwSignal::new(false);
     let promote_target = RwSignal::new(None::<(String, String, String)>); // (version_id, repo_id, version_label)
     let promote_loading = RwSignal::new(false);
 
-    // Rollback dialog state
-    let show_rollback_dialog = RwSignal::new(false);
+    // Checkout dialog state
+    let show_checkout_dialog = RwSignal::new(false);
     // (version_id, repo_id, branch, version_label)
-    let rollback_target = RwSignal::new(None::<(String, String, String, String)>);
-    let rollback_loading = RwSignal::new(false);
+    let checkout_target = RwSignal::new(None::<(String, String, String, String)>);
+    let checkout_loading = RwSignal::new(false);
 
     // Selector-based version resolution state
     let version_selector = RwSignal::new(String::new());
@@ -569,6 +1012,57 @@ fn AdapterVersionPromotionSection(
 
     // Dataset lineage expand state (tracked by version id)
     let expanded_lineage = RwSignal::new(None::<String>);
+
+    // Feed new training data directly from version controls.
+    // Optional context carries (branch, source_version_id) for branch-aware evolution.
+    let start_dataset_feed = {
+        let navigate = navigate.clone();
+        let pathname = location.pathname;
+        let repo_id = repo_id.clone();
+        Callback::new(move |_| {
+            let return_to = pathname
+                .try_get_untracked()
+                .filter(|path| !path.is_empty())
+                .unwrap_or_else(|| "/adapters".to_string());
+            let current_versions = versions.try_get_untracked().unwrap_or_default();
+            let selected_context =
+                resolved_version_id
+                    .try_get_untracked()
+                    .flatten()
+                    .and_then(|selected_id| {
+                        current_versions
+                            .iter()
+                            .find(|v| v.id == selected_id)
+                            .map(|v| (v.branch.clone(), v.id.clone()))
+                    });
+            let promoted_context = current_versions
+                .iter()
+                .find(|v| v.release_state == "promoted")
+                .map(|v| (v.branch.clone(), v.id.clone()));
+            let context = selected_context.or(promoted_context);
+            let target = if let Some((branch, source_version_id)) = context {
+                training_feed_target(&repo_id, &return_to, Some((&branch, &source_version_id)))
+            } else {
+                training_feed_target(&repo_id, &return_to, None)
+            };
+            navigate(&target, Default::default());
+        })
+    };
+
+    let start_dataset_feed_for_version = {
+        let navigate = navigate.clone();
+        let pathname = location.pathname;
+        let repo_id = repo_id.clone();
+        Callback::new(move |(branch, source_version_id): (String, String)| {
+            let return_to = pathname
+                .try_get_untracked()
+                .filter(|path| !path.is_empty())
+                .unwrap_or_else(|| "/adapters".to_string());
+            let target =
+                training_feed_target(&repo_id, &return_to, Some((&branch, &source_version_id)));
+            navigate(&target, Default::default());
+        })
+    };
 
     // Fetch versions on mount
     {
@@ -583,6 +1077,23 @@ fn AdapterVersionPromotionSection(
                 Err(e) => {
                     versions_error.set(Some(e.to_string()));
                     versions_loading.set(false);
+                }
+            }
+        });
+    }
+    {
+        let client = Arc::clone(&client);
+        let repo_id = repo_id.clone();
+        spawn_local(async move {
+            match client.get_repo_timeline(&repo_id).await {
+                Ok(events) => {
+                    timeline.set(events);
+                    timeline_error.set(None);
+                    timeline_loading.set(false);
+                }
+                Err(e) => {
+                    timeline_error.set(Some(e.user_message()));
+                    timeline_loading.set(false);
                 }
             }
         });
@@ -648,7 +1159,7 @@ fn AdapterVersionPromotionSection(
                 match client.promote_adapter_version(&version_id, &rid).await {
                     Ok(()) => {
                         notifications.success(
-                            "Moved to Production",
+                            "Promote Completed",
                             &format!("{} is now live in Production", label),
                         );
                         show_promote_dialog.set(false);
@@ -656,13 +1167,16 @@ fn AdapterVersionPromotionSection(
                         promote_target.set(None);
 
                         // Refresh the version list
-                        match client.list_adapter_versions(&rid).await {
-                            Ok(v) => versions.set(v),
-                            Err(_) => {} // stale list is acceptable
+                        if let Ok(v) = client.list_adapter_versions(&rid).await {
+                            versions.set(v);
+                        }
+                        if let Ok(events) = client.get_repo_timeline(&rid).await {
+                            timeline.set(events);
+                            timeline_error.set(None);
                         }
                     }
                     Err(err) => {
-                        notifications.error("Move to Production Failed", &err.to_string());
+                        notifications.error("Promote Failed", &err.to_string());
                         promote_loading.set(false);
                     }
                 }
@@ -670,42 +1184,48 @@ fn AdapterVersionPromotionSection(
         })
     };
 
-    // Handle rollback confirmation
-    let handle_rollback = {
+    // Handle checkout confirmation
+    let handle_checkout = {
         let client = Arc::clone(&client);
         let notifications = notifications.clone();
         Callback::new(move |()| {
             let Some((version_id, rid, branch, label)) =
-                rollback_target.try_get_untracked().flatten()
+                checkout_target.try_get_untracked().flatten()
             else {
                 return;
             };
             let client = Arc::clone(&client);
             let notifications = notifications.clone();
-            rollback_loading.set(true);
+            checkout_loading.set(true);
             spawn_local(async move {
                 match client
-                    .rollback_adapter_version(&rid, &branch, &version_id)
+                    .checkout_adapter_version(&rid, &branch, &version_id)
                     .await
                 {
                     Ok(()) => {
                         notifications.success(
-                            "Version Restored",
-                            &format!("{} is now restored as the active version", label),
+                            "Version Checked Out",
+                            &format!(
+                                "{} is now checked out as the active production version",
+                                label
+                            ),
                         );
-                        show_rollback_dialog.set(false);
-                        rollback_loading.set(false);
-                        rollback_target.set(None);
+                        show_checkout_dialog.set(false);
+                        checkout_loading.set(false);
+                        checkout_target.set(None);
 
                         // Refresh the version list
-                        match client.list_adapter_versions(&rid).await {
-                            Ok(v) => versions.set(v),
-                            Err(_) => {} // stale list is acceptable
+                        if let Ok(v) = client.list_adapter_versions(&rid).await {
+                            versions.set(v);
+                        }
+                        if let Ok(events) = client.get_repo_timeline(&rid).await {
+                            timeline.set(events);
+                            timeline_error.set(None);
                         }
                     }
                     Err(err) => {
-                        notifications.error("Restore Failed", &err.to_string());
-                        rollback_loading.set(false);
+                        notifications.error("Checkout Failed", &err.to_string());
+                        checkout_loading.set(false);
                     }
                 }
             });
@@ -713,7 +1233,7 @@ fn AdapterVersionPromotionSection(
     };
 
     view! {
-        <Card title="Update Center">
+        <Card title="Versions">
             {move || {
                 if versions_loading.try_get().unwrap_or(true) {
                     return view! {
@@ -733,7 +1253,9 @@ fn AdapterVersionPromotionSection(
                 let vers = versions.try_get().unwrap_or_default();
                 if vers.is_empty() {
                     return view! {
-                        <p class="text-sm text-muted-foreground">"No saved versions for this skill yet."</p>
+                        <p class="text-sm text-muted-foreground">
+                            "No saved versions for this skill yet. Feed a dataset to create the first version."
+                        </p>
                     }.into_any();
                 }
 
@@ -742,9 +1264,85 @@ fn AdapterVersionPromotionSection(
                 let resolved_version = resolved_id
                     .as_ref()
                     .and_then(|id| vers.iter().find(|v| v.id == *id).cloned());
+                let timeline_loading_now = timeline_loading.try_get().unwrap_or(true);
+                let timeline_error_msg = timeline_error.try_get().flatten();
+                let timeline_events = timeline.try_get().unwrap_or_default();
+                let recommended_next = if let Some(resolved) = resolved_version.as_ref() {
+                    if resolved.release_state == "deprecated" {
+                        "This version is paused. Run checkout to reactivate it in Production."
+                            .to_string()
+                    } else if resolved.release_state == "promoted" {
+                        "This version is live. Feed a new dataset to create the next revision."
+                            .to_string()
+                    } else if resolved.serveable {
+                        "This version is reviewed and ready. Run promote when you are ready for production."
+                            .to_string()
+                    } else {
+                        "This version is not serveable yet. Keep it in review before promoting."
+                            .to_string()
+                    }
+                } else if vers
+                    .iter()
+                    .any(|v| v.release_state != "promoted" && v.serveable)
+                {
+                    "You have reviewed versions ready for promotion. Find one and run promote."
+                        .to_string()
+                } else if vers.iter().any(|v| v.release_state == "deprecated") {
+                    "Need to recover fast? Find a paused version and run checkout from history."
+                        .to_string()
+                } else {
+                    "Start by finding a version by tag or branch, then run checkout or promote, then feed-dataset."
+                        .to_string()
+                };
 
                 view! {
                     <div class="space-y-3">
+                        <div class="rounded-md border border-border/50 bg-muted/20 p-3 space-y-2">
+                            <p class="text-sm font-medium">"Git-Style Repository Workflow"</p>
+                            <p class="text-xs text-muted-foreground">
+                                "Treat each adapter version like branch history: resolve selectors, promote reviewed versions, checkout prior versions, and keep dataset lineage auditable."
+                            </p>
+                            <div class="space-y-1">
+                                <p class="text-xs font-medium text-muted-foreground">"Command map"</p>
+                                <div class="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                                    <span class="rounded border border-border/60 bg-background/70 px-2 py-0.5 font-mono">"checkout <branch>@<version>"</span>
+                                    <span class="rounded border border-border/60 bg-background/70 px-2 py-0.5 font-mono">"promote <version> --to production"</span>
+                                    <span class="rounded border border-border/60 bg-background/70 px-2 py-0.5 font-mono">"feed-dataset --branch <branch> --from <version>"</span>
+                                </div>
+                                <p class="text-xs text-muted-foreground">
+                                    "Use these commands as a mental model; the buttons below execute the same workflow safely."
+                                </p>
+                                <p class="text-xs text-muted-foreground">
+                                    "Default path: resolve a version, run checkout or promote, then feed-dataset."
+                                </p>
+                            </div>
+                            <Button
+                                variant=ButtonVariant::Outline
+                                size=ButtonSize::Sm
+                                on_click=start_dataset_feed
+                                aria_label="Feed a new dataset using selected or production version context"
+                            >
+                                "Feed New Dataset"
+                            </Button>
+                            <p class="text-xs text-muted-foreground">
+                                "Feed New Dataset uses resolved version context when selected; otherwise it falls back to Production context."
+                            </p>
+                            <p class="text-xs font-medium text-muted-foreground">"Quick operator guide"</p>
+                            <ol
+                                class="text-xs text-muted-foreground space-y-1"
+                                style="list-style: decimal; padding-left: 1.1rem;"
+                            >
+                                <li>"Find a version by tag or branch, then confirm trust and lineage."</li>
+                                <li>"Run checkout for fast recovery, or run promote for reviewed versions."</li>
+                                <li>"Feed a new dataset to continue the same branch/version history."</li>
+                            </ol>
+                        </div>
+
+                        <div class="rounded-md border border-border/50 bg-muted/15 p-3" role="status" aria-live="polite">
+                            <p class="text-sm font-medium">"Recommended Next Action"</p>
+                            <p class="text-xs text-muted-foreground">{recommended_next}</p>
+                        </div>
+
                         <div class="rounded-md border border-border/50 bg-muted/20 p-3 space-y-2">
                             <p class="text-sm font-medium">"Promotion Path"</p>
                             <div class="flex flex-wrap items-center gap-2 text-xs">
@@ -755,8 +1353,56 @@ fn AdapterVersionPromotionSection(
                                 <Badge variant=BadgeVariant::Success>"Production"</Badge>
                             </div>
                             <p class="text-xs text-muted-foreground">
-                                "Only serveable reviewed versions can move to Production. Every move is auditable and reversible."
+                                "Only reviewed, serveable versions can run promote to production. Checkout keeps commit-like history reversible without losing lineage."
                             </p>
+                            <p class="text-xs text-muted-foreground">
+                                "Promotion state is mutable. Each version ID and its lineage are immutable artifacts once written."
+                            </p>
+                        </div>
+
+                        <div class="rounded-md border border-border/50 bg-muted/20 p-3 space-y-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <p class="text-sm font-medium">"Repository Command Timeline"</p>
+                                <span class="text-[11px] text-muted-foreground">"Latest first"</span>
+                            </div>
+                            <p class="text-xs text-muted-foreground">
+                                "Every promote and checkout action is recorded here so operators can verify history before feeding the next dataset."
+                            </p>
+                            {if timeline_loading_now {
+                                view! {
+                                    <div class="flex items-center gap-2 py-1">
+                                        <Spinner />
+                                        <span class="text-xs text-muted-foreground">"Loading command timeline..."</span>
+                                    </div>
+                                }.into_any()
+                            } else if let Some(err) = timeline_error_msg {
+                                view! {
+                                    <p class="text-xs text-destructive">{format!("Timeline unavailable: {}", err)}</p>
+                                }.into_any()
+                            } else if timeline_events.is_empty() {
+                                view! {
+                                    <p class="text-xs text-muted-foreground">
+                                        "No command events yet. Run promote or checkout to start history."
+                                    </p>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <div class="space-y-2">
+                                        {timeline_events.into_iter().take(8).map(|event| {
+                                            let label = timeline_event_label(&event.event_type);
+                                            view! {
+                                                <div class="rounded border border-border/50 bg-background/70 p-2 space-y-1">
+                                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                                        <span class="text-xs font-medium">{label}</span>
+                                                        <span class="text-[11px] text-muted-foreground">{event.timestamp.clone()}</span>
+                                                    </div>
+                                                    <p class="text-xs text-muted-foreground">{event.description.clone()}</p>
+                                                </div>
+                                            }
+                                        }).collect_view()}
+                                    </div>
+                                }.into_any()
+                            }}
                         </div>
 
                         <div class="rounded-md border border-border/40 p-3">
@@ -776,6 +1422,7 @@ fn AdapterVersionPromotionSection(
                                     variant=ButtonVariant::Outline
                                     size=ButtonSize::Sm
                                     on_click=handle_resolve
+                                    aria_label="Find adapter version by selector"
                                     disabled=Signal::derive(move || {
                                         version_selector
                                             .try_get()
@@ -801,22 +1448,43 @@ fn AdapterVersionPromotionSection(
                                 let resolved_is_promoted = resolved.release_state == "promoted";
                                 let resolved_is_deprecated = resolved.release_state == "deprecated";
                                 let resolved_is_serveable = resolved.serveable;
+                                let resolved_repo_display = resolved.repo_id.clone();
                                 let resolved_branch_display = resolved.branch.clone();
+                                let resolved_branch_for_feed_msg = resolved.branch.clone();
+                                let feed_branch = resolved.branch.clone();
+                                let feed_vid = resolved.id.clone();
 
                                 let promote_vid = resolved.id.clone();
                                 let promote_rid = resolved.repo_id.clone();
                                 let promote_label = resolved_label.clone();
 
-                                let rollback_vid = resolved.id.clone();
-                                let rollback_rid = resolved.repo_id.clone();
-                                let rollback_branch = resolved.branch.clone();
-                                let rollback_label = resolved_label.clone();
+                                let checkout_vid = resolved.id.clone();
+                                let checkout_rid = resolved.repo_id.clone();
+                                let checkout_branch = resolved.branch.clone();
+                                let checkout_label = resolved_label.clone();
 
                                 view! {
                                     <div class="mt-3 flex flex-wrap items-center gap-2">
                                         <span class="text-xs text-muted-foreground">"Selected version:"</span>
                                         <span class="text-sm font-medium">{resolved_label.clone()}</span>
                                         <Badge variant=BadgeVariant::Secondary>{resolved_branch_display.clone()}</Badge>
+                                        <Button
+                                            variant=ButtonVariant::Secondary
+                                            size=ButtonSize::Sm
+                                            aria_label=ARIA_FEED_DATASET_VERSION
+                                            on_click=Callback::new(move |_| {
+                                                start_dataset_feed_for_version.run((feed_branch.clone(), feed_vid.clone()));
+                                            })
+                                        >
+                                            "Feed Dataset from This Version"
+                                        </Button>
+                                        <span class="text-xs text-muted-foreground">
+                                            {format!(
+                                                "Training opens with repo '{}', branch '{}', and source version context prefilled.",
+                                                resolved_repo_display,
+                                                resolved_branch_for_feed_msg
+                                            )}
+                                        </span>
                                         {(!resolved_is_promoted && resolved_is_serveable).then(|| {
                                             let vid = promote_vid.clone();
                                             let rid = promote_rid.clone();
@@ -825,30 +1493,32 @@ fn AdapterVersionPromotionSection(
                                                 <Button
                                                     variant=ButtonVariant::Outline
                                                     size=ButtonSize::Sm
+                                                    aria_label=ARIA_RUN_PROMOTE_VERSION
                                                     on_click=Callback::new(move |_| {
                                                         promote_target.set(Some((vid.clone(), rid.clone(), label.clone())));
                                                         show_promote_dialog.set(true);
                                                     })
                                                 >
-                                                    "Move to Production"
+                                                    "Run Promote"
                                                 </Button>
                                             }
                                         })}
                                         {resolved_is_deprecated.then(|| {
-                                            let vid = rollback_vid.clone();
-                                            let rid = rollback_rid.clone();
-                                            let branch = rollback_branch.clone();
-                                            let label = rollback_label.clone();
+                                            let vid = checkout_vid.clone();
+                                            let rid = checkout_rid.clone();
+                                            let branch = checkout_branch.clone();
+                                            let label = checkout_label.clone();
                                             view! {
                                                 <Button
                                                     variant=ButtonVariant::Destructive
                                                     size=ButtonSize::Sm
+                                                    aria_label=ARIA_RUN_CHECKOUT_VERSION
                                                     on_click=Callback::new(move |_| {
-                                                        rollback_target.set(Some((vid.clone(), rid.clone(), branch.clone(), label.clone())));
-                                                        show_rollback_dialog.set(true);
+                                                        checkout_target.set(Some((vid.clone(), rid.clone(), branch.clone(), label.clone())));
+                                                        show_checkout_dialog.set(true);
                                                     })
                                                 >
-                                                    "Restore Version"
+                                                    "Run Checkout"
                                                 </Button>
                                             }
                                         })}
@@ -885,6 +1555,7 @@ fn AdapterVersionPromotionSection(
                                 let dataset_ids = v.dataset_version_ids.clone().unwrap_or_default();
                                 let dataset_trust = v.dataset_version_trust.clone().unwrap_or_default();
                                 let has_dataset_lineage = !dataset_ids.is_empty();
+                                let dataset_count = dataset_ids.len();
                                 let vid_for_lineage = v.id.clone();
 
                                 // Serveable indicator
@@ -911,6 +1582,7 @@ fn AdapterVersionPromotionSection(
                                             <div class="version-item-info">
                                                 <span class="version-item-label">{version_label.clone()}</span>
                                                 <Badge variant=state_variant>{release_state_text}</Badge>
+                                                <Badge variant=BadgeVariant::Secondary>"Immutable Artifact"</Badge>
                                                 {is_resolved.then(|| view! {
                                                     <Badge variant=BadgeVariant::Secondary>"Resolved"</Badge>
                                                 })}
@@ -944,16 +1616,17 @@ fn AdapterVersionPromotionSection(
                                                         <Button
                                                             variant=ButtonVariant::Outline
                                                             size=ButtonSize::Sm
+                                                            aria_label=ARIA_RUN_PROMOTE_VERSION
                                                             on_click=Callback::new(move |_| {
                                                                 promote_target.set(Some((vid.clone(), rid.clone(), label.clone())));
                                                                 show_promote_dialog.set(true);
                                                             })
                                                         >
-                                                            "Promote to Production"
+                                                            "Run Promote"
                                                         </Button>
                                                     }
                                                 })}
-                                                // Rollback button (shown on deprecated versions)
+                                                // Checkout button (shown on deprecated versions)
                                                 {is_deprecated.then(|| {
                                                     let vid = vid.clone();
                                                     let rid = rid.clone();
@@ -963,12 +1636,13 @@ fn AdapterVersionPromotionSection(
                                                         <Button
                                                             variant=ButtonVariant::Destructive
                                                             size=ButtonSize::Sm
+                                                            aria_label=ARIA_RUN_CHECKOUT_VERSION
                                                             on_click=Callback::new(move |_| {
-                                                                rollback_target.set(Some((vid.clone(), rid.clone(), branch.clone(), label.clone())));
-                                                                show_rollback_dialog.set(true);
+                                                                checkout_target.set(Some((vid.clone(), rid.clone(), branch.clone(), label.clone())));
+                                                                show_checkout_dialog.set(true);
                                                             })
                                                         >
-                                                            "Restore"
+                                                            "Run Checkout"
                                                         </Button>
                                                     }
                                                 })}
@@ -989,10 +1663,16 @@ fn AdapterVersionPromotionSection(
                                                 // Dataset lineage toggle
                                                 {has_dataset_lineage.then(|| {
                                                     let vid_toggle = vid_for_lineage.clone();
+                                                    let lineage_button_label = if dataset_count == 1 {
+                                                        "Show upstream dataset (1)".to_string()
+                                                    } else {
+                                                        format!("Show upstream datasets ({})", dataset_count)
+                                                    };
                                                     view! {
                                                         <button
                                                             type="button"
                                                             class="version-lineage-toggle"
+                                                            aria-label="Toggle dataset lineage evidence for this version"
                                                             on:click=move |_| {
                                                                 let current = expanded_lineage.try_get().flatten();
                                                                 if current.as_deref() == Some(&vid_toggle) {
@@ -1008,6 +1688,7 @@ fn AdapterVersionPromotionSection(
                                                                 <path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z"/>
                                                                 <path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z"/>
                                                             </svg>
+                                                            <span class="text-xs">{lineage_button_label}</span>
                                                         </button>
                                                     }
                                                 })}
@@ -1029,17 +1710,30 @@ fn AdapterVersionPromotionSection(
                                                         }
                                                     }
                                                 >
-                                                    <span class="version-lineage-title">"Evidence Lineage"</span>
+                                                    <span class="version-lineage-title">"Upstream Dataset Versions"</span>
                                                     <div class="version-lineage-list">
                                                         {ds_ids.into_iter().map(|ds_id| {
-                                                            let trust_label = ds_trust.iter()
-                                                                .find(|t| t.dataset_version_id == ds_id)
+                                                            let trust_entry = ds_trust.iter()
+                                                                .find(|t| t.dataset_version_id == ds_id);
+                                                            let trust_label = trust_entry
                                                                 .and_then(|t| t.trust_at_training_time.clone())
                                                                 .unwrap_or_else(|| "unknown".to_string());
                                                             let trust_variant = trust_state_badge_variant(&trust_label);
+                                                            let dataset_id = trust_entry.and_then(|t| t.dataset_id.clone());
+                                                            let dataset_name = trust_entry.and_then(|t| t.dataset_name.clone());
                                                             view! {
                                                                 <div class="version-lineage-item">
-                                                                    <CopyableId id=ds_id truncate=20 />
+                                                                    {if let (Some(did), Some(name)) = (dataset_id, dataset_name) {
+                                                                        let href = format!("/datasets/{}", did);
+                                                                        view! {
+                                                                            <a href=href class="text-primary hover:underline font-medium">{name}</a>
+                                                                            <span class="text-xs text-muted-foreground font-mono ml-1">{ds_id}</span>
+                                                                        }.into_any()
+                                                                    } else {
+                                                                        view! {
+                                                                            <CopyableId id=ds_id.clone() truncate=20 />
+                                                                        }.into_any()
+                                                                    }}
                                                                     <Badge variant=trust_variant>{trust_label}</Badge>
                                                                 </div>
                                                             }
@@ -1059,23 +1753,23 @@ fn AdapterVersionPromotionSection(
             // Promotion confirmation dialog
             <ConfirmationDialog
                 open=show_promote_dialog
-                title="Move Version to Production"
-                description="This moves the selected reviewed version into Production. The prior production version stays in history and can be restored.".to_string()
+                title="Run Promote to Production"
+                description="This runs promote on the selected reviewed version for Production. The prior production version stays in history and can be checked out.".to_string()
                 severity=ConfirmationSeverity::Normal
-                confirm_text="Move to Production"
+                confirm_text="Run Promote"
                 on_confirm=handle_promote
                 loading=Signal::derive(move || promote_loading.try_get().unwrap_or(false))
             />
 
-            // Rollback confirmation dialog
+            // Checkout confirmation dialog
             <ConfirmationDialog
-                open=show_rollback_dialog
-                title="Restore Previous Version"
-                description="This restores the selected version as the active Production version and preserves a full audit trail.".to_string()
+                open=show_checkout_dialog
+                title="Run Checkout Previous Version"
+                description="This checks out the selected version as the active Production version and preserves a full audit trail.".to_string()
                 severity=ConfirmationSeverity::Destructive
-                confirm_text="Restore Version"
-                on_confirm=handle_rollback
-                loading=Signal::derive(move || rollback_loading.try_get().unwrap_or(false))
+                confirm_text="Run Checkout"
+                on_confirm=handle_checkout
+                loading=Signal::derive(move || checkout_loading.try_get().unwrap_or(false))
             />
         </Card>
     }
@@ -1114,7 +1808,7 @@ fn PromotionStageRail(
     };
 
     view! {
-        <div class="promotion-stage-rail" style="display: flex; align-items: center; gap: 0; margin-bottom: 1rem;">
+        <div class="promotion-stage-rail promotion-rail">
             {stages.iter().enumerate().map(|(idx, (_, label, hint))| {
                 let status = if idx < current_idx {
                     StageStatus::Done
@@ -1139,12 +1833,12 @@ fn PromotionStageRail(
                 let show_connector = idx + 1 < stages.len();
 
                 view! {
-                    <div style="display: flex; align-items: center; flex: 1;">
-                        <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem; flex: none;">
-                            <div class=circle_class style="width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 600; border: 2px solid; flex-shrink: 0;">
+                    <div class="promotion-stage">
+                        <div class="promotion-stage-node">
+                            <div class=format!("{} promotion-stage-dot", circle_class)>
                                 {if status == StageStatus::Done {
                                     view! {
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 0.875rem; height: 0.875rem;">
+                                        <svg class="promotion-stage-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                             <path d="M5 13l4 4L19 7"/>
                                         </svg>
                                     }.into_any()
@@ -1152,13 +1846,13 @@ fn PromotionStageRail(
                                     view! { <span>{idx + 1}</span> }.into_any()
                                 }}
                             </div>
-                            <div class=label_class style="text-align: center; min-width: 4.5rem;">
-                                <p style="font-size: 0.6875rem; font-weight: 600; line-height: 1;">{*label}</p>
-                                <p style="font-size: 0.625rem; margin-top: 0.125rem;">{*hint}</p>
+                            <div class=format!("{} promotion-stage-label-wrap", label_class)>
+                                <p class="promotion-stage-label-text">{*label}</p>
+                                <p class="promotion-stage-hint-text">{*hint}</p>
                             </div>
                         </div>
                         {show_connector.then(|| view! {
-                            <div class="stage-connector" style="height: 2px; flex: 1; margin-bottom: 1.25rem;"></div>
+                            <div class="stage-connector promotion-stage-connector"></div>
                         })}
                     </div>
                 }

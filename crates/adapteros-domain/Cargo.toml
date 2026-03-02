@@ -18,25 +18,14 @@ serde_json = { workspace = true }
 toml = "0.8"
 # Error handling
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 # Logging
 tracing = { workspace = true }
 # Async runtime
 tokio = { workspace = true, features = ["full"] }
-# Hashing
-blake3 = { workspace = true }
-# UUID
-uuid = { workspace = true, features = ["v7", "serde"] }
 # Parking lot
 parking_lot = { workspace = true }
 # Unicode normalization for text processing
 unicode-normalization = "0.1"
-# Random number generation (for deterministic executor)
-rand = { workspace = true }
-rand_chacha = "0.3"
-# HKDF for seed derivation
-hkdf = { workspace = true }
-sha2 = { workspace = true }
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.8"

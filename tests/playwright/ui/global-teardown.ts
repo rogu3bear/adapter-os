@@ -9,9 +9,9 @@ function sanitizeRunId(value: string): string {
 }
 
 function parseServerPort(value: string | undefined): number {
-  const parsed = Number.parseInt((value ?? '8080').trim(), 10);
+  const parsed = Number.parseInt((value ?? '18080').trim(), 10);
   if (!Number.isFinite(parsed) || parsed < 1 || parsed > 65535) {
-    return 8080;
+    return 18080;
   }
   return parsed;
 }

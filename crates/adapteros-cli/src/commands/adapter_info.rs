@@ -74,7 +74,7 @@ struct ProvenanceInfo {
 
 /// Get provenance information from database
 async fn get_provenance(db: &adapteros_db::Db, adapter_id: &str) -> Result<Option<ProvenanceInfo>> {
-    let pool = db.pool();
+    let pool = db.pool_result()?;
     get_provenance_sqlite(pool, adapter_id).await
 }
 

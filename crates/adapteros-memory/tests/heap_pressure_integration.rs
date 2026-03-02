@@ -246,13 +246,13 @@ fn test_pressure_manager_eviction() {
 
     // Load three adapters
     manager
-        .allocate_adapter("adapter_a".to_string(), 3 * 1024 * 1024)
+        .allocate_adapter("adapter_a".to_string(), 2 * 1024 * 1024)
         .ok();
     manager
         .allocate_adapter("adapter_b".to_string(), 3 * 1024 * 1024)
         .ok();
     manager
-        .allocate_adapter("adapter_c".to_string(), 3 * 1024 * 1024)
+        .allocate_adapter("adapter_c".to_string(), 4 * 1024 * 1024)
         .ok();
 
     assert_eq!(manager.get_utilization_pct(), 90.0);
@@ -382,21 +382,21 @@ fn test_pressure_recovery_scenario() {
     let mut observer = MockHeapObserver::new();
     let mut manager = MockMemoryPressureManager::new(10 * 1024 * 1024, 0.85);
 
-    // Phase 1: Normal operation (50%)
-    observer.record_allocation(1, 5 * 1024 * 1024, 0);
+    // Phase 1: Normal operation (40%)
+    observer.record_allocation(1, 4 * 1024 * 1024, 0);
     manager
-        .allocate_adapter("adapter_a".to_string(), 5 * 1024 * 1024)
+        .allocate_adapter("adapter_a".to_string(), 4 * 1024 * 1024)
         .ok();
     assert!(manager.check_memory_pressure().is_ok());
 
     // Phase 2: High pressure (90%)
-    observer.record_allocation(1, 5 * 1024 * 1024, 5 * 1024 * 1024);
+    observer.record_allocation(1, 5 * 1024 * 1024, 4 * 1024 * 1024);
     manager
         .allocate_adapter("adapter_b".to_string(), 5 * 1024 * 1024)
         .ok();
     assert!(manager.check_memory_pressure().is_err());
 
-    // Phase 3: Recovery (50%)
+    // Phase 3: Recovery (40%)
     observer.remove_allocation(2);
     manager.deallocate_adapter("adapter_b").ok();
     assert!(manager.check_memory_pressure().is_ok());
@@ -404,7 +404,7 @@ fn test_pressure_recovery_scenario() {
     // Verify final state
     let stats = observer.get_memory_stats();
     assert_eq!(stats.allocation_count, 1);
-    assert_eq!(manager.get_utilization_pct(), 50.0);
+    assert_eq!(manager.get_utilization_pct(), 40.0);
 }
 
 // ============================================================================

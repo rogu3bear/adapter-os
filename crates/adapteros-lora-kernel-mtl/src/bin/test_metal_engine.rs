@@ -53,7 +53,7 @@ mod harness {
             views.push((tensor.name.as_str(), view));
         }
 
-        serialize(views, &None)
+        serialize(views, None)
             .map_err(|e| AosError::Kernel(format!("Failed to serialize tensors: {}", e)))
     }
 

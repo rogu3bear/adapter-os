@@ -43,7 +43,7 @@ async fn test_v1_models_returns_openai_format() {
         )
         "#,
     )
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert test model");
 
@@ -126,7 +126,7 @@ async fn test_internal_models_returns_full_details() {
         )
         "#,
     )
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert detailed model");
 
@@ -223,7 +223,7 @@ async fn test_openai_model_created_timestamp() {
         "#,
     )
     .bind(&imported_at)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert timestamp model");
 
@@ -279,7 +279,7 @@ async fn test_openai_model_owned_by_default() {
         )
         "#,
     )
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert no-tenant model");
 

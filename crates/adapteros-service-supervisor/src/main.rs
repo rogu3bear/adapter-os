@@ -59,13 +59,32 @@ async fn main() -> Result<()> {
     };
 
     // Create and start server
-    let server = SupervisorServer::new(supervisor, &config.server);
+    let server = SupervisorServer::new(Arc::clone(&supervisor), &config.server);
 
-    // Handle graceful shutdown
+    // Handle graceful shutdown (SIGINT + SIGTERM)
     let shutdown_signal = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("Failed to listen for shutdown signal");
+        let ctrl_c = async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to install Ctrl+C handler");
+        };
+
+        #[cfg(unix)]
+        let terminate = async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler")
+                .recv()
+                .await;
+        };
+
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = terminate => {},
+        }
+
         info!("Shutdown signal received");
     };
 
@@ -78,7 +97,9 @@ async fn main() -> Result<()> {
         }
         _ = shutdown_signal => {
             info!("Shutting down gracefully...");
-            // Supervisor will be dropped and cleaned up automatically
+            if let Err(e) = supervisor.shutdown().await {
+                error!("Supervisor shutdown error: {}", e);
+            }
         }
     }
 

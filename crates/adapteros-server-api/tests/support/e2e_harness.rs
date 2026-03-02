@@ -407,7 +407,7 @@ async fn build_state(paths: &HarnessPaths) -> Result<AppState> {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('default', 'Default Tenant')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     let jwt_secret = b"test-jwt-secret-for-e2e-harness-32bytes!".to_vec();
@@ -478,7 +478,7 @@ async fn seed_base_model(state: &AppState, model_id: &str, model_dir: &Path) -> 
         adapteros_db::sqlx::query("UPDATE models SET id = ? WHERE id = ?")
             .bind(model_id)
             .bind(&registered_id)
-            .execute(state.db.pool())
+            .execute(state.db.pool_result()?)
             .await?;
     }
     state

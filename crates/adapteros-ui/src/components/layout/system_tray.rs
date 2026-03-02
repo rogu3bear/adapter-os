@@ -7,10 +7,9 @@ use crate::components::status::{StatusColor, StatusIndicator};
 use crate::components::status_center::use_status_center;
 use crate::constants::ui_language;
 use crate::hooks::{
-    use_cached_api_resource, use_health, use_polling, use_startup_health, use_system_status,
-    CacheTtl, LoadingState,
+    use_cached_api_resource, use_health, use_polling, use_system_status, CacheTtl, LoadingState,
 };
-use adapteros_api_types::WorkerResponse;
+use adapteros_api_types::{SystemStatusResponse, WorkerResponse};
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -29,7 +28,6 @@ pub fn SystemTray() -> impl IntoView {
     let status_center = use_status_center();
     let (health, _refetch_health) = use_health();
     let (system_status, _refetch_status) = use_system_status();
-    let (startup_health, _refetch_startup_health) = use_startup_health();
     let (workers, _refetch_workers) = use_cached_api_resource(
         "workers_tray",
         CacheTtl::LIST,
@@ -47,39 +45,8 @@ pub fn SystemTray() -> impl IntoView {
     view! {
         <div class="system-tray flex items-center gap-3 shrink-0">
             {move || {
-                let (class, label, title) = match startup_health.get() {
-                    LoadingState::Loaded(boot) => {
-                        let status = boot.status.to_ascii_lowercase();
-                        if status == "ready" {
-                            (
-                                "system-tray-pill system-tray-pill--ready",
-                                ui_language::BOOT_READY.to_string(),
-                                ui_language::KERNEL_BOOT_SEQUENCE.to_string(),
-                            )
-                        } else if status == "degraded" {
-                            (
-                                "system-tray-pill system-tray-pill--warn",
-                                format!("{} (degraded)", ui_language::SELF_HEALING_OS),
-                                boot.next_action.clone(),
-                            )
-                        } else if status == "failed" {
-                            let phase = boot
-                                .failed_phase
-                                .clone()
-                                .unwrap_or_else(|| "unknown phase".to_string());
-                            (
-                                "system-tray-pill system-tray-pill--error",
-                                "Boot needs attention".to_string(),
-                                format!("{}: {}", phase, boot.next_action),
-                            )
-                        } else {
-                            (
-                                "system-tray-pill system-tray-pill--booting",
-                                format!("{}…", ui_language::BOOTING),
-                                boot.next_action.clone(),
-                            )
-                        }
-                    }
+                let (class, label, title) = match system_status.get() {
+                    LoadingState::Loaded(status) => boot_pill_from_status(&status),
                     LoadingState::Error(_) => (
                         "system-tray-pill system-tray-pill--error",
                         "Boot status unavailable".to_string(),
@@ -288,6 +255,74 @@ pub fn SystemTray() -> impl IntoView {
                 </span>
             </div>
         </div>
+    }
+}
+
+fn boot_pill_from_status(status: &SystemStatusResponse) -> (&'static str, String, String) {
+    if let Some(boot) = status.boot.as_ref() {
+        let phase = boot.phase.to_ascii_lowercase();
+        if phase == "ready" {
+            return (
+                "system-tray-pill system-tray-pill--ready",
+                ui_language::BOOT_READY.to_string(),
+                ui_language::KERNEL_BOOT_SEQUENCE.to_string(),
+            );
+        }
+
+        if let Some(failure) = boot.failure.as_ref() {
+            let detail = failure
+                .message
+                .clone()
+                .unwrap_or_else(|| format!("error code {}", failure.code));
+            return (
+                "system-tray-pill system-tray-pill--error",
+                "Boot needs attention".to_string(),
+                format!("{}: {}", boot.phase, detail),
+            );
+        }
+
+        if let Some(reason) = boot.degraded.first() {
+            return (
+                "system-tray-pill system-tray-pill--warn",
+                format!("{} (degraded)", ui_language::SELF_HEALING_OS),
+                format!("{}: {}", reason.component, reason.reason),
+            );
+        }
+
+        return (
+            "system-tray-pill system-tray-pill--booting",
+            format!("{}…", ui_language::BOOTING),
+            format!("Boot phase: {}", boot.phase),
+        );
+    }
+
+    let fallback_reason = status
+        .readiness
+        .checks
+        .migrations
+        .reason
+        .clone()
+        .or_else(|| status.readiness.checks.db.reason.clone())
+        .or_else(|| status.readiness.checks.workers.reason.clone())
+        .or_else(|| status.readiness.checks.models.reason.clone())
+        .unwrap_or_else(|| "Collecting startup state.".to_string());
+
+    match status.readiness.overall {
+        adapteros_api_types::StatusIndicator::Ready => (
+            "system-tray-pill system-tray-pill--ready",
+            ui_language::BOOT_READY.to_string(),
+            ui_language::KERNEL_BOOT_SEQUENCE.to_string(),
+        ),
+        adapteros_api_types::StatusIndicator::NotReady => (
+            "system-tray-pill system-tray-pill--booting",
+            format!("{}…", ui_language::BOOTING),
+            fallback_reason,
+        ),
+        adapteros_api_types::StatusIndicator::Unknown => (
+            "system-tray-pill system-tray-pill--booting",
+            format!("{}…", ui_language::BOOTING),
+            "Collecting startup state.".to_string(),
+        ),
     }
 }
 

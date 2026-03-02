@@ -161,6 +161,10 @@ pub async fn admin_config(
         worker_heartbeat_interval_secs: config.server.worker_heartbeat_interval_secs,
         streaming_heartbeat_interval_secs: config.streaming.inference_heartbeat_interval_secs,
         streaming_idle_timeout_secs: config.streaming.inference_idle_timeout_secs,
+        streaming_circuit_failure_threshold: config.streaming.sse_breaker_failure_threshold(),
+        streaming_circuit_recovery_timeout_secs: config
+            .streaming
+            .sse_breaker_recovery_timeout_secs(),
         self_hosting_mode: config.self_hosting.mode.clone(),
         self_hosting_repo_allowlist_count: config.self_hosting.repo_allowlist.len(),
     }))

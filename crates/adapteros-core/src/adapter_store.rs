@@ -210,6 +210,45 @@ impl AdapterStore {
         new_snapshot
     }
 
+    /// Force-install an adapter index at an explicit generation.
+    ///
+    /// This bypasses monotonic generation checks and is intended only for
+    /// trusted recovery flows (for example, swap rollback) where the caller
+    /// must restore an earlier generation snapshot atomically.
+    pub fn install_force(
+        &self,
+        generation: u64,
+        entries: HashMap<AdapterCacheKey, AdapterRecord>,
+    ) -> AdapterSnapshot {
+        let mut guard = self.current.write();
+        let previous_generation = guard.generation;
+        let new_snapshot = AdapterSnapshot {
+            generation,
+            entries: Arc::new(entries),
+        };
+        let old = std::mem::replace(&mut *guard, new_snapshot.clone());
+        if old.generation != new_snapshot.generation {
+            self.retired.lock().push(old);
+        }
+        self.push_generation_audit(
+            "generation_forced_install",
+            generation,
+            previous_generation,
+            self.retired_count(),
+            format!(
+                "Force-installed generation {} with {} entries",
+                generation,
+                new_snapshot.entries.len()
+            ),
+        );
+        warn!(
+            requested_generation = generation,
+            previous_generation = previous_generation,
+            "Force-installed adapter generation (recovery path)"
+        );
+        new_snapshot
+    }
+
     /// Install with bounded retry for transient generation races.
     ///
     /// If a non-monotonic generation is supplied, retries will keep returning

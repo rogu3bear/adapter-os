@@ -48,9 +48,10 @@ fn supervisor_cors_layer() -> CorsLayer {
         Vec::new()
     } else {
         // Development mode: localhost origins (respects port env vars)
-        let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
-        let server_port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
-        let metrics_port = "9090"; // Prometheus metrics port is typically fixed
+        let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "18081".to_string());
+        let server_port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "18080".to_string());
+        let metrics_port =
+            std::env::var("AOS_PROMETHEUS_PORT").unwrap_or_else(|_| "18084".to_string());
         warn!(
             ui_port = %ui_port,
             server_port = %server_port,
