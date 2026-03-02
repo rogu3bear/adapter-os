@@ -24,7 +24,7 @@ core-foundation = "0.9"
 tracing.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
-arc-swap = "1.7"  # Lock-free atomic pointer swapping for adapter lookup
+arc-swap = "1.8"  # Lock-free atomic pointer swapping for adapter lookup
 zeroize = { version = "1.7", features = ["derive"] }
 adapteros-chat = { path = "../adapteros-chat" }
 tokenizers.workspace = true
