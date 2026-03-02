@@ -4051,10 +4051,10 @@ fn build_adapter_attachments(
                 .and_then(|bindings| bindings.iter().find(|b| b.adapter_id == *adapter_id));
             let attach_reason = if pinned.contains(adapter_id.as_str()) {
                 AdapterAttachReason::Pinned
-            } else if has_pinned_fallback {
-                AdapterAttachReason::FallbackRouting
             } else if requested.contains(adapter_id.as_str()) {
                 AdapterAttachReason::Requested
+            } else if has_pinned_fallback {
+                AdapterAttachReason::FallbackRouting
             } else if stack_scoped {
                 AdapterAttachReason::StackRouting
             } else {
@@ -4157,6 +4157,52 @@ fn parse_adapter_version_pin_ref(value: &str) -> Option<(String, String)> {
     }
 
     Some((repo_id.to_string(), version_id.to_string()))
+}
+
+#[cfg(test)]
+mod adapter_attachment_tests {
+    use super::{build_adapter_attachments, AdapterAttachReason, InferenceRequestInternal};
+    use std::collections::HashMap;
+
+    #[test]
+    fn preserves_requested_reason_when_pinned_fallback_is_active() {
+        let request = InferenceRequestInternal {
+            adapters: Some(vec!["adapter-a".to_string()]),
+            pinned_adapter_ids: Some(vec!["pin-missing".to_string()]),
+            ..Default::default()
+        };
+
+        let attachments = build_adapter_attachments(
+            &request,
+            &["adapter-a".to_string()],
+            Some("partial"),
+            &HashMap::new(),
+        );
+
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].attach_reason, AdapterAttachReason::Requested);
+    }
+
+    #[test]
+    fn marks_non_requested_as_fallback_when_pinned_fallback_is_active() {
+        let request = InferenceRequestInternal {
+            pinned_adapter_ids: Some(vec!["pin-missing".to_string()]),
+            ..Default::default()
+        };
+
+        let attachments = build_adapter_attachments(
+            &request,
+            &["adapter-b".to_string()],
+            Some("stack_only"),
+            &HashMap::new(),
+        );
+
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(
+            attachments[0].attach_reason,
+            AdapterAttachReason::FallbackRouting
+        );
+    }
 }
 
 #[cfg(test)]
