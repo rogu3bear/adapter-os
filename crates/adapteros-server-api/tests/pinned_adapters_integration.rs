@@ -762,7 +762,7 @@ async fn test_pin_adapter_rejects_past_ttl() {
         .hash_b3("b3:somehash")
         .rank(16)
         .tier("ephemeral")
-        .category("general")
+        .category("code")
         .build()
         .expect("adapter params");
     db.register_adapter(params)
@@ -803,7 +803,7 @@ async fn test_pin_adapter_accepts_future_ttl() {
         .hash_b3("b3:somehash")
         .rank(16)
         .tier("ephemeral")
-        .category("general")
+        .category("code")
         .build()
         .expect("adapter params");
     db.register_adapter(params)
@@ -838,7 +838,7 @@ async fn test_pin_adapter_accepts_no_ttl() {
         .hash_b3("b3:somehash")
         .rank(16)
         .tier("ephemeral")
-        .category("general")
+        .category("code")
         .build()
         .expect("adapter params");
     db.register_adapter(params)
@@ -872,7 +872,7 @@ async fn test_pin_adapter_rejects_invalid_ttl_format() {
         .hash_b3("b3:somehash")
         .rank(16)
         .tier("ephemeral")
-        .category("general")
+        .category("code")
         .build()
         .expect("adapter params");
     db.register_adapter(params)
