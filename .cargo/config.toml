@@ -7,8 +7,6 @@
 rustflags = [
     "-Cdebuginfo=0",
 ]
-# Enable sccache for faster rebuilds (caches across clean builds)
-rustc-wrapper = "sccache"
 
 # Target-specific configuration
 [target.aarch64-apple-darwin]
@@ -27,7 +25,8 @@ rustflags = []
 
 [env]
 # IMPORTANT: sccache and incremental compilation are mutually exclusive.
-# We use sccache (set above via rustc-wrapper) for cross-build caching.
+# sccache is opt-in via environment (e.g. RUSTC_WRAPPER=sccache)
+# so CI and clean environments do not require sccache to be installed.
 # Set to "0" to avoid "sccache: incremental compilation is prohibited" errors
 # that break rust-analyzer and cargo metadata.
 CARGO_INCREMENTAL = "0"
@@ -44,7 +43,8 @@ SOURCE_DATE_EPOCH = "1704067200"
 # Advanced Build Performance Optimizations
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# 1. SCCACHE - ENABLED above in [build] section
+# 1. SCCACHE - OPTIONAL via environment
+#    - Enable per shell/session: export RUSTC_WRAPPER=sccache
 #    - Check stats: sccache --show-stats
 #    - Clear cache: sccache --zero-stats
 #
