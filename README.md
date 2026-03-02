@@ -70,6 +70,7 @@ See [tests/playwright/README.md](tests/playwright/README.md) for lane compositio
 | [DETERMINISM.md](DETERMINISM.md) | Reproducibility and replay |
 | [POLICIES.md](POLICIES.md) | Policy engine and packs |
 | [docs/](docs/) | Full documentation index |
+| [docs/governance/](docs/governance/) | Governance policy and operations |
 
 ---
 

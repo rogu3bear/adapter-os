@@ -47,6 +47,13 @@ cargo clippy --workspace -- -D warnings
 - Never write to `/tmp`, `/private/tmp`, `/var/tmp`
 - Clean test artifacts: `find ./crates -type d -name "var" -not -path "*/target/*" -exec rm -rf {} +`
 
+## Governance
+
+- Canonical governance policy: `docs/governance/REPO_GOVERNANCE.md`
+- Generated artifact policy: `docs/governance/GENERATED_ARTIFACT_POLICY.md`
+- Governance SLOs: `docs/governance/SLOS.md`
+- Incident process: `docs/governance/GOVERNANCE_INCIDENTS.md`
+
 ---
 
 ## Scope

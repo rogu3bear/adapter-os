@@ -1,2 +1,11 @@
 # Default ownership. Tighten by path as teams are formalized.
 * @rogu3bear
+
+# Governance and policy enforcement surfaces
+/.github/workflows/governance.yml @rogu3bear
+/docs/governance/ @rogu3bear
+/scripts/ci/check_*policy*.sh @rogu3bear
+/scripts/ci/check_repo_size_budget.sh @rogu3bear
+/scripts/contracts/check_repo_layout_contract.sh @rogu3bear
+/scripts/governance/ @rogu3bear
+/scripts/cleanup/local_tooling_artifacts.sh @rogu3bear

@@ -210,3 +210,8 @@ Observed graduation posture for this run:
 - [POLICIES.md](../POLICIES.md) — Policy engine and packs
 - [SECURITY.md](../SECURITY.md) — Security guide
 - [target-manifest.json](target-manifest.json) — Canonical governance drift target inventory
+- [REPO_GOVERNANCE.md](REPO_GOVERNANCE.md) — Repository governance baseline
+- [OWNERSHIP.md](OWNERSHIP.md) — Governance ownership and escalation
+- [GENERATED_ARTIFACT_POLICY.md](GENERATED_ARTIFACT_POLICY.md) — Generated artifact policy
+- [SLOS.md](SLOS.md) — Governance SLOs
+- [GOVERNANCE_INCIDENTS.md](GOVERNANCE_INCIDENTS.md) — Incident handling
