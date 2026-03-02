@@ -43,7 +43,7 @@ argon2 = "0.5"
 axum = { version = "0.8", features = ["macros", "multipart"] }
 dotenvy = "0.15"
 base64 = "0.22"
-bcrypt = "0.15"
+bcrypt = "0.18"
 bytes = "1.11"
 chrono = "0.4"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
