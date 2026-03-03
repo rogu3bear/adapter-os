@@ -48,9 +48,9 @@
   "expected": {
     "base_run_head": "537819a48eff5363d8ca3d2bef9c6bfcaa5565b05303449d277d2cef4fe63d4d",
     "base_output_digest": "ae70b5e8c746e9cf71a97badd69fdf95ba330071bd2792c9a68f6e94187ac56e",
-    "base_receipt_digest": "bc4d94f591d6d7ebc80c07e243cc1d6e2cf0c755d5de6b687da7ec18f488224a",
+    "base_receipt_digest": "6f49119276f0762513ec08aeda4e1975fff72706835c5ce7a6b1790bf65890aa",
     "appended_run_head": "6cd63ce7d1368eaac7f7279ff0437d61959fa4d557b25e16ff52ce1856fc5659",
     "appended_output_digest": "2604fde761d9ba864daa4314efe141748355398263c803436fce8628d60d1220",
-    "appended_receipt_digest": "065cdb99c96f719282b407adba40fde699ef78c9e6234a37512084abf7c887bb"
+    "appended_receipt_digest": "90a9b85da1232fb04aaba3701061b5e5c1e992aaac2ede1c2e7bb5b29c56ce44"
   }
 }

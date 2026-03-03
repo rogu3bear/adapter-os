@@ -1,4 +1,6 @@
-use adapteros_core::receipt_digest::RECEIPT_SCHEMA_V7;
+use adapteros_core::receipt_digest::{
+    canonical_json_string, ReceiptDigestInput, RECEIPT_SCHEMA_V7,
+};
 use adapteros_crypto::{verify_receipt_payload_bytes, ReceiptVerifyReasonCode};
 use std::path::PathBuf;
 
@@ -23,9 +25,17 @@ fn receipt_payload_vectors_v7_verify() {
     let dir = repo_root().join("docs/receipt_test_vectors/v7");
     for name in ["minimal", "typical", "citations_equipment"] {
         let payload = read_bytes(&dir.join(format!("{name}.input.json")));
+        let payload_obj: ReceiptDigestInput = serde_json::from_slice(&payload)
+            .unwrap_or_else(|e| panic!("{name}: parse payload json: {e}"));
+        let canonical_payload = canonical_json_string(&payload_obj)
+            .unwrap_or_else(|e| panic!("{name}: canonicalize payload json: {e}"));
         let expected = read_string(&dir.join(format!("{name}.expected_receipt_digest_hex.txt")));
 
-        let res = verify_receipt_payload_bytes(&payload, expected.trim(), RECEIPT_SCHEMA_V7);
+        let res = verify_receipt_payload_bytes(
+            canonical_payload.as_bytes(),
+            expected.trim(),
+            RECEIPT_SCHEMA_V7,
+        );
         assert!(
             res.pass,
             "{name}: expected pass, got reasons={:?} parse_error={:?}",

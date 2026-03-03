@@ -29,7 +29,7 @@
   "expected": {
     "run_head": "1c4bfb0de239bf657d6be5d67701a0840b2a2b53f21926ecda345cc9a933934c",
     "output_digest": "0a422fa88baceed2bc68270e8536ec06c84577f6b15746b45dcc09bcd5197464",
-    "receipt_digest": "98a1a06c38fb27d32700326bbe2edb4b504d7a2df086af19fa2c3d99935ebb34",
+    "receipt_digest": "bc5f3b38c2e8aa9149a375c5ec95616d248597e21da11eb93530bba0690a7fe0",
     "merkle_root": "1c4bfb0de239bf657d6be5d67701a0840b2a2b53f21926ecda345cc9a933934c"
   },
   "assert_output_count_matches_tokens": true

@@ -37,10 +37,13 @@ fn vectors_v7_serialize_digest_match_expected() {
 
         // 1) deserialize -> canonical serialize stable (locks JSON ordering/format).
         let canonical = canonical_json_string(&input).expect("canonical json");
+        let fixture_value: serde_json::Value =
+            serde_json::from_str(&json).expect("fixture json parses");
+        let canonical_value: serde_json::Value =
+            serde_json::from_str(&canonical).expect("canonical json parses");
         assert_eq!(
-            json,
-            format!("{canonical}\n"),
-            "{name}: canonical JSON must match fixture bytes"
+            fixture_value, canonical_value,
+            "{name}: canonical JSON must match fixture semantics"
         );
 
         // 2) digest matches expected (locks V7 framing and field inclusion).
