@@ -223,7 +223,7 @@ tar = "0.4"
 
 # Async & Concurrency
 tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net", "fs", "signal", "process"] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["net"] }
 futures-util = "0.3"
 async-stream = "0.3"
 crossbeam = "0.8"

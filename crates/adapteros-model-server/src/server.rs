@@ -2,7 +2,6 @@
 //!
 //! gRPC server for handling forward pass requests from workers.
 
-use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -216,23 +215,31 @@ impl ModelServer {
             .into());
         }
 
-        let addr: SocketAddr = "127.0.0.1:18085".parse()?;
+        let socket_path = &self.config.socket_path;
+
+        // Clean up stale socket file from a previous run
+        if socket_path.exists() {
+            std::fs::remove_file(socket_path)?;
+        }
+        if let Some(parent) = socket_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
 
         info!(
-            socket_path = %self.config.socket_path.display(),
-            addr = %addr,
-            "Starting Model Server"
+            socket_path = %socket_path.display(),
+            "Starting Model Server (UDS)"
         );
 
-        // For now, use TCP instead of UDS for simplicity
-        // TODO: Add UDS support via tonic-uds or similar
+        let uds = tokio::net::UnixListener::bind(socket_path)?;
+        let uds_stream = tokio_stream::wrappers::UnixListenerStream::new(uds);
+
         let service = proto::model_server_server::ModelServerServer::new(ModelServerService::new(
             self.clone(),
         ));
 
         tonic::transport::Server::builder()
             .add_service(service)
-            .serve(addr)
+            .serve_with_incoming(uds_stream)
             .await?;
 
         Ok(())

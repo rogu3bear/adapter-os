@@ -2933,9 +2933,9 @@ fn ChatConversationPanel(
         let (loading, streaming, _, _) = chat_snapshot.try_get().unwrap_or_default();
         loading || streaming
     });
-    // TODO(chat-session-confirmation): Optionally gate send on `Confirmed` only if product
-    // decides to enforce strict server-confirmed sessions. Kept permissive for now to avoid
-    // behavior regressions in optimistic/new-session flows.
+    // NOTE(chat-session-confirmation): Send is intentionally ungated by confirmation state.
+    // Strict server-confirmed gating can be added here if product decides to enforce it.
+    // See SessionConfirmationState for the available states.
     let can_send = Memo::new(move |_| {
         !message.try_get().unwrap_or_default().trim().is_empty()
             && !is_busy.try_get().unwrap_or(false)
