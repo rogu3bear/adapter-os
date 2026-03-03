@@ -108,9 +108,21 @@ async fn update_adapter_alias_blocked_for_active() -> Result<()> {
 
     db.register_adapter(params).await?;
 
-    // Set lifecycle_state to 'active' directly (bypass transition validation for test isolation)
+    // Move through allowed lifecycle transitions to reach Active.
     sqlx::query(
-        "UPDATE adapters SET lifecycle_state = 'active' WHERE adapter_id = 'alias-blocked-active'",
+        "UPDATE adapters SET lifecycle_state = 'training' WHERE adapter_id = 'alias-blocked-active'",
+    )
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(e.to_string()))?;
+    sqlx::query(
+        "UPDATE adapters SET lifecycle_state = 'ready' WHERE adapter_id = 'alias-blocked-active'",
+    )
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(e.to_string()))?;
+    sqlx::query(
+        "UPDATE adapters SET lifecycle_state = 'active', aos_file_path = 'path/to.aos', aos_file_hash = 'hash123', content_hash_b3 = 'content123' WHERE adapter_id = 'alias-blocked-active'",
     )
     .execute(db.pool_result()?)
     .await
@@ -124,7 +136,11 @@ async fn update_adapter_alias_blocked_for_active() -> Result<()> {
         )
         .await;
 
-    assert!(matches!(result, Err(AosError::PolicyViolation(_))));
+    assert!(match result {
+        Err(AosError::PolicyViolation(_)) => true,
+        Err(AosError::Database(msg)) => msg.contains("LIFECYCLE_VIOLATION"),
+        _ => false,
+    });
 
     Ok(())
 }
@@ -219,7 +235,19 @@ async fn update_adapter_display_name_blocked_for_active() -> Result<()> {
     db.register_adapter(params).await?;
 
     sqlx::query(
-        "UPDATE adapters SET lifecycle_state = 'active' WHERE adapter_id = 'display-blocked-active'",
+        "UPDATE adapters SET lifecycle_state = 'training' WHERE adapter_id = 'display-blocked-active'",
+    )
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(e.to_string()))?;
+    sqlx::query(
+        "UPDATE adapters SET lifecycle_state = 'ready' WHERE adapter_id = 'display-blocked-active'",
+    )
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(e.to_string()))?;
+    sqlx::query(
+        "UPDATE adapters SET lifecycle_state = 'active', aos_file_path = 'path/to.aos', aos_file_hash = 'hash123', content_hash_b3 = 'content123' WHERE adapter_id = 'display-blocked-active'",
     )
     .execute(db.pool_result()?)
     .await
@@ -233,7 +261,11 @@ async fn update_adapter_display_name_blocked_for_active() -> Result<()> {
         )
         .await;
 
-    assert!(matches!(result, Err(AosError::PolicyViolation(_))));
+    assert!(match result {
+        Err(AosError::PolicyViolation(_)) => true,
+        Err(AosError::Database(msg)) => msg.contains("LIFECYCLE_VIOLATION"),
+        _ => false,
+    });
 
     Ok(())
 }
