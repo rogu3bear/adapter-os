@@ -21,6 +21,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Keep local builds on the canonical cache root unless explicitly overridden.
+: "${CARGO_TARGET_DIR:=target}"
+export CARGO_TARGET_DIR
+
 # Source libraries
 source scripts/lib/freeze-guard.sh
 source scripts/lib/env-loader.sh

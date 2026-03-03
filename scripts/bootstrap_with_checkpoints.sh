@@ -24,6 +24,10 @@ JSON_OUTPUT="${4:-false}"
 WORKSPACE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$WORKSPACE_ROOT"
 
+# Keep legacy bootstrap builds on the canonical cache root unless explicitly overridden.
+: "${CARGO_TARGET_DIR:=target}"
+export CARGO_TARGET_DIR
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'

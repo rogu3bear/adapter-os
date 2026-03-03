@@ -6,6 +6,10 @@
 
 set -euo pipefail
 
+# Keep release builds on the canonical cache root unless explicitly overridden.
+: "${CARGO_TARGET_DIR:=target}"
+export CARGO_TARGET_DIR
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
