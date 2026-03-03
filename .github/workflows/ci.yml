@@ -1183,10 +1183,12 @@ jobs:
           echo "✓ Leptos UI uses shared API types"
       - name: Check for type mismatches
         run: |
-          # Build both server-api and ui to ensure types align
+          # Build server-api, ui, and client to ensure types align across targets
           cargo check -p adapteros-server-api
           cargo check -p adapteros-ui --target wasm32-unknown-unknown
-          echo "✓ Server and UI types compile successfully"
+          cargo check -p adapteros-ui --features ssr
+          cargo check -p adapteros-client --target wasm32-unknown-unknown
+          echo "✓ Server, UI, and client types compile successfully"
 
   # ==========================================================================
   # MIRI Unsafe Code Verification (P0-4)

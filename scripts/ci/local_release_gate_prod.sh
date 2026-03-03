@@ -7,4 +7,5 @@ cd "$ROOT_DIR"
 LOCAL_RELEASE_MODE=prod \
 LOCAL_RELEASE_RUN_INFERENCE=1 \
 LOCAL_REQUIRED_CLIPPY_SCOPE=all-targets \
+LOCAL_RELEASE_GOVERNANCE_MODE=enforce \
 bash scripts/ci/local_release_gate.sh "$@"

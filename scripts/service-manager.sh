@@ -16,6 +16,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_ROOT/scripts/lib/ports.sh"
+source "$PROJECT_ROOT/scripts/lib/model-config.sh"
 
 # =============================================================================
 # Load Environment
@@ -50,6 +51,7 @@ elif [ -f "$PROJECT_ROOT/.env" ]; then
 fi
 
 aos_apply_port_pane_defaults
+aos_resolve_model_runtime_env "$PROJECT_ROOT"
 
 # =============================================================================
 # Configuration
@@ -86,10 +88,9 @@ SECD_SOCKET="$PROJECT_ROOT/var/run/aos-secd.sock"
 # Port configuration for node
 NODE_PORT="${AOS_NODE_PORT:-18083}"
 
-# Canonical dev model (single source of truth)
-# Must match .env values: AOS_BASE_MODEL_ID, AOS_MODEL_PATH, AOS_WORKER_MANIFEST
-DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/Qwen3.5-27B"
-DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/qwen7b-4bit-mlx-base-only.yaml"
+# Canonical model runtime defaults resolved from shared policy.
+DEFAULT_MODEL_DIR="${AOS_MODEL_PATH:-$PROJECT_ROOT/var/models/Qwen3.5-27B}"
+DEFAULT_MANIFEST_PATH="${AOS_WORKER_MANIFEST:-${AOS_MANIFEST_PATH:-$PROJECT_ROOT/manifests/qwen35-27b-mlx-base-only.yaml}}"
 # Manifest hash is loaded from .env (DEFAULT_MANIFEST_HASH or AOS_MANIFEST_HASH)
 # No hardcoded fallback - .env is the single source of truth for the hash value
 DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-${AOS_MANIFEST_HASH:-}}"
@@ -148,24 +149,62 @@ log_line() {
     echo -e "$line" >>"$SCRIPT_LOG"
 }
 
-# Rotate a log file to .prev if it exceeds a size threshold (bytes).
-# Usage: rotate_log_if_large <file> <max_bytes>
+# Archive a log file with a UTC timestamp suffix and prune older archives.
+# Usage: archive_log_file <file> [keep_count]
+archive_log_file() {
+    local file="$1"
+    local keep_count="${2:-6}"
+    [ -f "$file" ] || return 0
+
+    local ts archive
+    ts="$(date -u +"%Y%m%dT%H%M%SZ")"
+    archive="${file}.${ts}"
+
+    mv "$file" "$archive"
+    prune_log_archives "$file" "$keep_count"
+}
+
+# Keep only the newest N timestamped archives for a base log file.
+# Usage: prune_log_archives <base_file> <keep_count>
+prune_log_archives() {
+    local base_file="$1"
+    local keep_count="${2:-6}"
+    [ "$keep_count" -gt 0 ] 2>/dev/null || return 0
+
+    local -a archives
+    mapfile -t archives < <(ls -1t "${base_file}".20* 2>/dev/null || true)
+    local count="${#archives[@]}"
+    if [ "$count" -le "$keep_count" ]; then
+        return 0
+    fi
+
+    local i
+    for ((i = keep_count; i < count; i++)); do
+        rm -f "${archives[$i]}"
+    done
+}
+
+# Rotate a log file if it exceeds a size threshold (bytes).
+# Usage: rotate_log_if_large <file> <max_bytes> [keep_count]
 rotate_log_if_large() {
     local file="$1"
     local max_bytes="$2"
+    local keep_count="${3:-6}"
     [ -f "$file" ] || return 0
     local size
     size=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
     if [ -n "$size" ] && [ "$size" -gt "$max_bytes" ]; then
-        mv "$file" "${file}.prev"
+        archive_log_file "$file" "$keep_count"
     fi
 }
 
-# Rotate a log file to .prev if it is non-empty.
-# Usage: rotate_log <file>
+# Rotate a log file if it is non-empty.
+# Usage: rotate_log <file> [keep_count]
 rotate_log() {
-    if [ -s "$1" ]; then
-        mv "$1" "${1}.prev"
+    local file="$1"
+    local keep_count="${2:-6}"
+    if [ -s "$file" ]; then
+        archive_log_file "$file" "$keep_count"
     fi
     return 0
 }
@@ -457,18 +496,295 @@ check_bootstrap_state_hint() {
     fi
 }
 
+# Resolve model path used for startup checks.
+# Precedence:
+#   1) AOS_MODEL_PATH
+#   2) AOS_MODEL_CACHE_DIR + AOS_BASE_MODEL_ID
+#   3) DEFAULT_MODEL_DIR
+resolve_model_path_for_preflight() {
+    local model_path="${AOS_MODEL_PATH:-}"
+
+    if [ -z "$model_path" ] && [ -n "${AOS_MODEL_CACHE_DIR:-}" ] && [ -n "${AOS_BASE_MODEL_ID:-}" ]; then
+        model_path="${AOS_MODEL_CACHE_DIR%/}/${AOS_BASE_MODEL_ID}"
+    fi
+
+    if [ -z "$model_path" ]; then
+        model_path="$DEFAULT_MODEL_DIR"
+    fi
+
+    if [[ "$model_path" != /* ]]; then
+        model_path="$PROJECT_ROOT/${model_path#./}"
+    fi
+
+    printf '%s\n' "$model_path"
+}
+
+resolve_manifest_path_for_preflight() {
+    local manifest_path="${AOS_WORKER_MANIFEST:-${AOS_MANIFEST_PATH:-$DEFAULT_MANIFEST_PATH}}"
+
+    if [[ "$manifest_path" != /* ]]; then
+        manifest_path="$PROJECT_ROOT/${manifest_path#./}"
+    fi
+
+    printf '%s\n' "$manifest_path"
+}
+
+blake3_hash_file() {
+    local file_path="$1"
+
+    if ! command -v b3sum >/dev/null 2>&1; then
+        error_msg "b3sum not found (required for manifest compatibility checks)"
+        return 1
+    fi
+
+    b3sum "$file_path" | awk '{print $1}'
+}
+
+read_manifest_base_fields() {
+    local manifest_path="$1"
+    python3 - "$manifest_path" <<'PY'
+import json
+import sys
+
+manifest_path = sys.argv[1]
+raw = open(manifest_path, "r", encoding="utf-8").read()
+
+try:
+    payload = json.loads(raw)
+except Exception:
+    try:
+        import yaml
+        payload = yaml.safe_load(raw)
+    except Exception as exc:
+        print(f"__ERROR__=Failed to parse manifest: {exc}")
+        raise SystemExit(0)
+
+if not isinstance(payload, dict):
+    print("__ERROR__=Manifest is not a mapping")
+    raise SystemExit(0)
+
+base = payload.get("base")
+if not isinstance(base, dict):
+    print("__ERROR__=Manifest missing base section")
+    raise SystemExit(0)
+
+for key in ("model_id", "model_hash", "config_hash", "tokenizer_hash", "tokenizer_cfg_hash"):
+    value = base.get(key, "")
+    if value is None:
+        value = ""
+    print(f"{key}={value}")
+PY
+}
+
+compute_model_identity_hash() {
+    local model_path="$1"
+    local config_file="$model_path/config.json"
+    local first_weight_file
+    first_weight_file="$(find "$model_path" -type f \( -name "*.safetensors" -o -name "*.bin" \) | sort | head -n 1)"
+
+    if [ ! -f "$config_file" ]; then
+        return 1
+    fi
+
+    if [ -n "$first_weight_file" ]; then
+        cat "$config_file" "$first_weight_file" | b3sum | awk '{print $1}'
+    else
+        cat "$config_file" | b3sum | awk '{print $1}'
+    fi
+}
+
+check_model_path_readiness() {
+    local model_path
+    model_path="$(resolve_model_path_for_preflight)"
+
+    if [ ! -d "$model_path" ]; then
+        error_msg "Model directory not found: $model_path"
+        error_msg "Set AOS_MODEL_PATH or configure AOS_MODEL_CACHE_DIR + AOS_BASE_MODEL_ID"
+        error_msg "Run ./scripts/download-model.sh to provision the canonical model path"
+        return 1
+    fi
+
+    local required_files=("config.json" "tokenizer.json" "tokenizer_config.json")
+    local missing=()
+    local file
+    for file in "${required_files[@]}"; do
+        if [ ! -f "$model_path/$file" ]; then
+            missing+=("$file")
+        fi
+    done
+
+    if [ "${#missing[@]}" -gt 0 ]; then
+        error_msg "Model directory missing required file(s): ${missing[*]}"
+        error_msg "Path: $model_path"
+        return 1
+    fi
+
+    local first_weight_file
+    first_weight_file="$(find "$model_path" -type f \( -name "*.safetensors" -o -name "*.bin" \) | head -n 1)"
+    if [ -z "$first_weight_file" ]; then
+        error_msg "Model directory has no weight files (*.safetensors or *.bin): $model_path"
+        error_msg "Run ./scripts/download-model.sh to fetch full model weights"
+        return 1
+    fi
+
+    local partial_count
+    partial_count="$(find "$model_path" -type f -name "*.part" 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "${partial_count:-0}" -gt 0 ]; then
+        error_msg "Model directory contains incomplete download files (*.part): $partial_count"
+        error_msg "Path: $model_path"
+        error_msg "Wait for download completion before starting runtime"
+        return 1
+    fi
+
+    local shard_index="$model_path/model.safetensors.index.json"
+    if [ -f "$shard_index" ]; then
+        local missing_shards
+        missing_shards="$(python3 - "$shard_index" "$model_path" <<'PY'
+import json
+import pathlib
+import sys
+
+index_path = pathlib.Path(sys.argv[1])
+model_dir = pathlib.Path(sys.argv[2])
+
+try:
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f"failed to parse model index: {exc}")
+    raise SystemExit(0)
+
+weight_map = payload.get("weight_map")
+if not isinstance(weight_map, dict):
+    raise SystemExit(0)
+
+shards = sorted({str(v) for v in weight_map.values() if isinstance(v, str) and v.strip()})
+missing = [name for name in shards if not (model_dir / name).is_file()]
+if missing:
+    print(", ".join(missing))
+PY
+)"
+        if [ -n "$missing_shards" ]; then
+            error_msg "Model index references missing shard file(s): $missing_shards"
+            error_msg "Path: $model_path"
+            return 1
+        fi
+    fi
+
+    status_msg "Model path check passed: $model_path"
+    return 0
+}
+
+check_model_manifest_compatibility() {
+    local model_path manifest_path
+    model_path="$(resolve_model_path_for_preflight)"
+    manifest_path="$(resolve_manifest_path_for_preflight)"
+
+    if [ ! -f "$manifest_path" ]; then
+        error_msg "Manifest not found for model compatibility check: $manifest_path"
+        error_msg "Set AOS_WORKER_MANIFEST or AOS_MANIFEST_PATH to a valid file"
+        return 1
+    fi
+
+    local manifest_model_id=""
+    local manifest_model_hash=""
+    local manifest_config_hash=""
+    local manifest_tokenizer_hash=""
+    local manifest_tokenizer_cfg_hash=""
+    local manifest_parse_error=""
+
+    while IFS='=' read -r key value; do
+        case "$key" in
+            model_id) manifest_model_id="$value" ;;
+            model_hash) manifest_model_hash="$value" ;;
+            config_hash) manifest_config_hash="$value" ;;
+            tokenizer_hash) manifest_tokenizer_hash="$value" ;;
+            tokenizer_cfg_hash) manifest_tokenizer_cfg_hash="$value" ;;
+            __ERROR__) manifest_parse_error="$value" ;;
+        esac
+    done < <(read_manifest_base_fields "$manifest_path")
+
+    if [ -n "$manifest_parse_error" ]; then
+        error_msg "$manifest_parse_error"
+        error_msg "Manifest path: $manifest_path"
+        return 1
+    fi
+
+    local expected_model_id="${AOS_BASE_MODEL_ID:-$manifest_model_id}"
+    if [ -z "$expected_model_id" ]; then
+        expected_model_id="$(basename "$model_path")"
+    fi
+
+    if [ -n "$manifest_model_id" ] && [ "$manifest_model_id" != "$expected_model_id" ]; then
+        local manifest_id_lc expected_id_lc
+        manifest_id_lc="$(printf '%s' "$manifest_model_id" | tr '[:upper:]' '[:lower:]')"
+        expected_id_lc="$(printf '%s' "$expected_model_id" | tr '[:upper:]' '[:lower:]')"
+        # Accept quantized/packaging suffixes like "...-MLX-4bit" while still
+        # rejecting unrelated model families.
+        if [[ "$expected_id_lc" != "$manifest_id_lc" && "$expected_id_lc" != "$manifest_id_lc"-* ]]; then
+            error_msg "Manifest/model-id mismatch: manifest=$manifest_model_id expected=$expected_model_id"
+            error_msg "Manifest path: $manifest_path"
+            error_msg "Model path: $model_path"
+            return 1
+        fi
+        warning_msg "Model-id differs by variant suffix; accepting manifest=$manifest_model_id expected=$expected_model_id"
+    fi
+
+    local actual_config_hash actual_tokenizer_hash actual_tokenizer_cfg_hash
+    if ! actual_config_hash="$(blake3_hash_file "$model_path/config.json")"; then
+        return 1
+    fi
+    if ! actual_tokenizer_hash="$(blake3_hash_file "$model_path/tokenizer.json")"; then
+        return 1
+    fi
+    if ! actual_tokenizer_cfg_hash="$(blake3_hash_file "$model_path/tokenizer_config.json")"; then
+        return 1
+    fi
+
+    if [ -n "$manifest_config_hash" ] && [ "$manifest_config_hash" != "$actual_config_hash" ]; then
+        error_msg "Manifest config_hash mismatch: manifest=$manifest_config_hash actual=$actual_config_hash"
+        return 1
+    fi
+
+    if [ -n "$manifest_tokenizer_hash" ] && [ "$manifest_tokenizer_hash" != "$actual_tokenizer_hash" ]; then
+        error_msg "Manifest tokenizer_hash mismatch: manifest=$manifest_tokenizer_hash actual=$actual_tokenizer_hash"
+        return 1
+    fi
+
+    if [ -n "$manifest_tokenizer_cfg_hash" ] && [ "$manifest_tokenizer_cfg_hash" != "$actual_tokenizer_cfg_hash" ]; then
+        error_msg "Manifest tokenizer_cfg_hash mismatch: manifest=$manifest_tokenizer_cfg_hash actual=$actual_tokenizer_cfg_hash"
+        return 1
+    fi
+
+    if [ "${AOS_PREFLIGHT_VALIDATE_MODEL_HASH:-0}" = "1" ] && [ -n "$manifest_model_hash" ]; then
+        local actual_model_hash
+        if ! actual_model_hash="$(compute_model_identity_hash "$model_path")"; then
+            return 1
+        fi
+        if [ "$manifest_model_hash" != "$actual_model_hash" ]; then
+            error_msg "Manifest model_hash mismatch: manifest=$manifest_model_hash actual=$actual_model_hash"
+            error_msg "Set AOS_PREFLIGHT_VALIDATE_MODEL_HASH=0 to skip this expensive check"
+            return 1
+        fi
+    fi
+
+    status_msg "Model/manifest compatibility check passed: $(basename "$manifest_path")"
+    return 0
+}
+
 # Run all preflight checks
-# Usage: run_preflight_checks [--skip-disk] [--skip-memory] [--skip-db]
+# Usage: run_preflight_checks [--skip-disk] [--skip-memory] [--skip-db] [--skip-model]
 run_preflight_checks() {
     local skip_disk=false
     local skip_memory=false
     local skip_db=false
+    local skip_model=false
 
     for arg in "$@"; do
         case "$arg" in
             --skip-disk) skip_disk=true ;;
             --skip-memory) skip_memory=true ;;
             --skip-db) skip_db=true ;;
+            --skip-model) skip_model=true ;;
         esac
     done
 
@@ -493,6 +809,14 @@ run_preflight_checks() {
             failed=true
         else
             check_bootstrap_state_hint
+        fi
+    fi
+
+    if [ "$skip_model" != "true" ]; then
+        if ! check_model_path_readiness; then
+            failed=true
+        elif ! check_model_manifest_compatibility; then
+            failed=true
         fi
     fi
 
@@ -1126,6 +1450,39 @@ check_database() {
     return 0
 }
 
+# Return latest worker status for a PID from the control-plane workers table.
+# Echoes an empty string when unavailable or unknown.
+worker_status_by_pid() {
+    local pid="$1"
+    if ! [[ "$pid" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+    if ! check_database; then
+        return 1
+    fi
+    sqlite3 "$DATABASE_PATH" \
+        "SELECT status FROM workers WHERE pid=$pid ORDER BY last_seen_at DESC LIMIT 1;" 2>/dev/null | head -n 1
+}
+
+# Determine whether a worker PID is considered ready by control-plane state.
+# Echoes the ready status value on success.
+worker_ready_status_by_pid() {
+    local pid="$1"
+    local status=""
+    status="$(worker_status_by_pid "$pid")"
+    case "$status" in
+        # "registered" is transitional: worker has announced itself but may not
+        # have bound the UDS socket yet. Treat only post-registration states as ready.
+        ready|running|active|healthy)
+            echo "$status"
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 # Escape single quotes for SQL (basic protection)
 # Used by cleanup_stale_workers.
 sql_escape() {
@@ -1247,10 +1604,11 @@ start_worker() {
         return 1
     fi
 
-    # Determine manifest and model paths (default to 3B model)
-    local manifest_path="${AOS_WORKER_MANIFEST:-$DEFAULT_MANIFEST_PATH}"
+    # Determine manifest and model paths (canonical dev model)
+    local manifest_path="${AOS_WORKER_MANIFEST:-${AOS_MANIFEST_PATH:-$DEFAULT_MANIFEST_PATH}}"
     local manifest_hash="${AOS_MANIFEST_HASH:-$DEFAULT_MANIFEST_HASH}"
-    local model_path="${AOS_MODEL_PATH:-$DEFAULT_MODEL_DIR}"
+    local model_path
+    model_path="$(resolve_model_path_for_preflight)"
     local uds_path="${AOS_WORKER_SOCKET:-$PROJECT_ROOT/var/run/worker.sock}"
     # Default to MLX; requires worker to be built with multi-backend/MLX features.
     # Override via AOS_MODEL_BACKEND=metal|coreml if MLX is unavailable.
@@ -1351,6 +1709,7 @@ start_worker() {
 
             return 0
         fi
+
         if (( waited % log_interval == 0 )); then
             status_msg "Waiting for worker socket... elapsed=${waited}s target=${uds_path} pid=${pid}"
         fi
@@ -1961,7 +2320,24 @@ show_status() {
         fi
     elif is_running "$WORKER_PID_FILE"; then
         local pid=$(get_pid "$WORKER_PID_FILE")
-        local status_line="${YELLOW}[STARTING]${NC} Inference Worker (PID: $pid, socket not ready)"
+        local cp_lifecycle=""
+        cp_lifecycle="$(worker_status_by_pid "$pid" || true)"
+        local status_line=""
+        if [ -n "$cp_lifecycle" ]; then
+            case "$cp_lifecycle" in
+                registered)
+                    status_line="${YELLOW}[WARMING]${NC} Inference Worker (PID: $pid, Control Plane: registered (transitional), socket not ready)"
+                    ;;
+                ready|running|active|healthy|serving)
+                    status_line="${YELLOW}[DEGRADED]${NC} Inference Worker (PID: $pid, Control Plane: $cp_lifecycle, socket not ready)"
+                    ;;
+                *)
+                    status_line="${YELLOW}[WARMING]${NC} Inference Worker (PID: $pid, Control Plane: $cp_lifecycle, socket not ready)"
+                    ;;
+            esac
+        else
+            status_line="${YELLOW}[STARTING]${NC} Inference Worker (PID: $pid, socket not ready)"
+        fi
         if [ -n "$db_status" ]; then
             status_line="$status_line ${CYAN}[DB: $db_status]${NC}"
         fi
@@ -2073,6 +2449,7 @@ usage() {
     echo "  $0 stop <service> [mode]  Stop a specific service"
     echo "  $0 restart <service> [mode] Restart a service (stop then start)"
     echo "  $0 status                 Show status of all services"
+    echo "  $0 preflight [flags]      Run startup preflight checks"
     echo ""
     echo "SERVICES:"
     echo "  backend     Backend API server"
@@ -2097,6 +2474,7 @@ usage() {
     echo "  $0 restart backend        # Restart backend gracefully"
     echo "  $0 restart ui fast        # Restart UI using fast stop"
     echo "  $0 status                 # Show service status"
+    echo "  $0 preflight              # Run disk/memory/db/model checks"
 }
 
 # =============================================================================
@@ -2254,6 +2632,9 @@ case "$COMMAND" in
         fi
         # Start backend only (shortcut)
         start_backend
+        ;;
+    preflight)
+        run_preflight_checks "${@:2}"
         ;;
     help|-h|--help)
         usage

@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$ROOT_DIR/scripts/lib/build-targets.sh"
+source "$ROOT_DIR/scripts/lib/model-config.sh"
 cd "$ROOT_DIR"
 
 die() {
@@ -349,22 +350,8 @@ if [ -n "$DB_PATH" ]; then
     ensure_dev_db_prereqs "$DB_PATH"
 fi
 
-DEFAULT_MODEL_DIR=""
-if default_model_dir="$(select_default_model_dir "$ROOT_DIR/var/models")"; then
-    DEFAULT_MODEL_DIR="$default_model_dir"
-fi
-if [ -z "$DEFAULT_MODEL_DIR" ]; then
-    DEFAULT_MODEL_DIR="/var/models/Qwen3.5-27B"
-fi
-
-# Derive AOS_MODEL_PATH from canonical vars if not set
-if [ -z "${AOS_MODEL_PATH:-}" ]; then
-    if [ -n "${AOS_MODEL_CACHE_DIR:-}" ] && [ -n "${AOS_BASE_MODEL_ID:-}" ]; then
-        export AOS_MODEL_PATH="${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}"
-    fi
-fi
-
-model_path="${AOS_MODEL_PATH:-$DEFAULT_MODEL_DIR}"
+aos_resolve_model_runtime_env "$ROOT_DIR"
+model_path="${AOS_MODEL_PATH}"
 backend="${AOS_MODEL_BACKEND:-}"
 if [ -z "$backend" ]; then
     backend="$(infer_backend_for_model "$model_path")"
@@ -374,6 +361,9 @@ if [ "$backend" = "mock" ]; then
 fi
 
 manifest_path="${AOS_WORKER_MANIFEST:-${AOS_MANIFEST_PATH:-}}"
+if [ -z "$manifest_path" ]; then
+    manifest_path="$(aos_guess_manifest_path "$ROOT_DIR" "${AOS_BASE_MODEL_ID:-}" "$model_path" || true)"
+fi
 if [ -z "$manifest_path" ]; then
     manifest_path="$(select_manifest_path "$model_path" "$backend" || true)"
     if [ -z "$manifest_path" ]; then

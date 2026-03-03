@@ -29,6 +29,7 @@ export CARGO_TARGET_DIR
 source scripts/lib/freeze-guard.sh
 source scripts/lib/env-loader.sh
 source scripts/lib/manifest-reader.sh
+source scripts/lib/model-config.sh
 source scripts/lib/ports.sh
 
 # Set SCRIPT_DIR for path normalization
@@ -104,6 +105,10 @@ bridge_manifest_to_env() {
 }
 
 bridge_manifest_to_env
+
+# Resolve model/cache/base-id/manifest using shared policy so start and
+# service-manager read the same runtime config surfaces.
+aos_resolve_model_runtime_env "$SCRIPT_DIR"
 
 # Resolve server port and dev bypass from config using toml_read
 # (replaces previous ad-hoc awk parsers)
@@ -1057,30 +1062,12 @@ load_seeded_model_on_worker() {
     local start_ts now elapsed
     start_ts="$(date +%s)"
     local load_request_sent=0
+    local just_sent_request=0
     local last_model_phase=""
 
     while true; do
-        # Send load request (first iteration only - subsequent iterations just poll)
-        if [ "$load_request_sent" -eq 0 ]; then
-            local status="000"
-            if [ -n "$auth_header" ]; then
-                status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
-                    -H "Content-Type: application/json" -H "$auth_header" \
-                    -d '{}' "$url" 2>/dev/null || echo "000")
-            else
-                status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
-                    -H "Content-Type: application/json" \
-                    -d '{}' "$url" 2>/dev/null || echo "000")
-            fi
-
-            if [ "$status" != "200" ]; then
-                log_line ERROR "model:load failed status=$status model_id=$model_id"
-                return 1
-            fi
-            load_request_sent=1
-        fi
-
-        # Poll DB for model status
+        # Poll DB for model status first so we can dedupe concurrent callers
+        # (e.g., two ./start invocations) and avoid duplicate /load requests.
         local db_status="" db_error="" memory_mb=""
         if command -v sqlite3 >/dev/null 2>&1 && [ -f "$AOS_VAR_DIR/aos-cp.sqlite3" ]; then
             db_status="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
@@ -1092,6 +1079,34 @@ load_seeded_model_on_worker() {
             memory_mb="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
                 "SELECT memory_usage_mb FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
                 2>/dev/null | head -1)"
+        fi
+
+        # Send load request at most once, and only if there isn't already
+        # an in-progress load for this model.
+        just_sent_request=0
+        if [ "$load_request_sent" -eq 0 ]; then
+            if [ "$db_status" = "loading" ]; then
+                log_line INFO "model:load in-flight already; waiting model_id=$model_id"
+                load_request_sent=1
+            else
+                local status="000"
+                if [ -n "$auth_header" ]; then
+                    status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
+                        -H "Content-Type: application/json" -H "$auth_header" \
+                        -d '{}' "$url" 2>/dev/null || echo "000")
+                else
+                    status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
+                        -H "Content-Type: application/json" \
+                        -d '{}' "$url" 2>/dev/null || echo "000")
+                fi
+
+                if [ "$status" != "200" ]; then
+                    log_line ERROR "model:load failed status=$status model_id=$model_id"
+                    return 1
+                fi
+                load_request_sent=1
+                just_sent_request=1
+            fi
         fi
 
         # Map DB status to progress percentage and label
@@ -1109,14 +1124,21 @@ load_seeded_model_on_worker() {
                 mlabel="Loading model to RAM..."
                 ;;
             error)
-                term_clear_row
-                log_line WARN "model:load worker reported error model_id=$model_id error=${db_error:-unknown}"
-                return 1
+                if [ "$just_sent_request" -eq 1 ]; then
+                    mpct=40
+                    mlabel="Load requested, awaiting status update..."
+                else
+                    term_clear_row
+                    log_line WARN "model:load worker reported error model_id=$model_id error=${db_error:-unknown}"
+                    return 1
+                fi
                 ;;
             "")
                 # Row not yet created - waiting for worker to pick up
-                mpct=35
-                mlabel="Waiting for worker..."
+                if [ "$load_request_sent" -eq 1 ]; then
+                    mpct=35
+                    mlabel="Waiting for worker..."
+                fi
                 ;;
             *)
                 log_line WARN "model:load unexpected db status model_id=$model_id status=$db_status"
@@ -1275,7 +1297,22 @@ do_preflight() {
     if ! check_start_dependencies "preflight"; then
         return 1
     fi
-    freeze_preflight "$AOS_SERVER_PORT" "$AOS_VAR_DIR"
+    local failed=0
+
+    if ! freeze_preflight "$AOS_SERVER_PORT" "$AOS_UI_PORT" "$AOS_VAR_DIR"; then
+        failed=1
+    fi
+
+    if [ -x scripts/service-manager.sh ]; then
+        if ! scripts/service-manager.sh preflight; then
+            failed=1
+        fi
+    else
+        fg_error "Missing required script: scripts/service-manager.sh"
+        failed=1
+    fi
+
+    return "$failed"
 }
 
 binary_exists() {
@@ -1669,13 +1706,18 @@ start_all() {
         fi
 
         if [ -n "$aosctl_bin" ]; then
-            start_spinner "Seeding model..."
-            if "$aosctl_bin" models seed --model-path "$AOS_MODEL_PATH" >/dev/null 2>&1; then
-                stop_spinner
-                update_step "success" "Model seeded"
+            local existing_model_id=""
+            if existing_model_id="$(resolve_model_id_for_model_path "$AOS_MODEL_PATH" 2>/dev/null)"; then
+                update_step "pending" "Model seeding  ${FG_YELLOW}SKIPPED${FG_RESET}  (already seeded: ${existing_model_id})"
             else
-                stop_spinner
-                update_step "pending" "Model seeding  ${FG_YELLOW}SKIPPED${FG_RESET}  (already exists or error)"
+                start_spinner "Seeding model..."
+                if "$aosctl_bin" models seed --model-path "$AOS_MODEL_PATH" >/dev/null 2>&1; then
+                    stop_spinner
+                    update_step "success" "Model seeded"
+                else
+                    stop_spinner
+                    update_step "pending" "Model seeding  ${FG_YELLOW}SKIPPED${FG_RESET}  (already exists or error)"
+                fi
             fi
         else
             update_step "pending" "Model seeding  ${FG_YELLOW}SKIPPED${FG_RESET}  (aosctl not found)"

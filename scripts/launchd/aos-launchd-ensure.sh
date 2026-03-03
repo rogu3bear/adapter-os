@@ -20,6 +20,37 @@ WORKER_PID_FILE="$PROJECT_ROOT/var/worker.pid"
 mkdir -p "$PROJECT_ROOT/var/logs"
 mkdir -p "$PROJECT_ROOT/var/run"
 
+rotate_guardian_log_if_large() {
+    local max_bytes="${1:-5242880}"  # 5 MiB default
+    local keep_count="${2:-8}"
+    [ -f "$LOG_FILE" ] || return 0
+
+    local size
+    size="$(wc -c < "$LOG_FILE" 2>/dev/null | tr -d ' ')"
+    if [ -z "$size" ] || [ "$size" -le "$max_bytes" ]; then
+        return 0
+    fi
+
+    local ts archive
+    ts="$(date -u +"%Y%m%dT%H%M%SZ")"
+    archive="${LOG_FILE}.${ts}"
+    mv "$LOG_FILE" "$archive"
+
+    local -a archives
+    mapfile -t archives < <(ls -1t "${LOG_FILE}".20* 2>/dev/null || true)
+    local count="${#archives[@]}"
+    if [ "$count" -le "$keep_count" ]; then
+        return 0
+    fi
+
+    local i
+    for ((i = keep_count; i < count; i++)); do
+        rm -f "${archives[$i]}"
+    done
+}
+
+rotate_guardian_log_if_large
+
 record_backend_restart_event() {
     local cause="$1"
     local ts

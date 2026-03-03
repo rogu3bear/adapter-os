@@ -29,6 +29,7 @@ EXPECTED_PROTECTED = {
     "/models",
     "/models/:id",
     "/policies",
+    "/routing",
     "/runs",
     "/runs/:id",
     "/settings",
@@ -52,7 +53,6 @@ REMOVED_UI_ROUTE_PREFIXES = {
     "/repositories",
     "/review_detail",
     "/reviews",
-    "/routing",
     "/stacks",
     "/style-audit",
 }

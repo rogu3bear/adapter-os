@@ -11,15 +11,80 @@ AOSCTL_MANIFEST="crates/adapteros-cli/Cargo.toml"
 AOSCTL_SRC_DIR="crates/adapteros-cli/src"
 PRECHECK_FAILURE_CODE=86
 
+sqlite_path_from_url() {
+    local raw="$1"
+    local path=""
+
+    case "$raw" in
+        sqlite://*)
+            path="${raw#sqlite://}"
+            ;;
+        sqlite:*)
+            path="${raw#sqlite:}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    path="${path%%\?*}"
+    path="${path%%#*}"
+
+    if [ -z "$path" ] || [ "$path" = ":memory:" ]; then
+        return 1
+    fi
+
+    if [[ "$path" != /* ]]; then
+        path="$PWD/${path#./}"
+    fi
+
+    printf '%s\n' "$path"
+}
+
+resolve_aosctl_build_env() {
+    AOSCTL_BUILD_ENV=()
+    local db_url="${DATABASE_URL:-}"
+
+    if [ -n "${SQLX_OFFLINE+x}" ]; then
+        AOSCTL_BUILD_ENV+=("SQLX_OFFLINE=${SQLX_OFFLINE}")
+        if [ -n "$db_url" ]; then
+            AOSCTL_BUILD_ENV+=("DATABASE_URL=${db_url}")
+        fi
+        return 0
+    fi
+
+    if [ -n "$db_url" ]; then
+        local db_path=""
+        if db_path="$(sqlite_path_from_url "$db_url")"; then
+            if [ -f "$db_path" ]; then
+                AOSCTL_BUILD_ENV+=("SQLX_OFFLINE=false" "DATABASE_URL=${db_url}")
+                return 0
+            fi
+            echo "WARNING: DATABASE_URL points to missing sqlite file ($db_path); forcing SQLX_OFFLINE=1 for aosctl build." >&2
+            AOSCTL_BUILD_ENV+=("SQLX_OFFLINE=1")
+            return 0
+        fi
+
+        echo "WARNING: DATABASE_URL is non-sqlite or unsupported for local sqlx compile ($db_url); forcing SQLX_OFFLINE=1 for aosctl build." >&2
+        AOSCTL_BUILD_ENV+=("SQLX_OFFLINE=1")
+        return 0
+    fi
+
+    AOSCTL_BUILD_ENV+=("SQLX_OFFLINE=1")
+}
+
 build_aosctl() {
     local reason="$1"
     local attempt=1
     local status=1
+    local -a build_env=()
+    resolve_aosctl_build_env
+    build_env=("${AOSCTL_BUILD_ENV[@]}")
 
     echo "Building aosctl (${reason})..."
 
     while [ "$attempt" -le 2 ]; do
-        cargo build -p adapteros-cli --bin aosctl
+        env "${build_env[@]}" cargo build -p adapteros-cli --bin aosctl
         status=$?
         if [ "$status" -eq 0 ]; then
             return 0
@@ -110,6 +175,11 @@ emit_integrity_diagnostics() {
 
 # If the user or agent explicitly wants to rebuild, they can pass --rebuild
 rebuild_reason=""
+if [[ "${1:-}" == "rebuild" ]]; then
+    echo "aosctl: rewriting 'rebuild' to '--rebuild'." >&2
+    shift
+    set -- --rebuild "$@"
+fi
 if [[ "${1:-}" == "--rebuild" ]]; then
     shift
     rebuild_reason="explicit --rebuild flag"

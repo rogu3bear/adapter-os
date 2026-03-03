@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$PROJECT_ROOT/scripts/lib/model-config.sh"
 
 mkdir -p "$PROJECT_ROOT/var/logs"
 mkdir -p "$PROJECT_ROOT/var/run"
@@ -15,6 +16,8 @@ if [ -f "$PROJECT_ROOT/scripts/lib/env-loader.sh" ]; then
     export SCRIPT_DIR="$PROJECT_ROOT"
     load_env_file "$PROJECT_ROOT/.env" --no-override || true
 fi
+
+aos_resolve_model_runtime_env "$PROJECT_ROOT"
 
 CONFIG_PATH="${AOS_CONFIG_PATH:-$PROJECT_ROOT/configs/cp.toml}"
 if [ ! -f "$CONFIG_PATH" ]; then
@@ -45,19 +48,8 @@ fi
 export DATABASE_URL="${DATABASE_URL:-sqlite://$PROJECT_ROOT/var/aos-cp.sqlite3}"
 export RUST_LOG="${RUST_LOG:-info}"
 
-if [ -z "${AOS_MANIFEST_PATH:-}" ]; then
-    DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/Qwen3.5-27B"
-    DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/qwen7b-4bit-mlx-base-only.yaml"
-    FIXTURE_MANIFEST="$PROJECT_ROOT/crates/adapteros-server-api/tests/fixtures/mlx/Mistral-7B-Instruct-4bit/config.json"
-    DEV_MANIFEST_JSON="$DEFAULT_MODEL_DIR/config.json"
-
-    if [ -f "$DEFAULT_MANIFEST_PATH" ]; then
-        export AOS_MANIFEST_PATH="$DEFAULT_MANIFEST_PATH"
-    elif [ -f "$DEV_MANIFEST_JSON" ]; then
-        export AOS_MANIFEST_PATH="$DEV_MANIFEST_JSON"
-    elif [ -f "$FIXTURE_MANIFEST" ]; then
-        export AOS_MANIFEST_PATH="$FIXTURE_MANIFEST"
-    fi
+if [ -z "${AOS_MANIFEST_PATH:-}" ] && [ -n "${AOS_WORKER_MANIFEST:-}" ]; then
+    export AOS_MANIFEST_PATH="$AOS_WORKER_MANIFEST"
 fi
 
 if [ -z "${AOS_MANIFEST_PATH:-}" ] || [ ! -f "${AOS_MANIFEST_PATH:-}" ]; then

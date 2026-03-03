@@ -41,7 +41,9 @@ huggingface-cli download Qwen/Qwen3.5-27B \
 export AOS_MODEL_PATH=var/models/Qwen3.5-27B
 ```
 
-Or use `./aosctl models seed` if configured.
+Or use `./scripts/download-model.sh` to provision and update `.env`.
+
+Startup preflight now fails fast if the model directory is missing/incomplete or incompatible with the worker manifest (`config.json`, `tokenizer.json`, `tokenizer_config.json`, and hash compatibility checks).
 
 If you only need backend/UI startup (no inference worker), you can skip model setup and run:
 
@@ -82,6 +84,7 @@ cd crates/adapteros-ui && trunk serve
 ## Verify
 
 ```bash
+./start preflight
 ./aosctl doctor
 ./aosctl preflight
 ```

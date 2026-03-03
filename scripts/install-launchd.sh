@@ -96,12 +96,6 @@ sed \
     "$BACKEND_PLIST_SOURCE" > "$BACKEND_PLIST_DEST"
 chmod 644 "$BACKEND_PLIST_DEST"
 
-# Unload legacy worker-only job if present
-if launchctl print "${TARGET_DOMAIN}/com.adapteros.worker" >/dev/null 2>&1; then
-    warning "Unloading legacy com.adapteros.worker job..."
-    launchctl bootout "${TARGET_DOMAIN}/com.adapteros.worker" >/dev/null 2>&1 || true
-fi
-
 # Reload backend and guardian
 for label in "$BACKEND_LABEL" "$GUARDIAN_LABEL"; do
     if launchctl print "${TARGET_DOMAIN}/${label}" >/dev/null 2>&1; then

@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 : "${LOCAL_RELEASE_MODE:=standard}"
 : "${LOCAL_RELEASE_RUN_INFERENCE:=0}"
-: "${LOCAL_RELEASE_GOVERNANCE_MODE:=off}"
+: "${LOCAL_RELEASE_GOVERNANCE_MODE:=enforce}"
 : "${AOS_SERVER_PORT:=18080}"
 : "${AOS_API_URL:=http://localhost:${AOS_SERVER_PORT}}"
 : "${LOCAL_RELEASE_BUNDLE_DIR:=$ROOT_DIR/target/release-bundle}"

@@ -13,10 +13,12 @@ scripts/contracts/check_api_surface.py
 scripts/contracts/check_ui_routes.py
 scripts/contracts/check_middleware_chain.py
 scripts/contracts/check_startup_contract.sh
+scripts/contracts/check_worker_startup_readiness_contract.sh
 scripts/contracts/check_startup_negative_paths.sh
 scripts/contracts/check_determinism_contract.sh
 scripts/contracts/check_release_security_assertions.sh
 scripts/contracts/check_docs_claims.sh
+bash scripts/contracts/check_removed_log_endpoints.sh
 scripts/ci/check_route_inventory_openapi_coverage.sh
 scripts/contracts/check_error_code_coverage.sh
 scripts/contracts/check_handler_error_response_with_code.sh
