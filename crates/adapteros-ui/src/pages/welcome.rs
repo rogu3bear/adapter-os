@@ -4,13 +4,18 @@
 //! no workers registered). Guides the operator through initial setup
 //! via an interactive 4-step wizard.
 
-use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant, PageScaffold, Spinner};
+use crate::components::{
+    Button, ButtonLink, ButtonSize, ButtonVariant, OnboardingActionPanel, OnboardingContainer,
+    OnboardingHeader, OnboardingProgressStep, OnboardingProgressStepper, PageScaffold, Spinner,
+};
 use crate::hooks::{use_polling, use_system_status, LoadingState};
 use crate::signals::{use_refetch_signal, RefetchTopic};
 #[cfg(target_arch = "wasm32")]
 use adapteros_api_types::SetupSeedModelsRequest;
 use adapteros_api_types::{SetupDiscoveredModel, StatusIndicator, SystemStatusResponse};
 use leptos::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use std::collections::HashMap;
 #[cfg(target_arch = "wasm32")]
 use std::sync::Arc;
 
@@ -93,37 +98,18 @@ fn wizard_success_view(label: impl Into<String>) -> impl IntoView {
 
 #[component]
 fn WizardProgress(current_step: WizardStep) -> impl IntoView {
+    let steps = WizardStep::ALL
+        .into_iter()
+        .map(|step| OnboardingProgressStep {
+            label: step.label().to_string(),
+            index: step.index(),
+            is_complete: step.index() < current_step.index(),
+            is_active: step == current_step,
+        })
+        .collect::<Vec<_>>();
+
     view! {
-        <div class="wizard-progress">
-            {WizardStep::ALL.into_iter().map(|step| {
-                let is_complete = step.index() < current_step.index();
-                let is_active = step == current_step;
-                let class = if is_complete {
-                    "wizard-step wizard-step-complete"
-                } else if is_active {
-                    "wizard-step wizard-step-active"
-                } else {
-                    "wizard-step"
-                };
-                let step_num = step.index() + 1;
-                view! {
-                    <div class=class>
-                        <div class="wizard-step-circle">
-                            {if is_complete {
-                                view! {
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M5 13l4 4L19 7"/>
-                                    </svg>
-                                }.into_any()
-                            } else {
-                                view! { <span>{step_num}</span> }.into_any()
-                            }}
-                        </div>
-                        <span class="wizard-step-label">{step.label()}</span>
-                    </div>
-                }
-            }).collect_view()}
-        </div>
+        <OnboardingProgressStepper steps=steps />
     }
 }
 
@@ -141,8 +127,7 @@ fn DatabaseStep(
     let is_migrating = move || migrating.try_get().unwrap_or(false);
     let error_msg = move || migrate_error.try_get().flatten();
     view! {
-        <div class="wizard-action-area">
-            <h3 class="wizard-step-title">"Prepare System Storage"</h3>
+        <OnboardingActionPanel title="Prepare System Storage">
             <Show
                 when=move || db_ok
                 fallback=move || view! {
@@ -173,15 +158,14 @@ fn DatabaseStep(
             >
                 {wizard_success_view("Storage connected and up to date")}
             </Show>
-        </div>
+        </OnboardingActionPanel>
     }
 }
 
 #[component]
 fn WorkerStep(worker_connected: bool) -> impl IntoView {
     view! {
-        <div class="wizard-action-area">
-            <h3 class="wizard-step-title">"Connect a Compute Worker"</h3>
+        <OnboardingActionPanel title="Connect a Compute Worker">
             <Show
                 when=move || worker_connected
                 fallback=move || view! {
@@ -201,7 +185,7 @@ fn WorkerStep(worker_connected: bool) -> impl IntoView {
             >
                 {wizard_success_view("Compute worker connected and healthy")}
             </Show>
-        </div>
+        </OnboardingActionPanel>
     }
 }
 
@@ -221,8 +205,7 @@ fn ModelsStep(
     #[prop(into)] on_seed_selected: Callback<()>,
 ) -> impl IntoView {
     view! {
-        <div class="wizard-action-area">
-            <h3 class="wizard-step-title">"Register a Base Model"</h3>
+        <OnboardingActionPanel title="Register a Base Model">
             <Show
                 when=move || models_seeded
                 fallback=move || view! {
@@ -285,15 +268,14 @@ fn ModelsStep(
             >
                 {wizard_success_view(format!("{} base model(s) ready", model_count))}
             </Show>
-        </div>
+        </OnboardingActionPanel>
     }
 }
 
 #[component]
 fn ReadyStep() -> impl IntoView {
     view! {
-        <div class="wizard-action-area">
-            <h3 class="wizard-step-title">"You Are Ready"</h3>
+        <OnboardingActionPanel title="You Are Ready">
             {wizard_success_view("AdapterOS is ready for reliable conversations")}
             <div class="wizard-ready-actions">
                 <ButtonLink href="/training?open_wizard=1" variant=ButtonVariant::Primary size=ButtonSize::Md>
@@ -306,7 +288,7 @@ fn ReadyStep() -> impl IntoView {
                     "Open Home"
                 </ButtonLink>
             </div>
-        </div>
+        </OnboardingActionPanel>
     }
 }
 
@@ -398,12 +380,19 @@ pub fn Welcome() -> impl IntoView {
             wasm_bindgen_futures::spawn_local(async move {
                 match client.setup_discover_models().await {
                     Ok(response) => {
-                        let selected = response
-                            .models
-                            .iter()
-                            .filter(|m| !m.already_registered)
-                            .map(|m| m.path.clone())
-                            .collect::<Vec<_>>();
+                        let mut preferred_by_name: HashMap<String, String> = HashMap::new();
+                        for model in response.models.iter().filter(|m| !m.already_registered) {
+                            let selected_path = preferred_by_name
+                                .entry(model.name.clone())
+                                .or_insert_with(|| model.path.clone());
+                            if !selected_path.contains("/var/models/")
+                                && model.path.contains("/var/models/")
+                            {
+                                *selected_path = model.path.clone();
+                            }
+                        }
+                        let mut selected = preferred_by_name.into_values().collect::<Vec<String>>();
+                        selected.sort();
                         set_discovering_models.set(false);
                         _set_discovered_models.set(response.models);
                         set_selected_model_paths.set(selected);
@@ -468,14 +457,11 @@ pub fn Welcome() -> impl IntoView {
             title="Welcome Home"
             subtitle="Guided setup for a safe first conversation"
         >
-            <div class="welcome-container">
-                <div class="welcome-card">
-                    <div class="welcome-header">
-                        <h2 class="welcome-title">"Welcome to AdapterOS"</h2>
-                        <p class="welcome-subtitle">
-                            "Follow these steps to bring the system online."
-                        </p>
-                    </div>
+            <OnboardingContainer>
+                    <OnboardingHeader
+                        title="Welcome to AdapterOS"
+                        subtitle="Follow these steps to bring the system online."
+                    />
 
                     {move || {
                         match status.try_get().unwrap_or(LoadingState::Idle) {
@@ -560,8 +546,7 @@ pub fn Welcome() -> impl IntoView {
                             "Go to Home"
                         </a>
                     </div>
-                </div>
-            </div>
+            </OnboardingContainer>
         </PageScaffold>
     }
 }

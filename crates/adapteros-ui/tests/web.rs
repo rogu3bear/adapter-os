@@ -4,11 +4,16 @@
 
 #![cfg(target_arch = "wasm32")]
 
+use adapteros_ui::api::types::{
+    ChunkedDatasetUploadSessionStatusResponse, CompleteChunkedDatasetUploadResponse,
+    InitiateChunkedDatasetUploadResponse, RetryDatasetChunkResponse, UploadDatasetChunkResponse,
+};
 use adapteros_ui::api::{api_base_url, ApiClient, ApiError};
 use adapteros_ui::sse::parse_sse_event_with_info;
 use leptos::mount::mount_to;
 use leptos::prelude::IntoView;
 use leptos::{leptos_dom::helpers::document, view};
+use serde_json::json;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
 
@@ -194,7 +199,7 @@ fn mount_component<V: IntoView + 'static>(id: &str, view_fn: impl FnOnce() -> V 
 }
 
 #[wasm_bindgen_test]
-fn mount_smoke_datasets_training_chat_diff_runs_repositories() {
+fn mount_smoke_datasets_training_chat_surfaces_runs_models_adapters() {
     // Datasets list should mount without panic
     mount_component("datasets-smoke", || {
         view! { <adapteros_ui::pages::datasets::Datasets/> }
@@ -208,18 +213,21 @@ fn mount_smoke_datasets_training_chat_diff_runs_repositories() {
         "chat-smoke",
         || view! { <adapteros_ui::pages::chat::Chat/> },
     );
-    // Diff page should mount without panic
-    mount_component(
-        "diff-smoke",
-        || view! { <adapteros_ui::pages::diff::Diff/> },
-    );
+    // Chat history should mount without panic
+    mount_component("chat-history-smoke", || {
+        view! { <adapteros_ui::pages::chat::ChatHistory/> }
+    });
     // Runs list should mount without panic
     mount_component("runs-smoke", || {
         view! { <adapteros_ui::pages::flight_recorder::FlightRecorder/> }
     });
-    // Repositories list should mount without panic
-    mount_component("repositories-smoke", || {
-        view! { <adapteros_ui::pages::repositories::Repositories/> }
+    // Models page should mount without panic
+    mount_component("models-smoke", || {
+        view! { <adapteros_ui::pages::models::Models/> }
+    });
+    // Adapters list should mount without panic
+    mount_component("adapters-smoke", || {
+        view! { <adapteros_ui::pages::adapters::Adapters/> }
     });
 }
 
@@ -267,4 +275,107 @@ fn dataset_text_pairing_produces_pairs() {
     assert_eq!(rows.len(), 2);
     assert!(rows[0].prompt.contains("Question one"));
     assert!(rows[0].response.contains("Answer one"));
+}
+
+#[wasm_bindgen_test]
+fn chunked_dataset_upload_dto_roundtrip() {
+    let initiate_json = json!({
+        "session_id": "sess-123",
+        "chunk_size": 10485760,
+        "expected_chunks": 4,
+        "compression_format": "None"
+    });
+    let initiate: InitiateChunkedDatasetUploadResponse =
+        serde_json::from_value(initiate_json.clone()).expect("initiate decode");
+    let initiate_roundtrip = serde_json::to_value(&initiate).expect("initiate encode");
+    assert_eq!(
+        initiate_roundtrip["session_id"],
+        initiate_json["session_id"]
+    );
+    assert_eq!(
+        initiate_roundtrip["expected_chunks"],
+        initiate_json["expected_chunks"]
+    );
+
+    let upload_chunk_json = json!({
+        "session_id": "sess-123",
+        "chunk_index": 2,
+        "chunk_hash": "abc",
+        "chunks_received": 3,
+        "expected_chunks": 4,
+        "is_complete": false,
+        "resume_token": "resume-next"
+    });
+    let upload_chunk: UploadDatasetChunkResponse =
+        serde_json::from_value(upload_chunk_json.clone()).expect("upload chunk decode");
+    let upload_chunk_roundtrip = serde_json::to_value(&upload_chunk).expect("upload chunk encode");
+    assert_eq!(
+        upload_chunk_roundtrip["chunk_index"],
+        upload_chunk_json["chunk_index"]
+    );
+
+    let retry_chunk_json = json!({
+        "session_id": "sess-123",
+        "chunk_index": 2,
+        "chunk_hash": "def",
+        "previous_hash": "abc",
+        "chunks_received": 3,
+        "expected_chunks": 4,
+        "is_complete": false,
+        "was_retry": true
+    });
+    let retry_chunk: RetryDatasetChunkResponse =
+        serde_json::from_value(retry_chunk_json.clone()).expect("retry chunk decode");
+    let retry_chunk_roundtrip = serde_json::to_value(&retry_chunk).expect("retry chunk encode");
+    assert_eq!(
+        retry_chunk_roundtrip["was_retry"],
+        retry_chunk_json["was_retry"]
+    );
+
+    let session_status_json = json!({
+        "session_id": "sess-123",
+        "file_name": "data.jsonl",
+        "total_size": 5120,
+        "chunk_size": 1024,
+        "expected_chunks": 5,
+        "chunks_received": 3,
+        "received_chunk_indices": [0, 1, 3],
+        "is_complete": false,
+        "created_at": "2026-01-01T00:00:00Z",
+        "compression_format": "None",
+        "error_code": "UPLOAD_SESSION_FAILED"
+    });
+    let session_status: ChunkedDatasetUploadSessionStatusResponse =
+        serde_json::from_value(session_status_json.clone()).expect("status decode");
+    let session_status_roundtrip = serde_json::to_value(&session_status).expect("status encode");
+    assert_eq!(
+        session_status_roundtrip["received_chunk_indices"],
+        session_status_json["received_chunk_indices"]
+    );
+    assert_eq!(
+        session_status_roundtrip["error_code"],
+        session_status_json["error_code"]
+    );
+
+    let complete_json = json!({
+        "dataset_id": "dst-123",
+        "dataset_version_id": "dsv-456",
+        "name": "sample",
+        "hash": "hash-b3",
+        "total_size_bytes": 8192,
+        "storage_path": "datasets/default/sample.jsonl",
+        "created_at": "2026-01-01T00:00:00Z",
+        "workspace_id": "default"
+    });
+    let complete: CompleteChunkedDatasetUploadResponse =
+        serde_json::from_value(complete_json.clone()).expect("complete decode");
+    let complete_roundtrip = serde_json::to_value(&complete).expect("complete encode");
+    assert_eq!(
+        complete_roundtrip["dataset_id"],
+        complete_json["dataset_id"]
+    );
+    assert_eq!(
+        complete_roundtrip["dataset_version_id"],
+        complete_json["dataset_version_id"]
+    );
 }

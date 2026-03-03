@@ -389,7 +389,6 @@ fn quantization_provenance_chips(
 pub fn MetricsTabContent(
     job: TrainingJobResponse,
     job_id_for_metrics: String,
-    job_id_for_logs: String,
     is_running: bool,
     is_completed: bool,
 ) -> impl IntoView {
@@ -614,13 +613,6 @@ pub fn MetricsTabContent(
                 </Card>
             }
         })}
-
-        // Live logs (for running jobs)
-        {is_running.then(|| view! {
-            <Card title="Live Logs".to_string() class="mt-4".to_string()>
-                <LogViewer job_id=job_id_for_logs/>
-            </Card>
-        })}
     }
 }
 
@@ -657,86 +649,6 @@ mod tests {
         let chips = quantization_provenance_chips(None, None);
         assert_eq!(chips.len(), 1);
         assert_eq!(chips[0].label, "Provenance unavailable (legacy report)");
-    }
-}
-
-/// Log viewer component - fetches real training logs from API
-#[component]
-pub fn LogViewer(job_id: String) -> impl IntoView {
-    let client = use_api_client();
-    let logs: RwSignal<Vec<String>> = RwSignal::new(vec![]);
-    let loading = RwSignal::new(true);
-    let error: RwSignal<Option<String>> = RwSignal::new(None);
-
-    // Initial fetch
-    let job_id_clone = job_id.clone();
-    {
-        let client = client.clone();
-        Effect::new(move |_| {
-            let job_id = job_id_clone.clone();
-            let client = client.clone();
-            gloo_timers::callback::Timeout::new(0, move || {
-                wasm_bindgen_futures::spawn_local(async move {
-                    match client.get_training_logs(&job_id).await {
-                        Ok(log_lines) => {
-                            let _ = logs.try_set(log_lines);
-                            let _ = error.try_set(None);
-                        }
-                        Err(e) => {
-                            let _ = error.try_set(Some(e.user_message()));
-                        }
-                    }
-                    let _ = loading.try_set(false);
-                });
-            })
-            .forget();
-        });
-    }
-
-    // Poll for updates every 3 seconds
-    let job_id_poll = job_id.clone();
-    {
-        let client = client.clone();
-        let _ = use_polling(3_000, move || {
-            let job_id = job_id_poll.clone();
-            let client = client.clone();
-            async move {
-                if let Ok(log_lines) = client.get_training_logs(&job_id).await {
-                    let _ = logs.try_set(log_lines);
-                }
-            }
-        });
-    }
-
-    view! {
-        <div class="h-48 overflow-auto bg-muted rounded-md p-3 font-mono text-xs text-status-success">
-            {move || {
-                if loading.try_get().unwrap_or(true) {
-                    view! {
-                        <div class="flex items-center gap-2 text-muted-foreground">
-                            <crate::components::Spinner />
-                            <span>"Loading logs\u{2026}"</span>
-                        </div>
-                    }.into_any()
-                } else if let Some(err) = error.try_get().flatten() {
-                    view! {
-                        <div class="text-status-error">"Error: "{err}</div>
-                    }.into_any()
-                } else if logs.try_get().unwrap_or_default().is_empty() {
-                    view! {
-                        <div class="text-muted-foreground">"No logs available yet..."</div>
-                    }.into_any()
-                } else {
-                    view! {
-                        <div>
-                            {logs.try_get().unwrap_or_default().into_iter().map(|line| {
-                                view! { <div>{line}</div> }
-                            }).collect::<Vec<_>>()}
-                        </div>
-                    }.into_any()
-                }
-            }}
-        </div>
     }
 }
 

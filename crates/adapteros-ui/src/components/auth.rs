@@ -134,7 +134,7 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
             <div class="flex min-h-screen items-center justify-center">
                 <div class="text-center">
                     <Spinner/>
-                    <p class="mt-4 text-sm font-medium text-foreground">"adapterOS"</p>
+                    <p class="mt-4 text-sm font-medium text-foreground">"AdapterOS"</p>
                     <p class="text-xs text-muted-foreground">"Signing you in"</p>
                 </div>
             </div>

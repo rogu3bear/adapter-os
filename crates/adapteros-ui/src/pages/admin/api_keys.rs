@@ -320,7 +320,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                         </div>
                                         <h3 class="heading-4 mb-2">"No API Keys"</h3>
                                         <p class="text-muted-foreground max-w-md mx-auto mb-4">
-                                            "Generate API keys for programmatic access to the adapterOS API."
+                                            "Generate API keys for programmatic access to the AdapterOS API."
                                         </p>
                                         <Button
                                             variant=ButtonVariant::Primary

@@ -411,7 +411,7 @@ pub fn Models() -> impl IntoView {
                                 match merged.try_get().unwrap_or(LoadingState::Loading) {
                                     LoadingState::Idle | LoadingState::Loading => {
                                         view! {
-                                            <SkeletonTable rows=5 columns=6/>
+                                            <SkeletonTable rows=5 columns=8/>
                                         }.into_any()
                                     }
                                     LoadingState::Loaded(mut data) => {
@@ -429,6 +429,7 @@ pub fn Models() -> impl IntoView {
                                                 selected_id=selected_id
                                                 on_select=on_select
                                                 on_import=Callback::new(move |_| show_import_dialog.set(true))
+                                                on_update=Callback::new(move |_: ()| refetch_all(()))
                                             />
                                         }.into_any()
                                     }
@@ -484,6 +485,7 @@ fn ModelList(
     selected_id: RwSignal<Option<String>>,
     on_select: Callback<String>,
     on_import: Callback<()>,
+    on_update: Callback<()>,
 ) -> impl IntoView {
     if models.rows.is_empty() {
         let has_active_context = models.active_model_count > 0 || models.total_memory_mb > 0;
@@ -529,6 +531,22 @@ fn ModelList(
         };
     }
 
+    let (auth_state, _) = use_auth();
+    let can_manage_models = Signal::derive(move || {
+        auth_state
+            .get()
+            .user()
+            .map(|u| {
+                u.role.eq_ignore_ascii_case("admin") || u.role.eq_ignore_ascii_case("operator")
+            })
+            .unwrap_or(false)
+    });
+    let notifications = use_notifications();
+    let client = use_api();
+    let editing_model_id = RwSignal::new(None::<String>);
+    let name_draft = RwSignal::new(String::new());
+    let renaming_model_id = RwSignal::new(None::<String>);
+
     view! {
         <Card>
             <Table>
@@ -541,6 +559,7 @@ fn ModelList(
                         <TableHead>"Adapters"</TableHead>
                         <TableHead>"Memory"</TableHead>
                         <TableHead>"Loaded At"</TableHead>
+                        <TableHead>"Actions"</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -549,6 +568,13 @@ fn ModelList(
                         .map(|row| {
                             let model_id = row.model_id.clone();
                             let model_id_for_click = model_id.clone();
+                            let model_id_for_edit_state = model_id.clone();
+                            let model_id_for_start = model_id.clone();
+                            let model_id_for_save = model_id.clone();
+                            let model_name_for_start = row.model_name.clone();
+                            let model_name_for_success = row.model_name.clone();
+                            let row_notifications = notifications.clone();
+                            let row_client = Arc::clone(&client);
 
                             // Format column: format + optional quantization suffix
                             let format_display = match (&row.format, &row.quantization) {
@@ -637,6 +663,126 @@ fn ModelList(
                                         <span class="text-sm text-muted-foreground">
                                             {row.loaded_at.clone().map(|ts| format_datetime(&ts)).unwrap_or_else(|| "-".to_string())}
                                         </span>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div on:click=move |ev: web_sys::MouseEvent| {
+                                            ev.prevent_default();
+                                            ev.stop_propagation();
+                                        }>
+                                            {move || {
+                                                if !can_manage_models.get() {
+                                                    return view! {
+                                                        <span class="text-sm text-muted-foreground">"-"</span>
+                                                    }
+                                                    .into_any();
+                                                }
+
+                                                let is_editing = editing_model_id
+                                                    .get()
+                                                    .as_ref()
+                                                    == Some(&model_id_for_edit_state);
+                                                let is_renaming = renaming_model_id
+                                                    .get()
+                                                    .as_ref()
+                                                    == Some(&model_id_for_edit_state);
+
+                                                if is_editing {
+                                                    view! {
+                                                        <div class="flex items-center gap-2">
+                                                            <Input
+                                                                value=name_draft
+                                                                placeholder="Registry name".to_string()
+                                                                class="w-48".to_string()
+                                                            />
+                                                            <Button
+                                                                variant=ButtonVariant::Primary
+                                                                disabled=Signal::derive(move || is_renaming)
+                                                                loading=Signal::derive(move || is_renaming)
+                                                                on_click=Callback::new({
+                                                                    let model_id = model_id_for_save.clone();
+                                                                    let display_name = model_name_for_success.clone();
+                                                                    let notifications = row_notifications.clone();
+                                                                    let client = Arc::clone(&row_client);
+                                                                    move |_| {
+                                                                        if renaming_model_id.get().is_some() {
+                                                                            return;
+                                                                        }
+
+                                                                        let next_name = name_draft.get().trim().to_string();
+                                                                        if next_name.is_empty() {
+                                                                            notifications.warning(
+                                                                                "Rename blocked",
+                                                                                "Model name cannot be empty.",
+                                                                            );
+                                                                            return;
+                                                                        }
+
+                                                                        renaming_model_id.set(Some(model_id.clone()));
+                                                                        let request_id = model_id.clone();
+                                                                        let client = Arc::clone(&client);
+                                                                        let notifications = notifications.clone();
+                                                                        let on_update = on_update;
+                                                                        let display_name = display_name.clone();
+                                                                        wasm_bindgen_futures::spawn_local(async move {
+                                                                            match client.patch_model_name(&request_id, &next_name).await {
+                                                                                Ok(_) => {
+                                                                                    notifications.success(
+                                                                                        "Model renamed",
+                                                                                        &format!("{} is now {}.", display_name, next_name),
+                                                                                    );
+                                                                                    editing_model_id.set(None);
+                                                                                    name_draft.set(String::new());
+                                                                                    on_update.run(());
+                                                                                }
+                                                                                Err(e) => {
+                                                                                    report_error_with_toast(
+                                                                                        &e,
+                                                                                        "Failed to rename model",
+                                                                                        Some("/models"),
+                                                                                        true,
+                                                                                    );
+                                                                                }
+                                                                            }
+                                                                            if renaming_model_id.get().as_ref() == Some(&request_id) {
+                                                                                renaming_model_id.set(None);
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                })
+                                                            >
+                                                                "Save"
+                                                            </Button>
+                                                            <Button
+                                                                variant=ButtonVariant::Ghost
+                                                                disabled=Signal::derive(move || is_renaming)
+                                                                on_click=Callback::new(move |_| {
+                                                                    editing_model_id.set(None);
+                                                                    name_draft.set(String::new());
+                                                                })
+                                                            >
+                                                                "Cancel"
+                                                            </Button>
+                                                        </div>
+                                                    }
+                                                    .into_any()
+                                                } else {
+                                                    let start_id = model_id_for_start.clone();
+                                                    let start_name = model_name_for_start.clone();
+                                                    view! {
+                                                        <Button
+                                                            variant=ButtonVariant::Ghost
+                                                            on_click=Callback::new(move |_| {
+                                                                editing_model_id.set(Some(start_id.clone()));
+                                                                name_draft.set(start_name.clone());
+                                                            })
+                                                        >
+                                                            "Rename"
+                                                        </Button>
+                                                    }
+                                                    .into_any()
+                                                }
+                                            }}
+                                        </div>
                                     </TableCell>
                                 </tr>
                             }
@@ -801,6 +947,77 @@ fn ModelDetailContent(
     let client_load = Arc::clone(&client);
     let client_unload = Arc::clone(&client);
     let client_validate = Arc::clone(&client);
+    let client_rename = Arc::clone(&client);
+    let name_editing = RwSignal::new(false);
+    let name_draft = RwSignal::new(model.model_name.clone());
+    let renaming = RwSignal::new(false);
+
+    let start_rename = Callback::new({
+        let current_name = model.model_name.clone();
+        move |_| {
+            if !can_manage_models.get() || renaming.get() {
+                return;
+            }
+            name_draft.set(current_name.clone());
+            name_editing.set(true);
+        }
+    });
+
+    let cancel_rename = Callback::new(move |_| {
+        if renaming.get() {
+            return;
+        }
+        name_draft.set(String::new());
+        name_editing.set(false);
+    });
+
+    let save_rename = Callback::new({
+        let model_id = model.model_id.clone();
+        let old_name = model.model_name.clone();
+        let notifications = notifications.clone();
+        move |_| {
+            if renaming.get() || !can_manage_models.get() {
+                return;
+            }
+            let next_name = name_draft.get().trim().to_string();
+            if next_name.is_empty() {
+                notifications.warning("Rename blocked", "Model name cannot be empty.");
+                return;
+            }
+            if next_name == old_name {
+                name_editing.set(false);
+                return;
+            }
+
+            renaming.set(true);
+            let request_id = model_id.clone();
+            let client = Arc::clone(&client_rename);
+            let notifications = notifications.clone();
+            let on_update = on_update;
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.patch_model_name(&request_id, &next_name).await {
+                    Ok(_) => {
+                        notifications.success(
+                            "Model renamed",
+                            &format!("Model is now registered as {}.", next_name),
+                        );
+                        name_editing.set(false);
+                        name_draft.set(String::new());
+                        on_update.run(());
+                    }
+                    Err(e) => {
+                        report_error_with_toast(
+                            &e,
+                            "Failed to rename model",
+                            Some("/models"),
+                            true,
+                        );
+                    }
+                }
+                renaming.set(false);
+            });
+        }
+    });
 
     // Load model handler
     let on_load = {
@@ -1115,7 +1332,51 @@ fn ModelDetailContent(
                 <CopyableId id=model.model_id.clone() label="Base ID".to_string() truncate=24 />
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Name"</span>
-                    <span class="font-medium">{model.model_name.clone()}</span>
+                    {move || {
+                        if name_editing.get() {
+                            view! {
+                                <div class="flex items-center gap-2">
+                                    <Input
+                                        value=name_draft
+                                        placeholder="Registry name".to_string()
+                                        class="w-56".to_string()
+                                    />
+                                    <Button
+                                        variant=ButtonVariant::Primary
+                                        disabled=Signal::derive(move || renaming.get())
+                                        loading=Signal::derive(move || renaming.get())
+                                        on_click=save_rename
+                                    >
+                                        "Save"
+                                    </Button>
+                                    <Button
+                                        variant=ButtonVariant::Ghost
+                                        disabled=Signal::derive(move || renaming.get())
+                                        on_click=cancel_rename
+                                    >
+                                        "Cancel"
+                                    </Button>
+                                </div>
+                            }
+                            .into_any()
+                        } else {
+                            view! {
+                                <div class="flex items-center gap-2">
+                                    <span class="font-medium">{model.model_name.clone()}</span>
+                                    {can_manage_models.get().then(|| view! {
+                                        <Button
+                                            variant=ButtonVariant::Ghost
+                                            disabled=Signal::derive(move || renaming.get())
+                                            on_click=start_rename
+                                        >
+                                            "Rename"
+                                        </Button>
+                                    })}
+                                </div>
+                            }
+                            .into_any()
+                        }
+                    }}
                 </div>
                 {model.model_path.clone().map(|path| {
                     let path_display = path.clone();

@@ -52,7 +52,7 @@ pub fn OfflineBanner() -> impl IntoView {
                 <div class="global-banner-content">
                     <span class="global-banner-title">"Backend offline"</span>
                     <span class="global-banner-message">
-                        "Unable to reach the adapterOS API. You can keep viewing cached data."
+                        "Unable to reach the AdapterOS API. You can keep viewing cached data."
                     </span>
                 </div>
                 <div class="global-banner-actions">

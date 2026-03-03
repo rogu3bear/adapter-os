@@ -26,7 +26,7 @@ pub mod workers;
 pub use adapters::{AdapterDetail, Adapters};
 pub use admin::Admin;
 pub use audit::Audit;
-pub use chat::{Chat, ChatSession};
+pub use chat::{Chat, ChatHistory, ChatSession, ChatSessionEquivalent};
 pub use dashboard::Dashboard;
 pub use datasets::{DatasetDetail, Datasets};
 pub use documents::{DocumentDetail, Documents};

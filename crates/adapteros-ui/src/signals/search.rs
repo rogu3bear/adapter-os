@@ -11,7 +11,7 @@ use leptos::prelude::*;
 use std::sync::Arc;
 
 const MAX_RECENT_ITEMS: usize = 6;
-const RUNS_CANONICAL_LABEL: &str = "Runs";
+const RUNS_CANONICAL_LABEL: &str = "Execution Records";
 const RUNS_LEGACY_ALIASES: &[&str] = &["flight recorder", "flight", "recorder"];
 const SETTINGS_RESULT_ID: &str = "settings";
 const SETTINGS_RESULT_PATH: &str = "/settings";
@@ -295,7 +295,7 @@ fn static_results(profile: adapteros_api_types::UiProfile) -> Vec<SearchResult> 
         })
         .collect();
 
-    // Settings must remain discoverable in Command Deck regardless of profile mode.
+    // Settings must remain discoverable in Command Palette regardless of profile mode.
     ensure_settings_result(&mut results);
 
     // Actions are always available regardless of profile

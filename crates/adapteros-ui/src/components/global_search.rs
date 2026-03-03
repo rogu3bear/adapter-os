@@ -24,7 +24,7 @@ fn is_macos() -> bool {
 #[component]
 pub fn SearchTriggerButton(#[prop(optional, into)] placeholder: Option<String>) -> impl IntoView {
     let search = use_search();
-    let label = placeholder.unwrap_or_else(|| "Open Command Deck...".to_string());
+    let label = placeholder.unwrap_or_else(|| "Open Command Palette...".to_string());
 
     // Determine platform-appropriate modifier key
     let modifier_key = if is_macos() { "\u{2318}" } else { "Ctrl" };
@@ -33,8 +33,8 @@ pub fn SearchTriggerButton(#[prop(optional, into)] placeholder: Option<String>) 
         <button
             class="search-trigger"
             on:click=move |_| search.open()
-            aria-label="Open Command Deck"
-            title="Open Command Deck"
+            aria-label="Open Command Palette"
+            title="Open Command Palette"
         >
             <span class="search-trigger-icon">
                 <svg
@@ -52,7 +52,7 @@ pub fn SearchTriggerButton(#[prop(optional, into)] placeholder: Option<String>) 
                 </svg>
             </span>
             <span class="search-trigger-label">{label}</span>
-            <span class="search-trigger-kbd" aria-label=format!("{} K to open Command Deck", modifier_key)>
+            <span class="search-trigger-kbd" aria-label=format!("{} K to open Command Palette", modifier_key)>
                 <kbd>{modifier_key}</kbd>
                 <kbd>"K"</kbd>
             </span>

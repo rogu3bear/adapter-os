@@ -1050,6 +1050,103 @@ pub struct DatasetPreviewResponse {
     pub examples: Vec<serde_json::Value>,
 }
 
+/// Request to initiate a chunked dataset upload session.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InitiateChunkedDatasetUploadRequest {
+    pub file_name: String,
+    pub total_size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_file_hash_b3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_size: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+}
+
+/// Response from initiating a chunked dataset upload session.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InitiateChunkedDatasetUploadResponse {
+    pub session_id: String,
+    pub chunk_size: usize,
+    pub expected_chunks: usize,
+    pub compression_format: String,
+}
+
+/// Response from uploading a dataset chunk.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UploadDatasetChunkResponse {
+    pub session_id: String,
+    pub chunk_index: usize,
+    pub chunk_hash: String,
+    pub chunks_received: usize,
+    pub expected_chunks: usize,
+    pub is_complete: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_token: Option<String>,
+}
+
+/// Response from retrying a dataset chunk upload.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RetryDatasetChunkResponse {
+    pub session_id: String,
+    pub chunk_index: usize,
+    pub chunk_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_hash: Option<String>,
+    pub chunks_received: usize,
+    pub expected_chunks: usize,
+    pub is_complete: bool,
+    pub was_retry: bool,
+}
+
+/// Request to finalize a chunked dataset upload into a dataset.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompleteChunkedDatasetUploadRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub format: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+}
+
+/// Response from finalizing a chunked dataset upload.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompleteChunkedDatasetUploadResponse {
+    pub dataset_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
+    pub name: String,
+    pub hash: String,
+    pub total_size_bytes: i64,
+    pub storage_path: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+}
+
+/// Current status of a chunked upload session.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChunkedDatasetUploadSessionStatusResponse {
+    pub session_id: String,
+    pub file_name: String,
+    pub total_size: u64,
+    pub chunk_size: usize,
+    pub expected_chunks: usize,
+    pub chunks_received: usize,
+    pub received_chunk_indices: Vec<usize>,
+    pub is_complete: bool,
+    pub created_at: String,
+    pub compression_format: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+}
+
 /// Row-level edit request used when creating an edited dataset version.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DatasetRowEditRequest {

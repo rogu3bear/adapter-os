@@ -115,7 +115,7 @@ pub fn CommandPalette() -> impl IntoView {
                 class="fixed left-1/2 top-1/4 -translate-x-1/2 z-50 w-full max-w-xl command-palette-panel"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Command Deck"
+                aria-label="Command Palette"
             >
                 // Focus trap: start sentinel
                 <div
@@ -332,7 +332,7 @@ pub fn CommandPalette() -> impl IntoView {
                             </span>
                         </div>
                         <span class="hidden sm:block text-muted-foreground/70">
-                            "Command Deck"
+                            "Command Palette"
                         </span>
                     </div>
                 </div>

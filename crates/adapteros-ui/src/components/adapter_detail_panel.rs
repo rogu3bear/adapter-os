@@ -27,7 +27,7 @@ use crate::components::{
 };
 use crate::contexts::use_in_flight;
 use crate::signals::notifications::use_notifications;
-use crate::utils::{chat_path_with_adapter, format_bytes, humanize};
+use crate::utils::{chat_path_with_adapter, format_bytes, humanize, status_display_label};
 
 /// Suggestion context explaining why an adapter was suggested.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1545,6 +1545,7 @@ fn AdapterVersionPromotionSection(
                                 let is_serveable = v.serveable;
                                 let is_resolved = resolved_id.as_deref() == Some(v.id.as_str());
                                 let trust_state = v.adapter_trust_state.clone();
+                                let trust_state_label = status_display_label(&trust_state);
                                 let state_variant = release_state_badge_variant(v.release_state.as_str());
                                 let release_state_text = release_state_label(v.release_state.as_str());
 
@@ -1593,7 +1594,7 @@ fn AdapterVersionPromotionSection(
                                                 {(!trust_state.is_empty()).then(|| {
                                                     let variant = trust_state_badge_variant(&trust_state);
                                                     view! {
-                                                        <Badge variant=variant>{trust_state.clone()}</Badge>
+                                                        <Badge variant=variant>{trust_state_label.clone()}</Badge>
                                                     }
                                                 })}
                                                 // Serveable indicator
@@ -1721,6 +1722,7 @@ fn AdapterVersionPromotionSection(
                                                             let trust_label = trust_entry
                                                                 .and_then(|t| t.trust_at_training_time.clone())
                                                                 .unwrap_or_else(|| "unknown".to_string());
+                                                            let trust_label_display = status_display_label(&trust_label);
                                                             let trust_variant = trust_state_badge_variant(&trust_label);
                                                             let dataset_id = trust_entry.and_then(|t| t.dataset_id.clone());
                                                             let dataset_name = trust_entry.and_then(|t| t.dataset_name.clone());
@@ -1737,7 +1739,7 @@ fn AdapterVersionPromotionSection(
                                                                             <CopyableId id=ds_id.clone() truncate=20 />
                                                                         }.into_any()
                                                                     }}
-                                                                    <Badge variant=trust_variant>{trust_label}</Badge>
+                                                                    <Badge variant=trust_variant>{trust_label_display}</Badge>
                                                                 </div>
                                                             }
                                                         }).collect_view()}

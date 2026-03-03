@@ -193,7 +193,8 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/adapters/:id") view=pages::AdapterDetail/>
                             <Route path=path!("/update-center") view=pages::UpdateCenter/>
                             <Route path=path!("/chat") view=pages::Chat/>
-                            <Route path=path!("/chat/:session_id") view=pages::ChatSession/>
+                            <Route path=path!("/chat/history") view=pages::ChatHistory/>
+                            <Route path=path!("/chat/s/:session_id") view=pages::ChatSessionEquivalent/>
                             <Route path=path!("/system") view=pages::System/>
                             <Route path=path!("/settings") view=pages::Settings/>
                             <Route path=path!("/user") view=pages::User/>
@@ -248,7 +249,7 @@ fn BaseUrlError(reason: String) -> impl IntoView {
         <div class="min-h-screen flex items-center justify-center bg-background">
             <div class="card max-w-xl w-full mx-4 space-y-3 border-destructive p-6">
                 <div class="flex items-center gap-2">
-                    <span class="text-lg font-semibold text-destructive">"adapterOS UI cannot start"</span>
+                    <span class="text-lg font-semibold text-destructive">"AdapterOS UI cannot start"</span>
                 </div>
                 <p class="text-sm text-foreground/80">
                     "We couldn't determine the API base URL. Set AOS_API_BASE_URL at build time or serve the UI via ./start so the origin is correct."

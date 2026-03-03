@@ -1958,6 +1958,91 @@ fn shorten_text(value: &str, max_chars: usize) -> String {
     out
 }
 
+#[derive(Clone, Debug)]
+struct FileContentDisplay {
+    raw: String,
+    readable: String,
+    has_readable_transform: bool,
+}
+
+fn has_file_extension(file_name: &str, extensions: &[&str]) -> bool {
+    let normalized = file_name.to_ascii_lowercase();
+    extensions.iter().any(|ext| normalized.ends_with(ext))
+}
+
+fn is_json_mime(mime: Option<&str>, file_name: &str) -> bool {
+    let normalized = mime.unwrap_or("").trim().to_ascii_lowercase();
+    normalized == "application/json"
+        || normalized.ends_with("+json")
+        || has_file_extension(file_name, &[".json"])
+}
+
+fn is_jsonl_mime(mime: Option<&str>, file_name: &str) -> bool {
+    let normalized = mime.unwrap_or("").trim().to_ascii_lowercase();
+    normalized == "application/jsonl"
+        || normalized == "application/x-ndjson"
+        || normalized == "application/jsonlines"
+        || has_file_extension(file_name, &[".jsonl", ".ndjson"])
+}
+
+fn format_json_content(raw: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(raw).ok()?;
+    serde_json::to_string_pretty(&parsed).ok()
+}
+
+fn format_jsonl_content(raw: &str) -> Option<String> {
+    let mut chunks = Vec::new();
+    let mut row_number = 0usize;
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        row_number += 1;
+        let parsed: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+        let pretty = serde_json::to_string_pretty(&parsed).ok()?;
+        chunks.push(format!("Row {}:\n{}", row_number, pretty));
+    }
+
+    if chunks.is_empty() {
+        None
+    } else {
+        Some(chunks.join("\n\n"))
+    }
+}
+
+fn build_file_content_display(
+    raw: &str,
+    mime: Option<&str>,
+    file_name: &str,
+) -> FileContentDisplay {
+    if is_jsonl_mime(mime, file_name) {
+        if let Some(readable) = format_jsonl_content(raw) {
+            return FileContentDisplay {
+                raw: raw.to_string(),
+                readable,
+                has_readable_transform: true,
+            };
+        }
+    }
+
+    if is_json_mime(mime, file_name) {
+        if let Some(readable) = format_json_content(raw) {
+            return FileContentDisplay {
+                raw: raw.to_string(),
+                readable,
+                has_readable_transform: true,
+            };
+        }
+    }
+
+    FileContentDisplay {
+        raw: raw.to_string(),
+        readable: raw.to_string(),
+        has_readable_transform: false,
+    }
+}
+
 fn resolve_source_file_for_row(
     row: &CanonicalRow,
     files: &[DatasetFileResponse],
@@ -1987,8 +2072,9 @@ fn DatasetFilesTable(
 ) -> impl IntoView {
     let view_dialog_open = RwSignal::new(false);
     let view_file = RwSignal::new(None::<DatasetFileResponse>);
-    let view_content = RwSignal::new(None::<Result<String, ApiError>>);
+    let view_content = RwSignal::new(None::<Result<FileContentDisplay, ApiError>>);
     let view_loading = RwSignal::new(false);
+    let view_human_readable = RwSignal::new(true);
 
     let open_view = Callback::new({
         let client = client.clone();
@@ -1998,14 +2084,20 @@ fn DatasetFilesTable(
             view_dialog_open.set(true);
             view_content.set(None);
             view_loading.set(true);
+            view_human_readable.set(true);
 
             let client = client.clone();
             let dataset_id = dataset_id.clone();
             let file_id = file.file_id.clone();
+            let file_mime = file.mime_type.clone();
+            let file_name = file.file_name.clone();
             let content_signal = view_content;
             let loading_signal = view_loading;
             wasm_bindgen_futures::spawn_local(async move {
-                let result = client.get_dataset_file_content(&dataset_id, &file_id).await;
+                let result = client
+                    .get_dataset_file_content(&dataset_id, &file_id)
+                    .await
+                    .map(|raw| build_file_content_display(&raw, file_mime.as_deref(), &file_name));
                 content_signal.set(Some(result));
                 loading_signal.set(false);
             });
@@ -2116,8 +2208,55 @@ fn DatasetFilesTable(
                             } else {
                                 view! {}.into_any()
                             }}
+                            {if content.has_readable_transform {
+                                view! {
+                                    <div class="flex items-center justify-between gap-2">
+                                        <p class="text-xs text-muted-foreground">
+                                            {move || {
+                                                if view_human_readable.get() {
+                                                    "Human-readable view".to_string()
+                                                } else {
+                                                    "Raw file view".to_string()
+                                                }
+                                            }}
+                                        </p>
+                                        <div class="inline-flex items-center rounded-md border border-border/70 bg-muted/10 p-0.5">
+                                            <button
+                                                type="button"
+                                                class=move || {
+                                                    if view_human_readable.get() {
+                                                        "rounded px-2 py-1 text-xs bg-background text-foreground".to_string()
+                                                    } else {
+                                                        "rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground".to_string()
+                                                    }
+                                                }
+                                                aria-pressed=move || view_human_readable.get().to_string()
+                                                on:click=move |_| view_human_readable.set(true)
+                                            >
+                                                "Readable"
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class=move || {
+                                                    if view_human_readable.get() {
+                                                        "rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground".to_string()
+                                                    } else {
+                                                        "rounded px-2 py-1 text-xs bg-background text-foreground".to_string()
+                                                    }
+                                                }
+                                                aria-pressed=move || (!view_human_readable.get()).to_string()
+                                                on:click=move |_| view_human_readable.set(false)
+                                            >
+                                                "Raw"
+                                            </button>
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            } else {
+                                view! {}.into_any()
+                            }}
                             <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-words max-h-[70vh] bg-muted/20 p-3 rounded-md">
-                                {content}
+                                {move || if view_human_readable.get() { content.readable.clone() } else { content.raw.clone() }}
                             </pre>
                         </div>
                     }.into_any(),

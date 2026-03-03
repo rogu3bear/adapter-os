@@ -1,13 +1,18 @@
 //! System Info section component
 
-use crate::api::ApiClient;
+use crate::api::{AllModelsStatusResponse, ApiClient, ModelLoadStatus, ModelWithStatsResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, DetailGridRow, ErrorDisplay, Spinner,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, DetailGridRow, ErrorDisplay, Input, Select,
+    Spinner, Textarea,
 };
 use crate::hooks::{use_health, LoadingState};
+use crate::signals::use_notifications;
 use crate::utils::status_display_label;
-use adapteros_api_types::{EffectiveSettingsResponse, HealthResponse, SystemSettings};
+use adapteros_api_types::{
+    EffectiveSettingsResponse, HealthResponse, ModelSettings, SystemSettings, UpdateSettingsRequest,
+};
 use leptos::prelude::*;
+use std::collections::HashSet;
 
 /// System Info section
 #[component]
@@ -19,6 +24,30 @@ pub fn SystemInfoSection() -> impl IntoView {
     let runtime_error = RwSignal::new(None::<String>);
     let runtime_loading = RwSignal::new(false);
     let runtime_loaded_once = RwSignal::new(false);
+    let model_roots_text = RwSignal::new(String::new());
+    let model_path_text = RwSignal::new(String::new());
+    let manifest_path_text = RwSignal::new(String::new());
+    let model_roots_error = RwSignal::new(None::<String>);
+    let model_roots_dirty = RwSignal::new(false);
+    let model_roots_saving = RwSignal::new(false);
+    let registered_models = RwSignal::new(Vec::<ModelWithStatsResponse>::new());
+    let selected_model_id = RwSignal::new(String::new());
+    let activating_model = RwSignal::new(false);
+    let model_activation_error = RwSignal::new(None::<String>);
+    let notifications = use_notifications();
+
+    let model_options = Signal::derive(move || {
+        let mut options = vec![("".to_string(), "Select a registered model".to_string())];
+        options.extend(registered_models.get().into_iter().map(|model| {
+            let label = if model.name == model.id {
+                model.id.clone()
+            } else {
+                format!("{} ({})", model.name, model.id)
+            };
+            (model.id, label)
+        }));
+        options
+    });
 
     let load_runtime_settings = Callback::new(move |_| {
         if runtime_loading.get_untracked() {
@@ -31,9 +60,40 @@ pub fn SystemInfoSection() -> impl IntoView {
             let client = ApiClient::new();
             let settings_result = client.get_settings().await;
             let effective_result = client.get_effective_settings().await;
+            let models_result = client.list_models().await;
+            let statuses_result = client.list_models_status().await;
 
             match (settings_result, effective_result) {
                 (Ok(settings), Ok(effective)) => {
+                    let models = models_result
+                        .map(|resp| resp.models)
+                        .unwrap_or_else(|_| Vec::new());
+                    let selected_id = resolve_selected_model_id(
+                        &settings,
+                        &models,
+                        statuses_result.as_ref().ok(),
+                    );
+
+                    model_roots_text.set(settings.models.discovery_roots.join("\n"));
+                    model_path_text.set(
+                        settings
+                            .models
+                            .selected_model_path
+                            .clone()
+                            .unwrap_or_default(),
+                    );
+                    manifest_path_text.set(
+                        settings
+                            .models
+                            .selected_manifest_path
+                            .clone()
+                            .unwrap_or_default(),
+                    );
+                    selected_model_id.set(selected_id);
+                    registered_models.set(models);
+                    model_roots_error.set(None);
+                    model_activation_error.set(None);
+                    model_roots_dirty.set(false);
                     runtime_settings.set(Some(settings));
                     effective_settings.set(Some(effective));
                 }
@@ -54,6 +114,184 @@ pub fn SystemInfoSection() -> impl IntoView {
             }
         });
     }
+
+    Effect::new(move || {
+        let text = model_roots_text.get();
+        let model_path = model_path_text.get();
+        let manifest_path = manifest_path_text.get();
+        let (current_roots, current_model_path, current_manifest_path) = runtime_settings
+            .get()
+            .map(|s| {
+                (
+                    s.models.discovery_roots,
+                    s.models.selected_model_path,
+                    s.models.selected_manifest_path,
+                )
+            })
+            .unwrap_or_else(|| (Vec::new(), None, None));
+        let parsed = parse_discovery_roots_text(&text);
+        let parsed_model_path = parse_optional_text(&model_path);
+        let parsed_manifest_path = parse_optional_text(&manifest_path);
+        model_roots_dirty.set(
+            parsed != current_roots
+                || parsed_model_path != current_model_path
+                || parsed_manifest_path != current_manifest_path,
+        );
+    });
+
+    let notifications_for_save = notifications.clone();
+    let save_model_roots = Callback::new(move |_| {
+        if model_roots_saving.get_untracked() {
+            return;
+        }
+
+        let roots = parse_discovery_roots_text(&model_roots_text.get_untracked());
+        let selected_model_path = parse_optional_text(&model_path_text.get_untracked());
+        let selected_manifest_path = parse_optional_text(&manifest_path_text.get_untracked());
+        if roots.is_empty() {
+            model_roots_error.set(Some(
+                "Enter at least one directory path for model discovery.".to_string(),
+            ));
+            return;
+        }
+
+        model_roots_saving.set(true);
+        model_roots_error.set(None);
+
+        let notifications = notifications_for_save.clone();
+        let load_runtime_settings = load_runtime_settings;
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            let request = UpdateSettingsRequest {
+                general: None,
+                models: Some(ModelSettings {
+                    discovery_roots: roots,
+                    selected_model_path,
+                    selected_manifest_path,
+                }),
+                server: None,
+                security: None,
+                performance: None,
+            };
+
+            match client.update_settings(&request).await {
+                Ok(_) => {
+                    model_roots_saving.set(false);
+                    model_roots_dirty.set(false);
+                    notifications.success("Settings updated", "Model discovery roots were saved.");
+                    load_runtime_settings.run(());
+                }
+                Err(e) => {
+                    model_roots_saving.set(false);
+                    let message = e.user_message();
+                    model_roots_error.set(Some(message.clone()));
+                    notifications.error("Failed to update settings", &message);
+                }
+            }
+        });
+    });
+
+    let reset_model_roots = Callback::new(move |_| {
+        let (current_roots, current_model_path, current_manifest_path) = runtime_settings
+            .get_untracked()
+            .map(|s| {
+                (
+                    s.models.discovery_roots,
+                    s.models.selected_model_path,
+                    s.models.selected_manifest_path,
+                )
+            })
+            .unwrap_or_else(|| (Vec::new(), None, None));
+        model_roots_text.set(current_roots.join("\n"));
+        model_path_text.set(current_model_path.unwrap_or_default());
+        manifest_path_text.set(current_manifest_path.unwrap_or_default());
+        model_roots_error.set(None);
+        model_roots_dirty.set(false);
+    });
+
+    let on_model_changed = Callback::new(move |model_id: String| {
+        if model_id.trim().is_empty() {
+            model_activation_error.set(None);
+            return;
+        }
+        if let Some(path) = model_path_for_id(&registered_models.get_untracked(), &model_id) {
+            model_path_text.set(path);
+        }
+        model_activation_error.set(None);
+    });
+
+    let notifications_for_activate = notifications.clone();
+    let activate_selected_model = Callback::new(move |_| {
+        if activating_model.get_untracked() {
+            return;
+        }
+
+        let model_id = selected_model_id.get_untracked().trim().to_string();
+        if model_id.is_empty() {
+            model_activation_error.set(Some("Select a model to activate.".to_string()));
+            return;
+        }
+
+        let discovery_roots = runtime_settings
+            .get_untracked()
+            .map(|s| s.models.discovery_roots)
+            .unwrap_or_else(|| parse_discovery_roots_text(&model_roots_text.get_untracked()));
+        if discovery_roots.is_empty() {
+            model_activation_error.set(Some(
+                "Configure at least one discovery root before activating a model.".to_string(),
+            ));
+            return;
+        }
+
+        let selected_model_path = model_path_for_id(&registered_models.get_untracked(), &model_id)
+            .or_else(|| parse_optional_text(&model_path_text.get_untracked()));
+        let selected_manifest_path = parse_optional_text(&manifest_path_text.get_untracked());
+
+        activating_model.set(true);
+        model_activation_error.set(None);
+
+        let notifications = notifications_for_activate.clone();
+        let load_runtime_settings = load_runtime_settings;
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            let request = UpdateSettingsRequest {
+                general: None,
+                models: Some(ModelSettings {
+                    discovery_roots,
+                    selected_model_path,
+                    selected_manifest_path,
+                }),
+                server: None,
+                security: None,
+                performance: None,
+            };
+
+            if let Err(e) = client.update_settings(&request).await {
+                let message = e.user_message();
+                model_activation_error.set(Some(message.clone()));
+                notifications.error("Failed to update settings", &message);
+                activating_model.set(false);
+                return;
+            }
+
+            match client.load_model(&model_id).await {
+                Ok(_) => {
+                    notifications.success(
+                        "Base model activated",
+                        &format!("{} is now active for inference.", model_id),
+                    );
+                    load_runtime_settings.run(());
+                }
+                Err(e) => {
+                    let message = e.user_message();
+                    model_activation_error.set(Some(message.clone()));
+                    notifications.error("Failed to activate model", &message);
+                }
+            }
+
+            activating_model.set(false);
+        });
+    });
 
     view! {
         <div class="space-y-6 max-w-2xl">
@@ -190,7 +428,159 @@ pub fn SystemInfoSection() -> impl IntoView {
                     }.into_any()
                 }}
             </Card>
+
+            <Card title="Model Discovery Roots".to_string() description="Control where setup/model discovery searches for local base models.".to_string()>
+                <div class="space-y-4">
+                    <Select
+                        value=selected_model_id
+                        options=model_options.get()
+                        label="Active base model".to_string()
+                        on_change=on_model_changed
+                    />
+                    <p class="text-xs text-muted-foreground">
+                        "Choose a registered model and activate it from Settings. This updates runtime model settings and requests model load without editing env variables."
+                    </p>
+                    {move || {
+                        model_activation_error.get().map(|error| {
+                            view! { <div class="text-sm text-destructive">{error}</div> }
+                        })
+                    }}
+                    <div class="flex items-center gap-2">
+                        <Button
+                            variant=ButtonVariant::Primary
+                            loading=activating_model
+                            on_click=activate_selected_model
+                        >
+                            "Activate Selected Model"
+                        </Button>
+                    </div>
+                    <Input
+                        value=model_path_text
+                        label="Worker model path".to_string()
+                        placeholder="var/models/Qwen3.5-9B-MLX-4bit".to_string()
+                    />
+                    <Input
+                        value=manifest_path_text
+                        label="Worker manifest path (optional)".to_string()
+                        placeholder="manifests/qwen35-9b-mlx-base-only.yaml".to_string()
+                    />
+                    <Textarea
+                        value=model_roots_text
+                        label="Discovery roots".to_string()
+                        placeholder="var/models\n~/.lmstudio/models".to_string()
+                        rows=4
+                        hint="One path per line (commas and semicolons are also accepted).".to_string()
+                    />
+                    <p class="text-xs text-muted-foreground">
+                        "Worker model path and manifest are used by startup preflight when env overrides are not set. Discovery roots are used by setup discover/seed and model import safety checks."
+                    </p>
+
+                    {move || {
+                        model_roots_error.get().map(|error| {
+                            view! {
+                                <div class="text-sm text-destructive">{error}</div>
+                            }
+                        })
+                    }}
+
+                    <div class="flex items-center gap-2">
+                        <Button
+                            variant=ButtonVariant::Outline
+                            disabled=Signal::derive(move || !model_roots_dirty.get())
+                            on_click=reset_model_roots
+                        >
+                            "Reset"
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Primary
+                            disabled=Signal::derive(move || !model_roots_dirty.get())
+                            loading=model_roots_saving
+                            on_click=save_model_roots
+                        >
+                            "Save Roots"
+                        </Button>
+                    </div>
+                </div>
+            </Card>
         </div>
+    }
+}
+
+fn parse_discovery_roots_text(raw: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    raw.split([',', ';', '\n'])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| {
+            let value = part.to_string();
+            if seen.insert(value.clone()) {
+                Some(value)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn model_path_for_id(models: &[ModelWithStatsResponse], model_id: &str) -> Option<String> {
+    models.iter().find_map(|model| {
+        if model.id == model_id {
+            model
+                .model_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|path| !path.is_empty())
+                .map(|path| path.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn normalize_path_for_match(path: &str) -> String {
+    path.trim()
+        .trim_end_matches('/')
+        .strip_prefix("./")
+        .unwrap_or(path.trim().trim_end_matches('/'))
+        .to_string()
+}
+
+fn resolve_selected_model_id(
+    settings: &SystemSettings,
+    models: &[ModelWithStatsResponse],
+    statuses: Option<&AllModelsStatusResponse>,
+) -> String {
+    if let Some(selected_path) = settings.models.selected_model_path.as_deref() {
+        let target = normalize_path_for_match(selected_path);
+        if let Some(model) = models.iter().find(|model| {
+            model
+                .model_path
+                .as_deref()
+                .map(normalize_path_for_match)
+                .map(|candidate| candidate == target)
+                .unwrap_or(false)
+        }) {
+            return model.id.clone();
+        }
+    }
+
+    statuses
+        .and_then(|status| {
+            status
+                .models
+                .iter()
+                .find(|model| model.status == ModelLoadStatus::Ready)
+                .map(|model| model.model_id.clone())
+        })
+        .unwrap_or_default()
+}
+
+fn parse_optional_text(raw: &str) -> Option<String> {
+    let value = raw.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
     }
 }
 

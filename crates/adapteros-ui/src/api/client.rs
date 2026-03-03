@@ -37,7 +37,7 @@ pub use adapteros_api_types::embeddings::{
 pub use adapteros_api_types::model_status::ModelLoadStatus;
 pub use adapteros_api_types::models::{
     AllModelsStatusResponse, AneMemoryStatus, BaseModelStatusResponse, ModelStatusResponse,
-    SeedModelRequest, SeedModelResponse,
+    PatchModelRequest, SeedModelRequest, SeedModelResponse,
 };
 pub use adapteros_api_types::provenance::ChatProvenanceResponse;
 pub use adapteros_api_types::routing::{
@@ -201,6 +201,17 @@ impl ApiClient {
 
     fn training_idempotency_key() -> String {
         format!("idem-train-{}", uuid::Uuid::new_v4().simple())
+    }
+
+    fn normalized_idempotency_key(value: Option<&str>) -> Option<&str> {
+        value.and_then(|raw| {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
     }
 
     /// Build a request with common headers
@@ -875,12 +886,6 @@ impl ApiClient {
             .await
     }
 
-    /// Get training logs for a job
-    pub async fn get_training_logs(&self, job_id: &str) -> ApiResult<Vec<String>> {
-        self.get(&format!("/v1/training/jobs/{}/logs", job_id))
-            .await
-    }
-
     /// Get training metrics time-series for a job
     pub async fn get_training_metrics(
         &self,
@@ -982,6 +987,15 @@ impl ApiClient {
     /// Validate a model (check files, tokenizer, etc.)
     pub async fn validate_model(&self, id: &str) -> ApiResult<serde_json::Value> {
         self.get(&format!("/v1/models/{}/validate", id)).await
+    }
+
+    /// Rename a registered model
+    pub async fn patch_model_name(&self, id: &str, name: &str) -> ApiResult<()> {
+        let request = PatchModelRequest {
+            name: name.to_string(),
+        };
+        self.patch_no_content(&format!("/v1/models/{}", id), &request)
+            .await
     }
 
     // --- Stacks ---
@@ -2093,10 +2107,16 @@ impl ApiClient {
             .map_err(|_| ApiError::Network("Failed to cast Response".into()))?;
 
         if !resp.ok() {
-            return Err(ApiError::Http {
-                status: resp.status(),
-                message: resp.status_text(),
-            });
+            let status = resp.status();
+            let text = match resp.text() {
+                Ok(promise) => JsFuture::from(promise)
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .unwrap_or_default(),
+                Err(_) => String::new(),
+            };
+            return Err(ApiError::from_response(status, &text, None));
         }
 
         let json = JsFuture::from(
@@ -2111,6 +2131,178 @@ impl ApiClient {
                 .map_err(|e| ApiError::Serialization(e.to_string()))?;
 
         Ok(result)
+    }
+
+    /// Initiate a chunked dataset upload session.
+    pub async fn initiate_chunked_dataset_upload(
+        &self,
+        request: &crate::api::types::InitiateChunkedDatasetUploadRequest,
+    ) -> ApiResult<crate::api::types::InitiateChunkedDatasetUploadResponse> {
+        self.post("/v1/datasets/chunked-upload/initiate", request)
+            .await
+    }
+
+    /// Upload one chunk for an active chunked dataset upload session.
+    #[cfg(target_arch = "wasm32")]
+    pub async fn upload_dataset_chunk(
+        &self,
+        session_id: &str,
+        chunk_index: usize,
+        chunk_bytes: &[u8],
+        idempotency_key: Option<&str>,
+    ) -> ApiResult<crate::api::types::UploadDatasetChunkResponse> {
+        self.send_chunked_dataset_bytes(
+            "POST",
+            &format!(
+                "/v1/datasets/chunked-upload/{}/chunk?chunk_index={}",
+                encode(session_id),
+                chunk_index
+            ),
+            chunk_bytes,
+            idempotency_key,
+            "chunk upload request failed",
+        )
+        .await
+    }
+
+    /// Retry one chunk for an active chunked dataset upload session.
+    #[cfg(target_arch = "wasm32")]
+    pub async fn retry_dataset_chunk(
+        &self,
+        session_id: &str,
+        chunk_index: usize,
+        chunk_bytes: &[u8],
+        idempotency_key: Option<&str>,
+    ) -> ApiResult<crate::api::types::RetryDatasetChunkResponse> {
+        self.send_chunked_dataset_bytes(
+            "PUT",
+            &format!(
+                "/v1/datasets/chunked-upload/{}/chunk?chunk_index={}",
+                encode(session_id),
+                chunk_index
+            ),
+            chunk_bytes,
+            idempotency_key,
+            "chunk retry request failed",
+        )
+        .await
+    }
+
+    /// Complete a chunked dataset upload and create the dataset.
+    pub async fn complete_chunked_dataset_upload(
+        &self,
+        session_id: &str,
+        request: &crate::api::types::CompleteChunkedDatasetUploadRequest,
+        idempotency_key: Option<&str>,
+    ) -> ApiResult<crate::api::types::CompleteChunkedDatasetUploadResponse> {
+        let path = format!(
+            "/v1/datasets/chunked-upload/{}/complete",
+            encode(session_id)
+        );
+        let mut req = self.request("POST", &path);
+        if let Some(key) = Self::normalized_idempotency_key(idempotency_key) {
+            req = req.header("Idempotency-Key", key);
+        }
+        let response = req.json(request)?.send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Fetch current chunked upload session status.
+    pub async fn get_chunked_upload_session_status(
+        &self,
+        session_id: &str,
+    ) -> ApiResult<crate::api::types::ChunkedDatasetUploadSessionStatusResponse> {
+        self.get(&format!(
+            "/v1/datasets/chunked-upload/{}/status",
+            encode(session_id)
+        ))
+        .await
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    async fn send_chunked_dataset_bytes<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        path: &str,
+        bytes: &[u8],
+        idempotency_key: Option<&str>,
+        request_error_message: &str,
+    ) -> ApiResult<T> {
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen_futures::JsFuture;
+
+        let url = format!("{}{}", self.base_url, path);
+        let opts = web_sys::RequestInit::new();
+        opts.set_method(method);
+        opts.set_credentials(web_sys::RequestCredentials::Include);
+
+        let body = js_sys::Uint8Array::new_with_length(bytes.len() as u32);
+        body.copy_from(bytes);
+        opts.set_body(body.as_ref());
+
+        let headers = web_sys::Headers::new()
+            .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
+        headers
+            .set("Content-Type", "application/octet-stream")
+            .map_err(|_| ApiError::Network("Failed to set Content-Type header".into()))?;
+        headers
+            .set("X-Session-ID", &crate::utils::ui_session_id())
+            .map_err(|_| ApiError::Network("Failed to set X-Session-ID header".into()))?;
+        headers
+            .set(
+                "X-Build-Id",
+                option_env!("AOS_BUILD_ID").unwrap_or("unknown"),
+            )
+            .map_err(|_| ApiError::Network("Failed to set X-Build-Id header".into()))?;
+        if let Some(token) = self.bearer_token() {
+            headers
+                .set("Authorization", &format!("Bearer {}", token))
+                .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
+        }
+        if let Some(csrf_token) = csrf_token_from_cookie() {
+            headers
+                .set("X-CSRF-Token", &csrf_token)
+                .map_err(|_| ApiError::Network("Failed to set X-CSRF-Token header".into()))?;
+        }
+        if let Some(key) = Self::normalized_idempotency_key(idempotency_key) {
+            headers
+                .set("Idempotency-Key", key)
+                .map_err(|_| ApiError::Network("Failed to set Idempotency-Key header".into()))?;
+        }
+        opts.set_headers(&headers);
+
+        let window = web_sys::window().ok_or_else(|| ApiError::Network("No window".into()))?;
+        let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+            .map_err(|_| ApiError::Network("Failed to create Request".into()))?;
+
+        let resp_value = JsFuture::from(window.fetch_with_request(&request))
+            .await
+            .map_err(|_| ApiError::Network(request_error_message.to_string()))?;
+        let resp: web_sys::Response = resp_value
+            .dyn_into()
+            .map_err(|_| ApiError::Network("Failed to cast Response".into()))?;
+
+        if !resp.ok() {
+            let status = resp.status();
+            let text = match resp.text() {
+                Ok(promise) => JsFuture::from(promise)
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .unwrap_or_default(),
+                Err(_) => String::new(),
+            };
+            return Err(ApiError::from_response(status, &text, None));
+        }
+
+        let json = JsFuture::from(
+            resp.json()
+                .map_err(|_| ApiError::Network("Failed to read response body".into()))?,
+        )
+        .await
+        .map_err(|_| ApiError::Network("Failed to parse response JSON".into()))?;
+
+        serde_wasm_bindgen::from_value(json).map_err(|e| ApiError::Serialization(e.to_string()))
     }
 
     /// Create a training dataset from a single uploaded document (multipart).
@@ -3122,21 +3314,6 @@ impl ApiClient {
     /// Stop all essential services
     pub async fn stop_essential_services(&self) -> ApiResult<ServiceControlResponse> {
         self.post_empty("/v1/services/essential/stop").await
-    }
-
-    /// Get service logs
-    pub async fn get_service_logs(
-        &self,
-        service_id: &str,
-        lines: Option<u32>,
-    ) -> ApiResult<Vec<String>> {
-        let lines_param = lines.unwrap_or(100);
-        self.get(&format!(
-            "/v1/services/{}/logs?lines={}",
-            encode(service_id),
-            lines_param
-        ))
-        .await
     }
 
     // ========================================================================

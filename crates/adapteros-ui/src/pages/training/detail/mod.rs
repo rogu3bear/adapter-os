@@ -191,16 +191,17 @@ pub fn TrainingJobDetail(
     // Derive return button label and optional "training started" banner from path
     let return_banner = return_to
         .as_ref()
-        .filter(|p| p == &"/chat" || p.starts_with("/chat/"))
+        .filter(|p| p == &"/chat" || p == &"/chat/history" || p.starts_with("/chat/s/"))
         .cloned();
     let return_button = return_to.map(|path| {
-        let (label, href) = if path == "/chat" || path.starts_with("/chat/") {
-            ("Back to Conversation", path)
-        } else if path == "/adapters" || path.starts_with("/adapters/") {
-            ("Back to Adapters", path)
-        } else {
-            ("Go Back", path)
-        };
+        let (label, href) =
+            if path == "/chat" || path == "/chat/history" || path.starts_with("/chat/s/") {
+                ("Back to Conversation", path)
+            } else if path == "/adapters" || path.starts_with("/adapters/") {
+                ("Back to Adapters", path)
+            } else {
+                ("Go Back", path)
+            };
         (label, href)
     });
 
@@ -334,7 +335,6 @@ pub fn JobDetailContent(
     let status_for_badge = job.status.clone();
     let status_for_progress = job.status.clone();
     let job_id_for_detail = job.id.clone();
-    let job_id_for_logs = job.id.clone();
     let job_id_for_metrics = job.id.clone();
     let adapter_id_for_detail = job.adapter_id.clone();
     let coreml_state = CoremlState::from_job(&job);
@@ -580,7 +580,6 @@ pub fn JobDetailContent(
                 <MetricsTabContent
                     job=job_for_metrics
                     job_id_for_metrics=job_id_for_metrics
-                    job_id_for_logs=job_id_for_logs
                     is_running=is_running
                     is_completed=is_completed
                 />

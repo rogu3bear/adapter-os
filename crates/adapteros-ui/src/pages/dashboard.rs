@@ -244,7 +244,7 @@ fn JourneyFlowSection() -> impl IntoView {
     view! {
         <Card title="Quick Start".to_string() class="mt-4">
             <p class="text-sm text-muted-foreground mb-4">
-                "Use adapterOS as a chat that can build adapters and produce proof."
+                "Use AdapterOS as a chat that can build adapters and produce proof."
             </p>
             <p class="text-xs text-muted-foreground mb-4">
                 "Pick one action to start. You can switch between these at any time."

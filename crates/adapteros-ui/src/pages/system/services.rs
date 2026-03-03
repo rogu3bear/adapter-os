@@ -1,18 +1,17 @@
 //! Service control panel
 //!
 //! Interactive service management: start, stop, restart individual services
-//! and view service logs. Requires NodeManage permission.
+//! with NodeManage permission.
 
 use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity,
-    Dialog, DialogSize,
 };
 use adapteros_api_types::{ServiceHealthStatus, ServiceState};
 use leptos::prelude::*;
 use std::sync::Arc;
 
-/// Service control panel with start/stop/restart and log viewing
+/// Service control panel with start/stop/restart controls
 #[component]
 pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
     let client = expect_context::<Arc<ApiClient>>();
@@ -26,12 +25,6 @@ pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
     let confirm_open = RwSignal::new(false);
     let confirm_service_id = RwSignal::new(String::new());
     let confirm_action = RwSignal::new(String::new()); // "start", "stop", "restart"
-
-    // Logs dialog state
-    let logs_open = RwSignal::new(false);
-    let logs_service_id = RwSignal::new(String::new());
-    let logs_content = RwSignal::new(Vec::<String>::new());
-    let logs_loading = RwSignal::new(false);
 
     // Bulk action state
     let bulk_confirm_open = RwSignal::new(false);
@@ -105,30 +98,6 @@ pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
                         let _ = action_error.try_set(Some(format!("{}", e)));
                     }
                 }
-            });
-        })
-    };
-
-    // Fetch logs
-    let fetch_logs = {
-        let client = client.clone();
-        Callback::new(move |service_id: String| {
-            let client = client.clone();
-            logs_service_id.set(service_id.clone());
-            logs_loading.set(true);
-            logs_content.set(Vec::new());
-            logs_open.set(true);
-
-            leptos::task::spawn_local(async move {
-                match client.get_service_logs(&service_id, Some(200)).await {
-                    Ok(lines) => {
-                        let _ = logs_content.try_set(lines);
-                    }
-                    Err(e) => {
-                        let _ = logs_content.try_set(vec![format!("Error fetching logs: {}", e)]);
-                    }
-                }
-                let _ = logs_loading.try_set(false);
             });
         })
     };
@@ -217,7 +186,6 @@ pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
                     let name_for_start = svc.name.clone();
                     let name_for_stop = svc.name.clone();
                     let name_for_restart = svc.name.clone();
-                    let name_for_logs = svc.name.clone();
                     let (variant, label) = match svc.status {
                         ServiceHealthStatus::Healthy => (BadgeVariant::Success, "Healthy"),
                         ServiceHealthStatus::Degraded => (BadgeVariant::Warning, "Degraded"),
@@ -234,15 +202,6 @@ pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
                                 <span class="text-xs text-muted-foreground">{last_check}</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <Button
-                                    variant=ButtonVariant::Outline
-                                    size=crate::components::ButtonSize::Sm
-                                    on_click=Callback::new(move |_| {
-                                        fetch_logs.run(name_for_logs.clone());
-                                    })
-                                >
-                                    "Logs"
-                                </Button>
                                 <Button
                                     variant=ButtonVariant::Primary
                                     size=crate::components::ButtonSize::Sm
@@ -332,48 +291,5 @@ pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
             on_confirm=execute_bulk
             loading=Signal::derive(move || action_loading.get())
         />
-
-        // Logs dialog
-        <Dialog
-            open=logs_open
-            title=format!("Logs: {}", logs_service_id.get_untracked())
-            description="Recent service log output".to_string()
-            size=DialogSize::Lg
-        >
-            <div class="max-h-96 overflow-y-auto">
-                {move || {
-                    if logs_loading.get() {
-                        view! {
-                            <div class="flex items-center justify-center py-8">
-                                <span class="text-sm text-muted-foreground">"Loading logs..."</span>
-                            </div>
-                        }.into_any()
-                    } else {
-                        let lines = logs_content.get();
-                        if lines.is_empty() {
-                            view! {
-                                <p class="text-sm text-muted-foreground py-4">"No log output available."</p>
-                            }.into_any()
-                        } else {
-                            view! {
-                                <pre class="text-xs font-mono bg-muted/30 rounded-md p-3 whitespace-pre-wrap break-all">
-                                    {lines.join("\n")}
-                                </pre>
-                            }.into_any()
-                        }
-                    }
-                }}
-            </div>
-            <div class="flex justify-end mt-4">
-                <Button
-                    variant=ButtonVariant::Secondary
-                    on_click=Callback::new(move |_| {
-                        logs_open.set(false);
-                    })
-                >
-                    "Close"
-                </Button>
-            </div>
-        </Dialog>
     }
 }

@@ -285,6 +285,8 @@ fn build_document_training_request(
     base_model_id: String,
     document_name: &str,
 ) -> CreateTrainingJobRequest {
+    // UI compiles adapteros-api-types with feature "wasm"; server-only training
+    // config fields are unavailable in this build.
     let params = TrainingConfigRequest {
         rank: 8,
         alpha: 16,
@@ -302,15 +304,9 @@ fn build_document_training_request(
         preferred_backend: None,
         backend_policy: None,
         coreml_training_fallback: None,
-        #[cfg(not(target_arch = "wasm32"))]
-        coreml_placement: None,
         enable_coreml_export: None,
         require_gpu: None,
         max_gpu_memory_mb: None,
-        #[cfg(not(target_arch = "wasm32"))]
-        base_model_path: None,
-        #[cfg(not(target_arch = "wasm32"))]
-        preprocessing: None,
         force_resume: None,
         multi_module_training: None,
         lora_layer_indices: None,
@@ -633,7 +629,7 @@ pub fn Documents() -> impl IntoView {
         <PageScaffold
             title="Documents"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Training", "/documents"),
+                PageBreadcrumbItem::new("Build", "/training"),
                 PageBreadcrumbItem::current("Documents"),
             ]
             full_width=true
@@ -665,7 +661,7 @@ pub fn Documents() -> impl IntoView {
                         move |_| navigate("/training", Default::default())
                     })
                 >
-                    "Go to Training"
+                    "Go to Build"
                 </Button>
                 <RefreshButton
                     on_click=Callback::new(move |_| refetch())
@@ -1147,7 +1143,7 @@ pub fn DocumentDetail() -> impl IntoView {
         <PageScaffold
             title="Document Details"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Training", "/documents"),
+                PageBreadcrumbItem::new("Build", "/training"),
                 PageBreadcrumbItem::new("Documents", "/documents"),
                 PageBreadcrumbItem::current(document_id.try_get().unwrap_or_default()),
             ]

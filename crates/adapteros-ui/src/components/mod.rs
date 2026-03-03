@@ -12,6 +12,7 @@ pub mod auth;
 pub mod breadcrumb_trail;
 pub mod button;
 pub mod card;
+pub mod chat;
 pub mod checkbox;
 pub mod combobox;
 pub mod command_palette;
@@ -40,6 +41,7 @@ pub mod link;
 pub mod markdown;
 pub mod notification_provider;
 pub mod offline_banner;
+pub mod onboarding;
 pub mod pagination_controls;
 pub mod progress_rail;
 pub mod progress_stages;
@@ -76,6 +78,10 @@ pub use auth::{AuthProvider, ProtectedRoute};
 pub use breadcrumb_trail::{humanize_segment, BreadcrumbTrail};
 pub use button::{Button, ButtonLink, ButtonSize, ButtonType, ButtonVariant};
 pub use card::Card;
+pub use chat::{
+    ChatEmptyConversationState, ChatHeaderControls, ChatQuickStartCard, ChatSessionListShell,
+    ChatSessionRowShell, ChatUnavailableEntry, ChatWorkspaceLayout,
+};
 pub use checkbox::Checkbox;
 pub use combobox::{Combobox, ComboboxOption, ModelCombobox};
 pub use command_palette::CommandPalette;
@@ -107,6 +113,10 @@ pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransi
 pub use link::{Link, LinkVariant};
 pub use markdown::{Markdown, MarkdownStream};
 pub use offline_banner::OfflineBanner;
+pub use onboarding::{
+    OnboardingActionPanel, OnboardingContainer, OnboardingHeader, OnboardingProgressStep,
+    OnboardingProgressStepper, OnboardingReadinessChecklist, ReadinessCheckItem,
+};
 pub use pagination_controls::PaginationControls;
 pub use progress_rail::ProgressRail;
 pub use progress_stages::{InlineProgress, ProgressController, ProgressStage, ProgressStages};

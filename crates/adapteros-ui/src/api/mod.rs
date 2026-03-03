@@ -64,12 +64,12 @@ pub use client::{
     DatasetManifest, DatasetVersionsResponse, EmbeddingBenchmarkReport, EmbeddingBenchmarksQuery,
     EmbeddingBenchmarksResponse, InFlightAdaptersResponse, JsonlValidationDiagnostic,
     ListUsersResponse, MfaDisableRequest, MfaEnrollStartResponse, MfaEnrollVerifyRequest,
-    MfaStatusResponse, ModelLoadStatus, ModelStatusResponse, RegisterRepositoryRequest,
-    RegisterRepositoryResponse, RepositoryDetailResponse, RepositoryInfo, RepositoryListResponse,
-    RevokeApiKeyResponse, RoutingRuleResponse, RoutingRulesResponse, ScanJobResponse,
-    ScanRepositoryRequest, SeedModelRequest, SeedModelResponse, SessionInfo, TenantListResponse,
-    TenantSummary, UploadDatasetResponse, UserResponse, ValidateDatasetRequest,
-    ValidateDatasetResponse, WorkerMetricsResponse,
+    MfaStatusResponse, ModelLoadStatus, ModelStatusResponse, PatchModelRequest,
+    RegisterRepositoryRequest, RegisterRepositoryResponse, RepositoryDetailResponse,
+    RepositoryInfo, RepositoryListResponse, RevokeApiKeyResponse, RoutingRuleResponse,
+    RoutingRulesResponse, ScanJobResponse, ScanRepositoryRequest, SeedModelRequest,
+    SeedModelResponse, SessionInfo, TenantListResponse, TenantSummary, UploadDatasetResponse,
+    UserResponse, ValidateDatasetRequest, ValidateDatasetResponse, WorkerMetricsResponse,
 };
 
 pub use diagnostic_bundle::DiagnosticBundle;

@@ -318,7 +318,7 @@ fn UpdateCenterList(
                     view! {
                         <div class="rounded-md border border-primary/40 bg-primary/5 p-3 mb-4">
                             <p class="text-xs font-semibold uppercase tracking-wide text-primary/80">
-                                "Command Deck"
+                                "Command Palette"
                             </p>
                             <p class="text-sm text-foreground mt-1">
                                 {format!(

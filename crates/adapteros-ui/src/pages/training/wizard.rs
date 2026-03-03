@@ -227,6 +227,15 @@ fn map_training_submit_error(error: &ApiError) -> String {
         Some("DATASET_TRUST_BLOCKED")
         | Some("DATASET_TRUST_NEEDS_APPROVAL")
         | Some("VALIDATION_ERROR") => "The selected dataset needs a quick review before training.".to_string(),
+        Some("LINEAGE_REQUIRED") => {
+            "This training run needs dataset lineage context. Start from adapter version controls or select a dataset version.".to_string()
+        }
+        Some("DATASET_EMPTY") => {
+            "The selected dataset has no trainable examples. Upload or generate data before starting training.".to_string()
+        }
+        Some("DATA_SPEC_HASH_MISMATCH") => {
+            "Dataset metadata changed while preparing the run. Re-select the dataset to refresh version details.".to_string()
+        }
         Some("TRAINING_CAPACITY_LIMIT")
         | Some("MEMORY_PRESSURE_CRITICAL")
         | Some("CAPACITY_CHECK_ERROR")
@@ -273,6 +282,8 @@ enum KnowledgeGateState {
     DatasetTrustBlocked,
     DatasetTrustUnknown,
     DatasetValidationIncomplete,
+    DatasetVersionUnavailable,
+    DatasetEmpty,
     ReadyWithWarning,
     Ready,
 }
@@ -297,6 +308,12 @@ impl KnowledgeGateState {
             Self::DatasetTrustBlocked => Some("Dataset trust is blocked for training."),
             Self::DatasetTrustUnknown => Some("Dataset trust state is unknown."),
             Self::DatasetValidationIncomplete => Some("Dataset validation is not complete."),
+            Self::DatasetVersionUnavailable => {
+                Some("No dataset version could be resolved. Re-select the dataset.")
+            }
+            Self::DatasetEmpty => {
+                Some("Dataset has zero examples and cannot be used for training.")
+            }
             Self::ReadyWithWarning => Some("Dataset is train-eligible with warnings."),
             Self::Ready => None,
         }
@@ -335,6 +352,8 @@ fn normalize_gate_token(value: &str) -> String {
 
 fn evaluate_knowledge_gate(
     dataset_id: &str,
+    dataset_version_id: Option<&str>,
+    dataset_sample_count: Option<usize>,
     dataset_info: Option<&DatasetResponse>,
     dataset_lookup_loading: bool,
     creating_document_dataset: bool,
@@ -387,6 +406,14 @@ fn evaluate_knowledge_gate(
 
     if validation_status != "valid" {
         return KnowledgeGateState::DatasetValidationIncomplete;
+    }
+
+    if dataset_version_id.is_none_or(|id| id.trim().is_empty()) {
+        return KnowledgeGateState::DatasetVersionUnavailable;
+    }
+
+    if dataset_sample_count == Some(0) {
+        return KnowledgeGateState::DatasetEmpty;
     }
 
     if allow_with_warning {
@@ -576,7 +603,7 @@ pub fn CreateJobWizard(
 
     // Lifted state: survives step transitions so data isn't re-fetched
     // and UI toggles aren't lost when navigating between steps.
-    let (models, _refetch_models) = use_api_resource(
+    let (models, refetch_models) = use_api_resource(
         |client: std::sync::Arc<ApiClient>| async move { client.list_models().await },
     );
     let (datasets, _refetch_datasets) =
@@ -698,18 +725,63 @@ pub fn CreateJobWizard(
         });
     }
 
+    // Fetch dataset statistics reactively for readiness gating (including zero-example datasets).
+    {
+        let _client = client.clone();
+        #[cfg(target_arch = "wasm32")]
+        let is_active = Arc::clone(&is_active);
+        Effect::new(move || {
+            let id = dataset_id.get().trim().to_string();
+            if id.is_empty() {
+                dataset_sample_count.set(None);
+                return;
+            }
+
+            dataset_sample_count.set(None);
+            #[cfg(target_arch = "wasm32")]
+            {
+                let client = _client.clone();
+                let is_active = Arc::clone(&is_active);
+                wasm_bindgen_futures::spawn_local(async move {
+                    if !is_active.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    match client.get_dataset_statistics(&id).await {
+                        Ok(stats) => {
+                            if dataset_id.get_untracked().trim() != id {
+                                return;
+                            }
+                            let count = stats.num_examples.max(0) as usize;
+                            let _ = dataset_sample_count.try_set(Some(count));
+                        }
+                        Err(_) => {
+                            if dataset_id.get_untracked().trim() != id {
+                                return;
+                            }
+                            let _ = dataset_sample_count.try_set(None);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
     // If no base model is preselected, default to the first non-CoreML model.
     Effect::new(move || {
         if !base_model_id.get().trim().is_empty() {
             return;
         }
         if let LoadingState::Loaded(resp) = models.get() {
-            if let Some(model) = resp
-                .models
-                .iter()
-                .find(|m| m.backend.as_deref() != Some("coreml"))
-                .or_else(|| resp.models.first())
-            {
+            let mut candidates: Vec<_> = resp.models.iter().collect();
+            candidates.sort_by(|a, b| {
+                let a_coreml = a.backend.as_deref() == Some("coreml");
+                let b_coreml = b.backend.as_deref() == Some("coreml");
+                a_coreml
+                    .cmp(&b_coreml)
+                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            if let Some(model) = candidates.into_iter().next() {
                 let _ = base_model_id.try_set(model.id.clone());
             }
         }
@@ -836,13 +908,13 @@ pub fn CreateJobWizard(
                             return;
                         }
                         let sample_count = match client.get_dataset_statistics(&dataset.id).await {
-                            Ok(stats) if stats.num_examples > 0 => stats.num_examples as usize,
-                            _ => 0,
+                            Ok(stats) => Some(stats.num_examples.max(0) as usize),
+                            Err(_) => None,
                         };
                         on_dataset_ready.run(DatasetOutcome {
                             dataset_id: dataset.id.clone(),
                             dataset_version_id: dataset.dataset_version_id.clone(),
-                            sample_count,
+                            sample_count: sample_count.unwrap_or(0),
                             is_synthetic: false,
                             source_hash: dataset
                                 .dataset_hash_b3
@@ -886,10 +958,10 @@ pub fn CreateJobWizard(
                     return;
                 }
                 let sample_count = match client.get_dataset_statistics(&selected_id).await {
-                    Ok(stats) if stats.num_examples > 0 => stats.num_examples as usize,
-                    _ => 0,
+                    Ok(stats) => Some(stats.num_examples.max(0) as usize),
+                    Err(_) => None,
                 };
-                let _ = dataset_sample_count.try_set((sample_count > 0).then_some(sample_count));
+                let _ = dataset_sample_count.try_set(sample_count);
                 let latest_version_id = client
                     .list_dataset_versions(&selected_id)
                     .await
@@ -962,6 +1034,8 @@ pub fn CreateJobWizard(
     let knowledge_gate_state = Signal::derive(move || {
         evaluate_knowledge_gate(
             &dataset_id.get(),
+            dataset_version_id.get().as_deref(),
+            dataset_sample_count.get(),
             dataset_info.get().as_ref(),
             dataset_lookup_loading.get(),
             creating_document_dataset.get(),
@@ -1624,6 +1698,8 @@ pub fn CreateJobWizard(
                                 form_state=form_state
                             />
                             <TrainStepContent
+                                base_model_id=base_model_id
+                                category=category
                                 training_preset=training_preset
                                 epochs=epochs
                                 learning_rate=learning_rate
@@ -1638,6 +1714,9 @@ pub fn CreateJobWizard(
                                 coreml_fallback=coreml_training_fallback
                                 form_state=form_state
                                 sample_count=dataset_sample_count.try_get().flatten()
+                                models=models
+                                refetch_models=refetch_models
+                                use_custom_model=use_custom_model
                             />
                         </div>
                     }.into_any(),
@@ -2292,6 +2371,8 @@ fn format_bytes(bytes: i64) -> String {
 /// Step 2: Train setup (defaults first, advanced optional).
 #[component]
 fn TrainStepContent(
+    base_model_id: RwSignal<String>,
+    category: RwSignal<String>,
     form_state: RwSignal<FormState>,
     training_preset: RwSignal<String>,
     epochs: RwSignal<String>,
@@ -2306,9 +2387,21 @@ fn TrainStepContent(
     backend_policy: RwSignal<String>,
     coreml_fallback: RwSignal<String>,
     sample_count: Option<usize>,
+    models: ReadSignal<LoadingState<ModelListResponse>>,
+    refetch_models: Refetch,
+    use_custom_model: RwSignal<bool>,
 ) -> impl IntoView {
     view! {
         <div class="space-y-6">
+            <ModelStepContent
+                base_model_id=base_model_id
+                category=category
+                form_state=form_state
+                models=models
+                refetch_models=refetch_models
+                use_custom_model=use_custom_model
+            />
+
             <div class="rounded-lg border border-border/60 bg-card/40 p-4 space-y-1">
                 <p class="text-sm font-medium">"Default training plan"</p>
                 <p class="text-xs text-muted-foreground">
@@ -2340,7 +2433,6 @@ fn TrainStepContent(
 }
 
 /// Train step: base model and adapter type.
-#[allow(dead_code)]
 #[component]
 fn ModelStepContent(
     base_model_id: RwSignal<String>,
@@ -2396,19 +2488,40 @@ fn ModelStepContent(
                                 on_retry=Callback::new(move |_| refetch_models.run(()))
                                 loading_message="Loading models...".to_string()
                                 render=move |resp| {
+                                    let mut model_rows = resp.models.clone();
+                                    model_rows.sort_by(|a, b| {
+                                        let a_coreml = a.backend.as_deref() == Some("coreml");
+                                        let b_coreml = b.backend.as_deref() == Some("coreml");
+                                        a_coreml
+                                            .cmp(&b_coreml)
+                                            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                                            .then_with(|| a.id.cmp(&b.id))
+                                    });
+
                                     // Track which model IDs use CoreML backend
-                                    let coreml_ids: Vec<String> = resp.models.iter()
+                                    let coreml_ids: Vec<String> = model_rows.iter()
                                         .filter(|m| m.backend.as_deref() == Some("coreml"))
                                         .map(|m| m.id.clone())
                                         .collect();
-                                    let options: Vec<(String, String)> = resp.models.iter().map(|m| {
+                                    let options: Vec<(String, String)> = model_rows.into_iter().map(|m| {
                                         let is_coreml = m.backend.as_deref() == Some("coreml");
-                                        let label = match (&m.quantization, is_coreml) {
-                                            (Some(q), true) => format!("{} ({}) — CoreML, no adapter support", m.name, q),
-                                            (Some(q), false) => format!("{} ({})", m.name, q),
-                                            (None, true) => format!("{} — CoreML, no adapter support", m.name),
-                                            (None, false) => m.name.clone(),
+                                        let mut label = if m.name.trim() != m.id {
+                                            format!("{} ({})", m.name, m.id)
+                                        } else {
+                                            m.name.clone()
                                         };
+                                        if let Some(q) = m.quantization.as_deref() {
+                                            if !q.trim().is_empty() {
+                                                label.push_str(&format!(" • {}", q));
+                                            }
+                                        }
+                                        if is_coreml {
+                                            label.push_str(" • CoreML, no adapter support");
+                                        } else if let Some(backend) = m.backend.as_deref() {
+                                            if !backend.trim().is_empty() {
+                                                label.push_str(&format!(" • {}", backend.to_uppercase()));
+                                            }
+                                        }
                                         (m.id.clone(), label)
                                     }).collect();
                                     view! {
@@ -2820,5 +2933,67 @@ fn ReviewRow(label: &'static str, value: String) -> impl IntoView {
             <span class="text-sm text-muted-foreground shrink-0">{label}</span>
             <span class="text-sm font-medium min-w-0 truncate">{value}</span>
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ready_dataset() -> DatasetResponse {
+        DatasetResponse {
+            schema_version: "1".to_string(),
+            id: "ds-1".to_string(),
+            dataset_version_id: Some("dsv-1".to_string()),
+            name: "dataset".to_string(),
+            description: None,
+            format: "jsonl".to_string(),
+            hash_b3: None,
+            dataset_hash_b3: None,
+            storage_path: None,
+            status: "ready".to_string(),
+            workspace_id: None,
+            validation_status: Some("valid".to_string()),
+            validation_errors: None,
+            validation_diagnostics: None,
+            trust_state: Some("allowed".to_string()),
+            file_count: None,
+            total_size_bytes: None,
+            dataset_type: None,
+            created_by: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: None,
+            display_name: None,
+        }
+    }
+
+    #[test]
+    fn evaluate_gate_does_not_mark_empty_when_sample_count_unknown() {
+        let dataset = ready_dataset();
+        let state = evaluate_knowledge_gate(
+            &dataset.id,
+            dataset.dataset_version_id.as_deref(),
+            None,
+            Some(&dataset),
+            false,
+            false,
+            false,
+        );
+        assert_eq!(state, KnowledgeGateState::Ready);
+    }
+
+    #[test]
+    fn evaluate_gate_marks_empty_when_sample_count_is_zero() {
+        let dataset = ready_dataset();
+        let state = evaluate_knowledge_gate(
+            &dataset.id,
+            dataset.dataset_version_id.as_deref(),
+            Some(0),
+            Some(&dataset),
+            false,
+            false,
+            false,
+        );
+        assert_eq!(state, KnowledgeGateState::DatasetEmpty);
     }
 }

@@ -1989,7 +1989,7 @@ impl ChatAction {
 
     /// Replace the full session-only pinned adapter set.
     ///
-    /// This is used for deep links like `/chat/<id>?adapter=<adapter_id>`.
+    /// This is used for deep links like `/chat/s/<id>?adapter=<adapter_id>`.
     /// It does not persist to localStorage.
     pub fn set_session_pinned_adapters(&self, adapter_ids: Vec<String>) {
         let _ = self.state.try_update(|s| {
@@ -3342,7 +3342,7 @@ pub struct StoredChatSession {
     /// Session-local mode toggle (Fast/Verified)
     #[serde(default)]
     pub verified_mode: bool,
-    /// Placeholder session created eagerly when navigating to a new `/chat/:session_id`.
+    /// Placeholder session created eagerly when navigating to a new `/chat/s/:session_id`.
     ///
     /// Placeholders are pruned if the user leaves without sending any messages.
     #[serde(default)]

@@ -87,6 +87,7 @@ static NAV_GROUPS_FULL: &[NavGroup] = &[
             "conversation",
             "stream",
             "chat",
+            "history",
         ])],
         collapsed_by_default: false,
         show_in_taskbar: true,
@@ -120,7 +121,7 @@ static NAV_GROUPS_FULL: &[NavGroup] = &[
                 "weights",
                 "load",
             ]),
-            NavItem::new("documents", "Files", "/documents").with_keywords(&[
+            NavItem::new("documents", "Documents", "/documents").with_keywords(&[
                 "files",
                 "upload",
                 "corpus",
@@ -255,6 +256,7 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
             "prompt",
             "conversation",
             "chat",
+            "history",
         ])],
         collapsed_by_default: false,
         show_in_taskbar: true,

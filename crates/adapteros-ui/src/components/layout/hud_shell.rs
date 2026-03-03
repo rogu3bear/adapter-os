@@ -125,7 +125,8 @@ fn route_title(pathname: &str) -> &str {
         "/models" => "Models",
         "/workers" => "Workers",
         "/settings" => "Settings",
-        "/documents" => "Files",
+        "/documents" => "Documents",
+        "/datasets" => "Datasets",
         "/policies" => "Policies",
         "/audit" => "Audit Log",
         "/admin" => "Admin",
@@ -133,13 +134,15 @@ fn route_title(pathname: &str) -> &str {
         "/user" => "Settings",
         "/welcome" => "Welcome",
         "/system" => "System",
-        _ if pathname.starts_with("/chat/") => "Chat Session",
+        "/chat/history" => "Chat History",
+        _ if pathname.starts_with("/chat/s/") => "Chat Session",
         _ if pathname.starts_with("/training/") => "Build Details",
         _ if pathname.starts_with("/adapters/") => "Adapter Detail",
         _ if pathname.starts_with("/runs/") => "Execution Record Detail",
         _ if pathname.starts_with("/workers/") => "Worker Detail",
         _ if pathname.starts_with("/models/") => "Model Details",
-        _ if pathname.starts_with("/documents/") => "File Details",
+        _ if pathname.starts_with("/documents/") => "Document Details",
+        _ if pathname.starts_with("/datasets/") => "Dataset Detail",
         _ => "AdapterOS",
     }
 }
@@ -161,8 +164,8 @@ fn HudCard() -> impl IntoView {
     let location = use_location();
     let session_id = Memo::new(move |_| {
         let path = location.pathname.get();
-        if path.starts_with("/chat/") {
-            Some(path.trim_start_matches("/chat/").to_string())
+        if let Some(session_id) = path.strip_prefix("/chat/s/") {
+            Some(session_id.to_string())
         } else {
             None
         }
@@ -599,7 +602,7 @@ fn SessionHistoryPopover(show: RwSignal<bool>, on_close: Callback<()>) -> impl I
                                 class="hud-session-item"
                                 on:click=move |_| {
                                     show.set(false);
-                                    navigate(&format!("/chat/{}", id), Default::default());
+                                    navigate(&format!("/chat/s/{}", id), Default::default());
                                 }
                             >
                                 <div class="hud-session-item-title">{title}</div>
@@ -788,7 +791,7 @@ fn StatusCorners() -> impl IntoView {
                 }
                 title="Search (Cmd+K)"
             >
-                "adapterOS"
+                "AdapterOS"
             </button>
         </div>
 

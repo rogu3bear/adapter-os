@@ -140,7 +140,7 @@ pub fn TopBar() -> impl IntoView {
                 </button>
 
                 <div class="flex items-center gap-2">
-                    <span class="topbar-brand-text font-semibold text-sm tracking-tight">"AdapterOS Kernel"</span>
+                    <span class="topbar-brand-text font-semibold text-sm tracking-tight">"AdapterOS"</span>
                     <Badge variant=env_badge_variant>{env_badge}</Badge>
                 </div>
 
@@ -354,7 +354,7 @@ fn MobileMenu(
                 on:click=|e| e.stop_propagation()
             >
                 <div class="mobile-menu-header">
-                    <span class="font-semibold text-sm">"AdapterOS Kernel"</span>
+                    <span class="font-semibold text-sm">"AdapterOS"</span>
                     <button
                         class="mobile-menu-close"
                         on:click=move |_| on_close()

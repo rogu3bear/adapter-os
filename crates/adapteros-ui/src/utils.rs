@@ -392,15 +392,14 @@ pub fn random_suffix(len: usize) -> String {
 
 /// Build a chat URL that creates a new session with an adapter pre-pinned.
 ///
-/// Returns a path like `/chat/ses_xxxx?adapter=my-adapter-id` that the
-/// `ChatSession` component will parse on mount, auto-pinning the adapter.
+/// Returns a path like `/chat?adapter=my-adapter-id` that quickstart parses
+/// before creating the session and carrying adapter context forward.
 pub fn chat_path_with_adapter(adapter_id: &str) -> String {
-    let session_id = adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string();
     // Keep this URL-safe even if adapter ids ever include non-url characters.
     let encoded = js_sys::encode_uri_component(adapter_id)
         .as_string()
         .unwrap_or_else(|| adapter_id.to_string());
-    format!("/chat/{}?adapter={}", session_id, encoded)
+    format!("/chat?adapter={}", encoded)
 }
 
 /// Return a stable UI session id for correlation across requests (ses-...).

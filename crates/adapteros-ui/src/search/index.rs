@@ -8,7 +8,7 @@ use super::types::SearchResult;
 use crate::components::layout::nav_registry::{all_nav_items, NavItem};
 use adapteros_api_types::UiProfile;
 
-const RUNS_PAGE_NAME: &str = "Runs";
+const RUNS_PAGE_NAME: &str = "Execution Records";
 const RUNS_SEARCH_KEYWORDS: &[&str] = &[
     "runs",
     "run",
@@ -341,7 +341,7 @@ mod tests {
             .iter()
             .find(|r| r.path() == Some("/runs"))
             .expect("Expected /runs result");
-        assert_eq!(runs_result.title, "Runs");
+        assert_eq!(runs_result.title, "Execution Records");
     }
 
     #[test]

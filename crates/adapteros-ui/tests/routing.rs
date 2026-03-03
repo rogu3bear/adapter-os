@@ -20,6 +20,7 @@ fn test_route_paths_exist() {
         "/",
         "/dashboard",
         "/chat",
+        "/chat/history",
         "/adapters",
         "/runs",
         "/documents",
@@ -41,6 +42,7 @@ fn test_nested_route_patterns() {
     // Verify nested route patterns are valid
     let nested_routes = vec![
         "/adapters/:id",
+        "/chat/s/:session_id",
         "/training/:id",
         "/runs/:id",
         "/documents/:id",

@@ -12,13 +12,15 @@ use crate::api::use_api_client;
 use crate::components::spinner::SpinnerSize;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog, DialogSize, FormField,
-    InlineErrorBanner, Input, Select, Spinner,
+    InlineErrorBanner, Input, ProgressStage, ProgressStages, Select, Spinner,
 };
 use crate::validation::{rules, use_form_errors, validate_field};
 #[cfg(target_arch = "wasm32")]
-use gloo_file::futures::read_as_text;
+use gloo_file::futures::{read_as_bytes, read_as_text};
 #[cfg(target_arch = "wasm32")]
 use gloo_file::Blob;
+#[cfg(target_arch = "wasm32")]
+use gloo_timers::future::TimeoutFuture;
 
 fn readable_id(_prefix: &str, _slug_source: &str) -> String {
     adapteros_id::TypedId::new(adapteros_id::IdPrefix::Req).to_string()
@@ -26,6 +28,8 @@ fn readable_id(_prefix: &str, _slug_source: &str) -> String {
 use leptos::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use send_wrapper::SendWrapper;
+#[cfg(target_arch = "wasm32")]
+use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -135,10 +139,36 @@ pub struct DatasetOutcome {
 }
 
 const PREVIEW_LIMIT: usize = 25;
+const DIRECT_MULTIPART_MAX_BYTES: u64 = 10 * 1024 * 1024;
+const PREVIEW_MAX_BYTES: u64 = 2 * 1024 * 1024;
+#[cfg(target_arch = "wasm32")]
+const CHUNK_RETRY_BACKOFF_MS: [u32; 3] = [250, 1000, 2000];
 const DEFAULT_LIMIT_MAX_FILES: usize = 1000;
 const DEFAULT_LIMIT_MAX_BYTES: u64 = 10 * 1024 * 1024 * 1024;
 const DEFAULT_LIMIT_MAX_SAMPLES: usize = 100_000;
 const DEFAULT_LIMIT_MAX_TOKENS: u64 = 100_000_000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UploadTransportMode {
+    DirectMultipart,
+    #[cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
+    Chunked,
+}
+
+#[cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
+fn choose_upload_transport(mode: UploadMode, file_size_bytes: u64) -> UploadTransportMode {
+    match mode {
+        UploadMode::ManifestJsonl if file_size_bytes > DIRECT_MULTIPART_MAX_BYTES => {
+            UploadTransportMode::Chunked
+        }
+        _ => UploadTransportMode::DirectMultipart,
+    }
+}
+
+#[cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
+fn should_skip_preview(file_size_bytes: u64) -> bool {
+    file_size_bytes > PREVIEW_MAX_BYTES
+}
 
 fn trim_opt(value: Option<&str>) -> Option<String> {
     value
@@ -393,6 +423,13 @@ pub fn DatasetUploadWizard(
     let csv_weight_col = RwSignal::new(String::new());
     let preview_rows = RwSignal::new(Vec::<ParsedRow>::new());
     let parse_errors = RwSignal::new(Vec::<String>::new());
+    let preview_skipped = RwSignal::new(false);
+    let preview_notice = RwSignal::new(None::<String>);
+    let upload_transport_mode = RwSignal::new(UploadTransportMode::DirectMultipart);
+    let chunk_progress = RwSignal::new(None::<(usize, usize)>);
+    let progress_current_stage = RwSignal::new(None::<String>);
+    let progress_completed_stages = RwSignal::new(Vec::<String>::new());
+    let progress_error_stages = RwSignal::new(Vec::<String>::new());
     let submitting = RwSignal::new(false);
     let status = RwSignal::new(String::new());
     let upload_error = RwSignal::new(None::<String>);
@@ -423,6 +460,13 @@ pub fn DatasetUploadWizard(
         submitting.set(false);
         parse_errors.set(Vec::new());
         preview_rows.set(Vec::new());
+        preview_skipped.set(false);
+        preview_notice.set(None);
+        upload_transport_mode.set(UploadTransportMode::DirectMultipart);
+        chunk_progress.set(None);
+        progress_current_stage.set(None);
+        progress_completed_stages.set(Vec::new());
+        progress_error_stages.set(Vec::new());
         upload_error.set(None);
         status.set(String::new());
         idempotency_key.set(String::new());
@@ -462,6 +506,9 @@ pub fn DatasetUploadWizard(
             status.set(String::new());
             #[cfg(target_arch = "wasm32")]
             {
+                if preview_skipped.get() {
+                    return;
+                }
                 let mode_value = mode.get();
                 let csv_map_value = csv_mapping.get();
                 let csv_headers_value = csv_headers.get();
@@ -568,7 +615,36 @@ pub fn DatasetUploadWizard(
                             return;
                         }
 
-                        let name = file.name();
+                        let file_name = file.name();
+                        let file_size = file.size() as u64;
+                        let mode_value = mode.get();
+                        upload_transport_mode.set(choose_upload_transport(mode_value, file_size));
+                        let skip_preview = should_skip_preview(file_size);
+                        preview_skipped.set(skip_preview);
+                        chunk_progress.set(None);
+                        parse_errors.set(Vec::new());
+                        if skip_preview {
+                            preview_notice.set(Some(
+                                "Preview skipped for large file; server-side validation will run."
+                                    .to_string(),
+                            ));
+                            preview_rows.set(Vec::new());
+                            let _ = data_file.try_set(Some(SendWrapper::new(file)));
+                            let _ = data_preview.try_set(None);
+                            if name.get().is_empty() {
+                                match mode_value {
+                                    UploadMode::ManifestJsonl => {
+                                        name.set(format!("training-{}", file_name))
+                                    }
+                                    UploadMode::Csv => name.set(format!("csv-{}", file_name)),
+                                    UploadMode::Text => name.set(format!("text-{}", file_name)),
+                                }
+                            }
+                            input.set_value("");
+                            return;
+                        }
+
+                        preview_notice.set(None);
                         let is_active = Arc::clone(&is_active);
                         spawn_local(async move {
                             if !is_active.load(Ordering::Relaxed) {
@@ -580,7 +656,10 @@ pub fn DatasetUploadWizard(
                                         return;
                                     }
                                     let _ = data_file.try_set(Some(SendWrapper::new(file)));
-                                    let _ = data_preview.try_set(Some(SelectedFile { name, text }));
+                                    let _ = data_preview.try_set(Some(SelectedFile {
+                                        name: file_name,
+                                        text,
+                                    }));
                                     refresh_preview.run(());
                                 }
                                 Err(e) => {
@@ -615,7 +694,15 @@ pub fn DatasetUploadWizard(
             valid = false;
         }
 
-        if preview_rows.get().is_empty() {
+        #[cfg(target_arch = "wasm32")]
+        let has_file = data_file.get().is_some();
+        #[cfg(not(target_arch = "wasm32"))]
+        let has_file = true;
+
+        if !has_file {
+            form_errors.update(|e| e.set("file", "Choose a file to upload".to_string()));
+            valid = false;
+        } else if !preview_skipped.get() && preview_rows.get().is_empty() {
             form_errors.update(|e| {
                 e.set(
                     "file",
@@ -632,6 +719,10 @@ pub fn DatasetUploadWizard(
         Callback::new(move |_| {
             upload_error.set(None);
             status.set(String::new());
+            chunk_progress.set(None);
+            progress_current_stage.set(None);
+            progress_completed_stages.set(Vec::new());
+            progress_error_stages.set(Vec::new());
 
             if !validate_upload() {
                 return;
@@ -652,88 +743,350 @@ pub fn DatasetUploadWizard(
                 let data_file_value = data_file.get();
                 let mode_value = mode.get();
                 let csv_mapping = csv_mapping.get();
-                let sample_count = preview_rows.get().len();
-                let idempotency_value = idempotency_key.get();
-                status.set("Uploading your files (this may take a moment)...".to_string());
+                let preview_sample_count = preview_rows.get().len();
+                let mut idempotency_value = idempotency_key.get();
+                if idempotency_value.trim().is_empty() {
+                    idempotency_value = readable_id("idem", "dataset");
+                    idempotency_key.set(idempotency_value.clone());
+                }
                 let is_active = Arc::clone(&is_active);
                 spawn_local(async move {
                     if !is_active.load(Ordering::Relaxed) {
                         return;
                     }
-                    let form = match web_sys::FormData::new() {
-                        Ok(f) => f,
-                        Err(_) => {
-                            let _ =
-                                upload_error.try_set(Some("Failed to create upload form".into()));
-                            let _ = submitting.try_set(false);
-                            return;
+
+                    let mark_stage_done = |stage: &str| {
+                        let mut completed = progress_completed_stages.get_untracked();
+                        if !completed.iter().any(|s| s == stage) {
+                            completed.push(stage.to_string());
+                        }
+                        let _ = progress_completed_stages.try_set(completed);
+                        if progress_current_stage.get_untracked().as_deref() == Some(stage) {
+                            let _ = progress_current_stage.try_set(None);
                         }
                     };
+                    let mark_stage_error = |stage: &str| {
+                        let mut errors = progress_error_stages.get_untracked();
+                        if !errors.iter().any(|s| s == stage) {
+                            errors.push(stage.to_string());
+                        }
+                        let _ = progress_error_stages.try_set(errors);
+                        if progress_current_stage.get_untracked().as_deref() == Some(stage) {
+                            let _ = progress_current_stage.try_set(None);
+                        }
+                    };
+                    let format_error_message = |e: &crate::api::ApiError| {
+                        let detail = format_structured_details(e);
+                        e.code()
+                            .map(|code| format!("[{}] {}", code, detail))
+                            .unwrap_or(detail)
+                    };
+
+                    let _ = progress_current_stage.try_set(Some("prepare".to_string()));
+                    let _ = status.try_set("Preparing upload session...".to_string());
+
+                    let Some(data_file) = data_file_value.map(|file| file.take()) else {
+                        mark_stage_error("prepare");
+                        let _ = upload_error.try_set(Some("Choose a file to upload".into()));
+                        let _ = submitting.try_set(false);
+                        return;
+                    };
+
                     let format = match mode_value {
                         UploadMode::ManifestJsonl => "jsonl",
                         UploadMode::Csv => "csv",
                         UploadMode::Text => "txt",
                     };
-                    let Some(data_file) = data_file_value.map(|file| file.take()) else {
-                        let _ = upload_error.try_set(Some("Choose a file to upload".into()));
-                        let _ = submitting.try_set(false);
-                        return;
-                    };
-                    if let Err(_) = form.append_with_blob("files[]", data_file.as_ref()) {
-                        let _ = upload_error.try_set(Some("Failed to attach file".into()));
-                        let _ = submitting.try_set(false);
-                        return;
-                    }
-                    form.append_with_str("name", &dataset_name).ok();
-                    form.append_with_str("format", format).ok();
-                    if !description_value.is_empty() {
-                        form.append_with_str("description", &description_value).ok();
-                    }
-                    if let (UploadMode::Csv, Some(mapping)) = (mode_value, csv_mapping) {
-                        form.append_with_str("metadata[csv_input]", &mapping.input_col)
-                            .ok();
-                        form.append_with_str("metadata[csv_target]", &mapping.target_col)
-                            .ok();
-                        if let Some(weight) = mapping.weight_col {
-                            form.append_with_str("metadata[csv_weight]", &weight).ok();
-                        }
-                    }
+                    let file_size_bytes = data_file.size() as u64;
+                    let transport_mode = choose_upload_transport(mode_value, file_size_bytes);
+                    let _ = upload_transport_mode.try_set(transport_mode);
 
-                    let idempotency_header = if idempotency_value.trim().is_empty() {
-                        None
-                    } else {
-                        Some(idempotency_value.trim().to_string())
-                    };
-
-                    match client
-                        .upload_dataset(&form, idempotency_header.as_deref())
-                        .await
-                    {
-                        Ok(resp) => {
-                            if !is_active.load(Ordering::Relaxed) {
+                    match transport_mode {
+                        UploadTransportMode::DirectMultipart => {
+                            let form = match web_sys::FormData::new() {
+                                Ok(f) => f,
+                                Err(_) => {
+                                    mark_stage_error("prepare");
+                                    let _ = upload_error
+                                        .try_set(Some("Failed to create upload form".into()));
+                                    let _ = submitting.try_set(false);
+                                    return;
+                                }
+                            };
+                            if let Err(_) = form.append_with_blob("files[]", data_file.as_ref()) {
+                                mark_stage_error("prepare");
+                                let _ = upload_error.try_set(Some("Failed to attach file".into()));
+                                let _ = submitting.try_set(false);
                                 return;
                             }
+                            form.append_with_str("name", &dataset_name).ok();
+                            form.append_with_str("format", format).ok();
+                            if !description_value.is_empty() {
+                                form.append_with_str("description", &description_value).ok();
+                            }
+                            if let (UploadMode::Csv, Some(mapping)) = (mode_value, csv_mapping) {
+                                form.append_with_str("metadata[csv_input]", &mapping.input_col)
+                                    .ok();
+                                form.append_with_str("metadata[csv_target]", &mapping.target_col)
+                                    .ok();
+                                if let Some(weight) = mapping.weight_col {
+                                    form.append_with_str("metadata[csv_weight]", &weight).ok();
+                                }
+                            }
+
+                            mark_stage_done("prepare");
+                            let _ =
+                                progress_current_stage.try_set(Some("upload_chunks".to_string()));
+                            let _ = status.try_set(
+                                "Uploading your files (this may take a moment)...".to_string(),
+                            );
+                            match client
+                                .upload_dataset(&form, Some(idempotency_value.trim()))
+                                .await
+                            {
+                                Ok(resp) => {
+                                    if !is_active.load(Ordering::Relaxed) {
+                                        return;
+                                    }
+                                    mark_stage_done("upload_chunks");
+                                    let _ = progress_current_stage
+                                        .try_set(Some("finalize".to_string()));
+                                    let _ = status.try_set("Finalizing dataset...".to_string());
+                                    mark_stage_done("finalize");
+                                    let _ = status.try_set(format!(
+                                        "Upload complete (ID: {}, {} files, {} bytes)",
+                                        resp.dataset_id, resp.file_count, resp.total_size_bytes
+                                    ));
+                                    on_complete.run(DatasetOutcome {
+                                        dataset_id: resp.dataset_id.clone(),
+                                        dataset_version_id: resp.dataset_version_id.clone(),
+                                        sample_count: preview_sample_count,
+                                        is_synthetic: false,
+                                        source_hash: resp.dataset_hash_b3.clone(),
+                                        receipt_count: 0,
+                                    });
+                                    let _ = submitting.try_set(false);
+                                    let _ = open.try_set(false);
+                                }
+                                Err(e) => {
+                                    if !is_active.load(Ordering::Relaxed) {
+                                        return;
+                                    }
+                                    mark_stage_error("upload_chunks");
+                                    let _ = upload_error.try_set(Some(format_error_message(&e)));
+                                    let _ = submitting.try_set(false);
+                                }
+                            }
+                        }
+                        UploadTransportMode::Chunked => {
+                            let initiate_request =
+                                crate::api::types::InitiateChunkedDatasetUploadRequest {
+                                    file_name: data_file.name(),
+                                    total_size: file_size_bytes,
+                                    idempotency_key: Some(idempotency_value.trim().to_string()),
+                                    expected_file_hash_b3: None,
+                                    content_type: {
+                                        let content_type = data_file.type_();
+                                        let trimmed = content_type.trim();
+                                        if trimmed.is_empty() {
+                                            None
+                                        } else {
+                                            Some(trimmed.to_string())
+                                        }
+                                    },
+                                    chunk_size: None,
+                                    workspace_id: None,
+                                };
+
+                            let initiate = match client
+                                .initiate_chunked_dataset_upload(&initiate_request)
+                                .await
+                            {
+                                Ok(resp) => resp,
+                                Err(e) => {
+                                    mark_stage_error("prepare");
+                                    let _ = upload_error.try_set(Some(format_error_message(&e)));
+                                    let _ = submitting.try_set(false);
+                                    return;
+                                }
+                            };
+
+                            let session_status = match client
+                                .get_chunked_upload_session_status(&initiate.session_id)
+                                .await
+                            {
+                                Ok(resp) => resp,
+                                Err(e) => {
+                                    mark_stage_error("prepare");
+                                    let _ = upload_error.try_set(Some(format_error_message(&e)));
+                                    let _ = submitting.try_set(false);
+                                    return;
+                                }
+                            };
+                            let total_chunks = session_status.expected_chunks;
+                            let chunk_size = session_status.chunk_size;
+                            let mut received_chunks: HashSet<usize> =
+                                session_status.received_chunk_indices.into_iter().collect();
+
+                            mark_stage_done("prepare");
+                            let _ =
+                                progress_current_stage.try_set(Some("upload_chunks".to_string()));
+                            let _ =
+                                chunk_progress.try_set(Some((received_chunks.len(), total_chunks)));
                             let _ = status.try_set(format!(
-                                "Upload complete (ID: {}, {} files, {} bytes)",
-                                resp.dataset_id, resp.file_count, resp.total_size_bytes
+                                "Uploading chunks ({} / {})...",
+                                received_chunks.len(),
+                                total_chunks
                             ));
-                            on_complete.run(DatasetOutcome {
-                                dataset_id: resp.dataset_id.clone(),
-                                dataset_version_id: resp.dataset_version_id.clone(),
-                                sample_count,
-                                is_synthetic: false,
-                                source_hash: resp.dataset_hash_b3.clone(),
-                                receipt_count: 0,
-                            });
-                            let _ = submitting.try_set(false);
-                            let _ = open.try_set(false);
-                        }
-                        Err(e) => {
-                            if !is_active.load(Ordering::Relaxed) {
-                                return;
+
+                            for chunk_index in 0..total_chunks {
+                                if received_chunks.contains(&chunk_index) {
+                                    continue;
+                                }
+
+                                let start_offset = chunk_index.saturating_mul(chunk_size);
+                                let end_offset = ((chunk_index + 1).saturating_mul(chunk_size))
+                                    .min(file_size_bytes as usize);
+                                let chunk_blob = match data_file
+                                    .slice_with_f64_and_f64(start_offset as f64, end_offset as f64)
+                                {
+                                    Ok(blob) => blob,
+                                    Err(_) => {
+                                        mark_stage_error("upload_chunks");
+                                        let _ = upload_error.try_set(Some(
+                                            "Failed to read a file chunk from the browser."
+                                                .to_string(),
+                                        ));
+                                        let _ = submitting.try_set(false);
+                                        return;
+                                    }
+                                };
+                                let chunk_bytes = match read_as_bytes(&Blob::from(chunk_blob)).await
+                                {
+                                    Ok(bytes) => bytes,
+                                    Err(err) => {
+                                        mark_stage_error("upload_chunks");
+                                        let _ = upload_error.try_set(Some(format!(
+                                            "Failed to read chunk bytes: {}",
+                                            err
+                                        )));
+                                        let _ = submitting.try_set(false);
+                                        return;
+                                    }
+                                };
+
+                                let mut last_error: Option<crate::api::ApiError> = None;
+                                let mut uploaded = false;
+                                for attempt in 0..CHUNK_RETRY_BACKOFF_MS.len() {
+                                    let result = if attempt + 1 == CHUNK_RETRY_BACKOFF_MS.len() {
+                                        client
+                                            .retry_dataset_chunk(
+                                                &initiate.session_id,
+                                                chunk_index,
+                                                &chunk_bytes,
+                                                Some(idempotency_value.trim()),
+                                            )
+                                            .await
+                                            .map(|_| ())
+                                    } else {
+                                        client
+                                            .upload_dataset_chunk(
+                                                &initiate.session_id,
+                                                chunk_index,
+                                                &chunk_bytes,
+                                                Some(idempotency_value.trim()),
+                                            )
+                                            .await
+                                            .map(|_| ())
+                                    };
+
+                                    match result {
+                                        Ok(()) => {
+                                            uploaded = true;
+                                            break;
+                                        }
+                                        Err(err) => {
+                                            last_error = Some(err);
+                                            if attempt + 1 < CHUNK_RETRY_BACKOFF_MS.len() {
+                                                TimeoutFuture::new(CHUNK_RETRY_BACKOFF_MS[attempt])
+                                                    .await;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if !uploaded {
+                                    mark_stage_error("upload_chunks");
+                                    let message = match last_error {
+                                        Some(ref err) => format_error_message(err),
+                                        None => "Chunk upload failed after retries.".to_string(),
+                                    };
+                                    let _ = upload_error.try_set(Some(message));
+                                    let _ = submitting.try_set(false);
+                                    return;
+                                }
+
+                                received_chunks.insert(chunk_index);
+                                let completed = received_chunks.len();
+                                let _ = chunk_progress.try_set(Some((completed, total_chunks)));
+                                let _ = status.try_set(format!(
+                                    "Uploading chunks ({} / {})...",
+                                    completed, total_chunks
+                                ));
                             }
-                            let _ = upload_error.try_set(Some(format_structured_details(&e)));
-                            let _ = submitting.try_set(false);
+
+                            mark_stage_done("upload_chunks");
+                            let _ = progress_current_stage.try_set(Some("finalize".to_string()));
+                            let _ = status.try_set("Finalizing dataset...".to_string());
+
+                            let complete_request =
+                                crate::api::types::CompleteChunkedDatasetUploadRequest {
+                                    name: Some(dataset_name.clone()),
+                                    description: if description_value.trim().is_empty() {
+                                        None
+                                    } else {
+                                        Some(description_value.trim().to_string())
+                                    },
+                                    format: "jsonl".to_string(),
+                                    workspace_id: None,
+                                };
+                            match client
+                                .complete_chunked_dataset_upload(
+                                    &initiate.session_id,
+                                    &complete_request,
+                                    Some(idempotency_value.trim()),
+                                )
+                                .await
+                            {
+                                Ok(resp) => {
+                                    if !is_active.load(Ordering::Relaxed) {
+                                        return;
+                                    }
+                                    mark_stage_done("finalize");
+                                    let _ = status.try_set(format!(
+                                        "Upload complete (ID: {}, {} bytes)",
+                                        resp.dataset_id, resp.total_size_bytes
+                                    ));
+                                    on_complete.run(DatasetOutcome {
+                                        dataset_id: resp.dataset_id.clone(),
+                                        dataset_version_id: resp.dataset_version_id.clone(),
+                                        sample_count: preview_sample_count,
+                                        is_synthetic: false,
+                                        source_hash: Some(resp.hash.clone()),
+                                        receipt_count: 0,
+                                    });
+                                    let _ = submitting.try_set(false);
+                                    let _ = open.try_set(false);
+                                }
+                                Err(e) => {
+                                    if !is_active.load(Ordering::Relaxed) {
+                                        return;
+                                    }
+                                    mark_stage_error("finalize");
+                                    let _ = upload_error.try_set(Some(format_error_message(&e)));
+                                    let _ = submitting.try_set(false);
+                                }
+                            }
                         }
                     }
                 });
@@ -848,6 +1201,30 @@ pub fn DatasetUploadWizard(
                                                 }
                                                 on:click=move |_| {
                                                     mode.set(value);
+                                                    #[cfg(target_arch = "wasm32")]
+                                                    {
+                                                        if let Some(file) = data_file.get() {
+                                                            let file_size = file.size() as u64;
+                                                            upload_transport_mode.set(
+                                                                choose_upload_transport(
+                                                                    value, file_size,
+                                                                ),
+                                                            );
+                                                            let skip_preview =
+                                                                should_skip_preview(file_size);
+                                                            preview_skipped.set(skip_preview);
+                                                            preview_notice.set(if skip_preview {
+                                                                Some("Preview skipped for large file; server-side validation will run.".to_string())
+                                                            } else {
+                                                                None
+                                                            });
+                                                            if !skip_preview {
+                                                                refresh_preview.run(());
+                                                                return;
+                                                            }
+                                                            preview_rows.set(Vec::new());
+                                                        }
+                                                    }
                                                     refresh_preview.run(());
                                                 }
                                             >
@@ -863,8 +1240,19 @@ pub fn DatasetUploadWizard(
                                     <div class="font-medium text-foreground">"Size guardrails"</div>
                                     <div>{format!("Files: <= {}", upload_limits.0)}</div>
                                     <div>{format!("Total bytes: <= {:.1} GiB", upload_limits.1 as f64 / 1024.0 / 1024.0 / 1024.0)}</div>
+                                    <div>{format!("Client preview: <= {:.1} MiB", PREVIEW_MAX_BYTES as f64 / 1024.0 / 1024.0)}</div>
+                                    <div>{format!("JSONL direct upload: <= {:.1} MiB", DIRECT_MULTIPART_MAX_BYTES as f64 / 1024.0 / 1024.0)}</div>
                                     <div>{format!("Samples: <= {}", upload_limits.2)}</div>
                                     <div>{format!("Tokens (server enforced): <= {}", upload_limits.3)}</div>
+                                    <div>
+                                        {move || {
+                                            let mode_label = match upload_transport_mode.get() {
+                                                UploadTransportMode::DirectMultipart => "direct multipart",
+                                                UploadTransportMode::Chunked => "chunked session",
+                                            };
+                                            format!("Current transport: {}", mode_label)
+                                        }}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1038,11 +1426,27 @@ pub fn DatasetUploadWizard(
                         }}
 
                         {move || {
+                            preview_notice.get().map(|notice| {
+                                view! {
+                                    <div class="rounded-md border border-status-warning/50 bg-status-warning/10 p-3 text-sm text-foreground">
+                                        {notice}
+                                    </div>
+                                }
+                            })
+                        }}
+
+                        {move || {
                             let rows = preview_rows.try_get().unwrap_or_default();
                             if rows.is_empty() {
                                 view! {
                                     <div class="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                                        "Add files to preview the first parsed samples (enforces non-empty input/target, weight > 0)."
+                                        {move || {
+                                            if preview_skipped.get() {
+                                                "Preview skipped for this file size; upload can continue with server-side validation."
+                                            } else {
+                                                "Add files to preview the first parsed samples (enforces non-empty input/target, weight > 0)."
+                                            }
+                                        }}
                                     </div>
                                 }.into_any()
                             } else {
@@ -1084,6 +1488,53 @@ pub fn DatasetUploadWizard(
                             <InlineErrorBanner message=err/>
                         })}
                         {move || {
+                            let has_progress = submitting.try_get().unwrap_or(false)
+                                || progress_current_stage
+                                    .try_get()
+                                    .flatten()
+                                    .is_some()
+                                || !progress_completed_stages
+                                    .try_get()
+                                    .unwrap_or_default()
+                                    .is_empty()
+                                || !progress_error_stages
+                                    .try_get()
+                                    .unwrap_or_default()
+                                    .is_empty();
+                            if !has_progress {
+                                view! {}.into_any()
+                            } else {
+                                view! {
+                                    <div class="rounded-md border p-3">
+                                        <ProgressStages
+                                            stages=vec![
+                                                ProgressStage::new("prepare", "Prepare upload"),
+                                                ProgressStage::new("upload_chunks", "Upload chunks"),
+                                                ProgressStage::new("finalize", "Finalize dataset"),
+                                            ]
+                                            current_stage=Signal::derive(move || progress_current_stage.get())
+                                            completed_stages=Signal::derive(move || progress_completed_stages.get())
+                                            error_stages=Signal::derive(move || progress_error_stages.get())
+                                            title="Upload Progress".to_string()
+                                        />
+                                    </div>
+                                }
+                                    .into_any()
+                            }
+                        }}
+                        {move || {
+                            chunk_progress
+                                .try_get()
+                                .flatten()
+                                .map(|(completed, total)| {
+                                    view! {
+                                        <div class="text-xs text-muted-foreground">
+                                            {format!("Chunk progress: {} / {}", completed, total)}
+                                        </div>
+                                    }
+                                })
+                        }}
+                        {move || {
                             let msg = status.try_get().unwrap_or_default();
                             if msg.is_empty() {
                                 view! {}.into_any()
@@ -1120,5 +1571,40 @@ pub fn DatasetUploadWizard(
 
     view! {
         {dialog}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jsonl_at_or_below_threshold_uses_direct_upload() {
+        assert_eq!(
+            choose_upload_transport(UploadMode::ManifestJsonl, DIRECT_MULTIPART_MAX_BYTES),
+            UploadTransportMode::DirectMultipart
+        );
+    }
+
+    #[test]
+    fn jsonl_above_threshold_uses_chunked_upload() {
+        assert_eq!(
+            choose_upload_transport(UploadMode::ManifestJsonl, DIRECT_MULTIPART_MAX_BYTES + 1),
+            UploadTransportMode::Chunked
+        );
+    }
+
+    #[test]
+    fn non_jsonl_stays_direct_even_when_large() {
+        assert_eq!(
+            choose_upload_transport(UploadMode::Csv, DIRECT_MULTIPART_MAX_BYTES + 1),
+            UploadTransportMode::DirectMultipart
+        );
+    }
+
+    #[test]
+    fn preview_skip_threshold_is_enforced() {
+        assert!(!should_skip_preview(PREVIEW_MAX_BYTES));
+        assert!(should_skip_preview(PREVIEW_MAX_BYTES + 1));
     }
 }

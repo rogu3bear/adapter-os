@@ -32,7 +32,7 @@ pub fn OrgSection() -> impl IntoView {
 
     view! {
         <div class="max-w-2xl">
-            <Card title="Organization Settings".to_string() description="Configure your organization's adapterOS instance.".to_string()>
+            <Card title="Organization Settings".to_string() description="Configure your organization's AdapterOS instance.".to_string()>
                 {move || match tenants.get() {
                     LoadingState::Idle | LoadingState::Loading => view! {
                         <SkeletonCard has_header=true/>
