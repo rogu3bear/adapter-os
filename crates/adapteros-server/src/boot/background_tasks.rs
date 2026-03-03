@@ -56,6 +56,7 @@ use adapteros_db::kv_metrics;
 use adapteros_db::Db;
 use adapteros_deterministic_exec::run_global_executor;
 use adapteros_server_api::boot_state::{BootStateManager, FailureReason};
+use adapteros_server_api::local_log_service::{run_local_log_service, LocalLogServiceConfig};
 use adapteros_server_api::security::{
     cleanup_expired_ip_rules, cleanup_expired_revocations, cleanup_expired_sessions,
 };
@@ -281,6 +282,25 @@ pub async fn spawn_all_background_tasks(
                 }
             });
         });
+    }
+
+    // Local action log service (UDS-only): serves bounded tail reads from var/logs/*
+    // for local tooling without exposing log access on HTTP routes.
+    {
+        let service_config = LocalLogServiceConfig::default();
+        let socket_path = service_config.socket_path.clone();
+        let shutdown_rx = shutdown_coordinator.subscribe_shutdown();
+        let handle = tokio::spawn(async move {
+            if let Err(e) = run_local_log_service(service_config, shutdown_rx).await {
+                warn!(
+                    error = %e,
+                    socket = %socket_path.display(),
+                    "Local action log service exited with error"
+                );
+            }
+        });
+        shutdown_coordinator.set_local_log_service_handle(handle);
+        background_tasks.record_spawned("Local action log service", false);
     }
 
     // Check if we're in dev mode - skip non-essential tasks for faster startup

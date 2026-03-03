@@ -101,6 +101,7 @@ impl EmbeddingModel {
 
                 let shard_file = weight_map
                     .get("model.embed_tokens.weight")
+                    .or_else(|| weight_map.get("language_model.model.embed_tokens.weight"))
                     .or_else(|| weight_map.get("transformer.wte.weight"))
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
@@ -171,6 +172,7 @@ impl EmbeddingModel {
         // Look for embedding tensor (model-specific name)
         let embedding_tensor = tensors
             .tensor("model.embed_tokens.weight")
+            .or_else(|_| tensors.tensor("language_model.model.embed_tokens.weight"))
             .or_else(|_| tensors.tensor("transformer.wte.weight"))
             .map_err(|e| AosError::Worker(format!("Embedding tensor not found: {}", e)))?;
 
@@ -186,8 +188,12 @@ impl EmbeddingModel {
 
             // MLX 4-bit quantization packs weights with group_size=64
             // Try to load scales tensor if available
-            let scales_result = tensors.tensor("model.embed_tokens.scales");
-            let biases_result = tensors.tensor("model.embed_tokens.biases");
+            let scales_result = tensors
+                .tensor("model.embed_tokens.scales")
+                .or_else(|_| tensors.tensor("language_model.model.embed_tokens.scales"));
+            let biases_result = tensors
+                .tensor("model.embed_tokens.biases")
+                .or_else(|_| tensors.tensor("language_model.model.embed_tokens.biases"));
 
             if let (Ok(scales_tensor), Ok(biases_tensor)) = (scales_result, biases_result) {
                 // Dequantize using MLX format: dequantized = scales * (packed_weights - biases)

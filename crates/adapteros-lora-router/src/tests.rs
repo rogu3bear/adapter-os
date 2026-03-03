@@ -6,8 +6,8 @@ use adapteros_core::determinism::{DeterminismContext, DeterminismSource};
 use adapteros_core::seed::{derive_seed_full, hash_adapter_dir};
 use adapteros_core::B3Hash;
 use rand::Rng;
-use rand_chacha::ChaCha20Rng;
 use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use smallvec::SmallVec;
 use std::path::Path;
 

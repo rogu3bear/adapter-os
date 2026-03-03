@@ -7,8 +7,8 @@ use crate::middleware::require_role;
 use crate::state::AdminAppState;
 use crate::types::AdminErrorResponse;
 use adapteros_api_types::settings::{
-    GeneralSettings, PerformanceSettings, SecuritySettings, ServerSettings, SettingsUpdateResponse,
-    SystemSettings, UpdateSettingsRequest,
+    GeneralSettings, ModelSettings, PerformanceSettings, SecuritySettings, ServerSettings,
+    SettingsUpdateResponse, SystemSettings, UpdateSettingsRequest,
 };
 use adapteros_api_types::API_SCHEMA_VERSION;
 use adapteros_core::defaults::DEFAULT_SERVER_URL;
@@ -59,6 +59,11 @@ pub async fn get_settings<S: AdminAppState>(
                 .as_ref()
                 .and_then(|g| g.api_base_url.clone())
                 .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string()),
+        },
+        models: ModelSettings {
+            discovery_roots: Vec::new(),
+            selected_model_path: None,
+            selected_manifest_path: None,
         },
         server: ServerSettings {
             http_port: config.server.http_port.unwrap_or(18080),
@@ -127,6 +132,10 @@ pub async fn update_settings<S: AdminAppState>(
 
     if req.general.is_some() {
         updated_sections.push("general");
+    }
+
+    if req.models.is_some() {
+        updated_sections.push("models");
     }
 
     if req.server.is_some() {
@@ -203,6 +212,23 @@ pub async fn update_settings<S: AdminAppState>(
 
 /// Validate settings request before persisting
 fn validate_settings_request(req: &UpdateSettingsRequest) -> Result<(), String> {
+    // Validate model settings
+    if let Some(ref models) = req.models {
+        if models.discovery_roots.is_empty() {
+            return Err("models.discovery_roots must include at least one path".to_string());
+        }
+        if let Some(model_path) = models.selected_model_path.as_deref() {
+            if model_path.trim().is_empty() {
+                return Err("models.selected_model_path must not be empty".to_string());
+            }
+        }
+        if let Some(manifest_path) = models.selected_manifest_path.as_deref() {
+            if manifest_path.trim().is_empty() {
+                return Err("models.selected_manifest_path must not be empty".to_string());
+            }
+        }
+    }
+
     // Validate server settings
     if let Some(ref server) = req.server {
         if server.http_port == 0 {
@@ -265,6 +291,7 @@ async fn persist_settings_override(req: &UpdateSettingsRequest) -> Result<(), st
         let content = fs::read_to_string(override_path)?;
         serde_json::from_str(&content).unwrap_or(UpdateSettingsRequest {
             general: None,
+            models: None,
             server: None,
             security: None,
             performance: None,
@@ -272,6 +299,7 @@ async fn persist_settings_override(req: &UpdateSettingsRequest) -> Result<(), st
     } else {
         UpdateSettingsRequest {
             general: None,
+            models: None,
             server: None,
             security: None,
             performance: None,
@@ -281,6 +309,9 @@ async fn persist_settings_override(req: &UpdateSettingsRequest) -> Result<(), st
     // Merge new settings with existing (new settings override existing)
     if req.general.is_some() {
         existing.general = req.general.clone();
+    }
+    if req.models.is_some() {
+        existing.models = req.models.clone();
     }
     if req.server.is_some() {
         existing.server = req.server.clone();

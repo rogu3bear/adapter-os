@@ -94,7 +94,6 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::services::restart_service,
         handlers::services::start_essential_services,
         handlers::services::stop_essential_services,
-        handlers::services::get_service_logs,
         handlers::model_server::get_model_server_status,
         handlers::model_server::warmup_model_server,
         handlers::model_server::drain_model_server,
@@ -107,6 +106,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::models::unload_model,
         handlers::models::get_model_status,
         handlers::models::validate_model,
+        handlers::models::patch_model,
         handlers::models::delete_model,
         handlers::setup::setup_migrate,
         handlers::setup::setup_discover_models,
@@ -636,7 +636,6 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::training::update_training_priority,
         handlers::export_coreml_training_job,
         handlers::training::create_training_session,
-        handlers::training::get_training_logs,
         handlers::training::get_training_metrics,
         handlers::training::get_training_report,
         handlers::training::stream_training_progress,
@@ -919,7 +918,6 @@ use utoipa_swagger_ui::SwaggerUi;
         ActivityEventResponse,
         // Service control types
         handlers::services::ServiceControlResponse,
-        handlers::services::LogsQuery,
         // Model Server types
         handlers::model_server::ModelServerStatusResponse,
         handlers::model_server::WarmupRequest,
@@ -934,6 +932,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::models::ModelRuntimeHealthResponse,
         handlers::models::ModelListResponse,
         handlers::models::ModelWithStatsResponse,
+        handlers::models::PatchModelRequest,
         // Auth enhanced types
         handlers::auth_enhanced::BootstrapRequest,
         handlers::auth_enhanced::BootstrapResponse,
@@ -1327,10 +1326,6 @@ pub fn build(state: AppState) -> Router {
             "/v1/services/essential/stop",
             post(handlers::services::stop_essential_services),
         )
-        .route(
-            "/v1/services/{service_id}/logs",
-            get(handlers::services::get_service_logs),
-        )
         // Model Server routes (shared model inference)
         .route(
             "/v1/model-server/status",
@@ -1380,7 +1375,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/models/{model_id}",
-            delete(handlers::models::delete_model),
+            patch(handlers::models::patch_model).delete(handlers::models::delete_model),
         )
         .route("/v1/setup/migrate", post(handlers::setup::setup_migrate))
         .route(

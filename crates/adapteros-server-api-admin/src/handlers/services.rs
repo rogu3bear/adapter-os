@@ -7,7 +7,7 @@ use crate::auth::AdminClaims;
 use crate::state::{AdminAppState, SupervisorClient};
 use crate::types::AdminErrorResponse;
 use axum::{
-    extract::{Extension, Path, Query, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     Json,
 };
@@ -29,18 +29,6 @@ pub struct ServiceControlResponse {
     pub success: bool,
     /// Status message
     pub message: String,
-}
-
-/// Query parameters for logs endpoint
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct LogsQuery {
-    /// Number of log lines to retrieve
-    #[serde(default = "default_log_lines")]
-    pub lines: u32,
-}
-
-fn default_log_lines() -> u32 {
-    100
 }
 
 /// Permission required for service control operations
@@ -345,65 +333,6 @@ pub async fn stop_essential_services<S: AdminAppState>(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     AdminErrorResponse::new(format!("Failed to stop essential services: {}", e))
-                        .with_code("INTERNAL_ERROR"),
-                ),
-            ))
-        }
-    }
-}
-
-/// Get service logs
-///
-/// GET /v1/services/:service_id/logs?lines=100
-#[utoipa::path(
-    get,
-    path = "/v1/services/{service_id}/logs",
-    params(
-        ("service_id" = String, Path, description = "Service ID"),
-        ("lines" = Option<u32>, Query, description = "Number of log lines to retrieve (default: 100)")
-    ),
-    responses(
-        (status = 200, description = "Service logs retrieved", body = Vec<String>),
-        (status = 404, description = "Service not found", body = AdminErrorResponse),
-        (status = 500, description = "Internal server error", body = AdminErrorResponse)
-    )
-)]
-pub async fn get_service_logs<S: AdminAppState>(
-    State(state): State<S>,
-    Extension(claims): Extension<AdminClaims>,
-    Path(service_id): Path<String>,
-    Query(params): Query<LogsQuery>,
-) -> Result<Json<Vec<String>>, (StatusCode, Json<AdminErrorResponse>)> {
-    require_permission(&claims, Permission::NodeManage)?;
-
-    info!(service_id = %service_id, lines = params.lines, user = %claims.sub, "Fetching service logs");
-
-    let client = state.supervisor_client().ok_or_else(|| {
-        error!("Supervisor client not configured");
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                AdminErrorResponse::new("Supervisor not configured".to_string())
-                    .with_code("SUPERVISOR_NOT_CONFIGURED"),
-            ),
-        )
-    })?;
-
-    match client
-        .get_service_logs(&service_id, Some(params.lines))
-        .await
-    {
-        Ok(logs) => Ok(Json(logs)),
-        Err(e) if e.is_not_found() => Err((
-            StatusCode::NOT_FOUND,
-            Json(AdminErrorResponse::new(e.to_string()).with_code("NOT_FOUND")),
-        )),
-        Err(e) => {
-            error!(service_id = %service_id, error = %e, "Failed to fetch service logs");
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    AdminErrorResponse::new(format!("Failed to fetch logs: {}", e))
                         .with_code("INTERNAL_ERROR"),
                 ),
             ))

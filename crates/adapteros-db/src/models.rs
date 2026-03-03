@@ -512,6 +512,50 @@ impl Db {
         Ok(models)
     }
 
+    /// Update model name scoped to a tenant.
+    ///
+    /// Returns an error if the model is not visible to the tenant.
+    pub async fn update_model_name_for_tenant(
+        &self,
+        tenant_id: &str,
+        model_id: &str,
+        name: &str,
+    ) -> Result<()> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(anyhow!("Model name cannot be empty"));
+        }
+
+        let existing = self
+            .get_model_for_tenant(tenant_id, model_id)
+            .await?
+            .ok_or_else(|| anyhow!("Model not found: {}", model_id))?;
+
+        if existing.name == trimmed {
+            return Ok(());
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let result = sqlx::query(
+            "UPDATE models
+             SET name = ?, updated_at = ?
+             WHERE id = ?
+               AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = 'system')",
+        )
+        .bind(trimmed)
+        .bind(&now)
+        .bind(model_id)
+        .bind(tenant_id)
+        .execute(self.pool_result()?)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("Model not found: {}", model_id));
+        }
+
+        Ok(())
+    }
+
     /// Import a model from a path on disk
     pub async fn import_model_from_path(
         &self,

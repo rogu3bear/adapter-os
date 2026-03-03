@@ -271,6 +271,27 @@ pub async fn create_training_dataset_from_upload_async(
         .await
         .map_err(|e| ApiError::internal(format!("failed to create job: {e}")))?;
 
+    if let Err(e) = crate::local_log_service::attach_job_logs_path(&state.db, &job_id).await {
+        tracing::warn!(
+            job_id = %job_id,
+            error = %e,
+            "failed to persist action log path for dataset upload job"
+        );
+    }
+    if let Err(e) = crate::local_log_service::append_job_action(
+        &job_id,
+        &claims.sub,
+        "training_dataset_from_upload",
+        "queued",
+        "dataset upload job accepted",
+    ) {
+        tracing::warn!(
+            job_id = %job_id,
+            error = %e,
+            "failed to append dataset upload action log"
+        );
+    }
+
     // Persist uploaded file to var/job-inputs/{job_id}/file for background task
     let input_dir = std::path::PathBuf::from(&var_dir)
         .join("job-inputs")
@@ -297,6 +318,13 @@ pub async fn create_training_dataset_from_upload_async(
     let file_name_for_task = file_name;
 
     tokio::spawn(async move {
+        let _ = crate::local_log_service::append_job_action(
+            &job_id_for_task,
+            &claims_for_task.sub,
+            "training_dataset_from_upload",
+            "running",
+            "job worker started",
+        );
         if let Err(e) = state_for_task
             .db
             .update_job_status(&job_id_for_task, "running", None)
@@ -322,6 +350,13 @@ pub async fn create_training_dataset_from_upload_async(
                 {
                     tracing::warn!(job_id = %job_id_for_task, error = %db_err, "failed to mark job as failed after input read error");
                 }
+                let _ = crate::local_log_service::append_job_action(
+                    &job_id_for_task,
+                    &claims_for_task.sub,
+                    "training_dataset_from_upload",
+                    "failed",
+                    &format!("failed to read uploaded input: {}", e),
+                );
                 cleanup_job_input_dir(&input_dir, &job_id_for_task).await;
                 return;
             }
@@ -356,6 +391,13 @@ pub async fn create_training_dataset_from_upload_async(
                 {
                     tracing::warn!(job_id = %job_id_for_task, error = %e, "failed to mark job as finished");
                 }
+                let _ = crate::local_log_service::append_job_action(
+                    &job_id_for_task,
+                    &claims_for_task.sub,
+                    "training_dataset_from_upload",
+                    "finished",
+                    &format!("dataset created: {}", ds.dataset_id),
+                );
             }
             Err((code, body)) => {
                 if let Err(e) = state_for_task
@@ -372,6 +414,13 @@ pub async fn create_training_dataset_from_upload_async(
                 {
                     tracing::warn!(job_id = %job_id_for_task, error = %e, "failed to mark job as failed");
                 }
+                let _ = crate::local_log_service::append_job_action(
+                    &job_id_for_task,
+                    &claims_for_task.sub,
+                    "training_dataset_from_upload",
+                    "failed",
+                    &format!("dataset creation failed ({}): {}", code, body.0.message),
+                );
             }
         }
 

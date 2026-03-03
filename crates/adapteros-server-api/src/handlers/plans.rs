@@ -10,6 +10,7 @@ use axum::{
     Extension, Json,
 };
 use serde::Deserialize;
+use tracing::warn;
 
 #[derive(Deserialize)]
 pub struct ListPlansQuery {
@@ -53,6 +54,23 @@ pub async fn build_plan(
         )
         .await
         .map_err(ApiError::db_error)?;
+
+    if let Err(e) = crate::local_log_service::attach_job_logs_path(&state.db, &job_id).await {
+        warn!(
+            job_id = %job_id,
+            error = %e,
+            "failed to persist action log path for plan build job"
+        );
+    }
+    if let Err(e) = crate::local_log_service::append_job_action(
+        &job_id,
+        &claims.sub,
+        "build_plan",
+        "queued",
+        "plan build job accepted",
+    ) {
+        warn!(job_id = %job_id, error = %e, "failed to append plan job action log");
+    }
 
     Ok(Json(JobResponse {
         id: job_id,

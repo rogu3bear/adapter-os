@@ -1,7 +1,7 @@
 //! Training job routes.
 //!
 //! This module contains all routes for:
-//! - `/v1/training/jobs/*` - Training job CRUD, status, logs
+//! - `/v1/training/jobs/*` - Training job CRUD and status
 //! - `/v1/training/queue` - Training queue management
 //! - `/v1/training/templates/*` - Training templates
 
@@ -76,10 +76,6 @@ pub fn training_routes() -> Router<AppState> {
         .route(
             "/v1/training/sessions",
             post(handlers::training::create_training_session),
-        )
-        .route(
-            "/v1/training/jobs/{job_id}/logs",
-            get(handlers::training::get_training_logs),
         )
         .route(
             "/v1/training/jobs/{job_id}/metrics",

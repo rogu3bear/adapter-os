@@ -43,16 +43,6 @@ impl SupervisorClientTrait for SupervisorClient {
             .await
             .map_err(map_aos_error_to_supervisor_error)
     }
-
-    async fn get_service_logs(
-        &self,
-        service_id: &str,
-        lines: Option<u32>,
-    ) -> std::result::Result<Vec<String>, SupervisorError> {
-        self.get_service_logs(service_id, lines)
-            .await
-            .map_err(map_aos_error_to_supervisor_error)
-    }
 }
 
 /// Map AosError to SupervisorError, detecting not-found errors

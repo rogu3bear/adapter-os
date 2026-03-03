@@ -96,6 +96,13 @@ pub struct SeedModelRequest {
     pub metadata: Option<serde_json::Value>,
 }
 
+/// Patch model request (for PATCH /v1/models/{model_id})
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+pub struct PatchModelRequest {
+    pub name: String,
+}
+
 /// Import model response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]

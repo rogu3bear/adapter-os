@@ -135,13 +135,6 @@ pub trait SupervisorClient: Send + Sync {
     fn stop_essential_services(
         &self,
     ) -> impl std::future::Future<Output = std::result::Result<String, SupervisorError>> + Send;
-
-    /// Get service logs
-    fn get_service_logs(
-        &self,
-        service_id: &str,
-        lines: Option<u32>,
-    ) -> impl std::future::Future<Output = std::result::Result<Vec<String>, SupervisorError>> + Send;
 }
 
 /// Plugin registry interface

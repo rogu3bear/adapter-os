@@ -17,7 +17,6 @@
 //! - `get_preprocess_status` - Inspect preprocessing cache status
 //! - `get_training_backend_readiness` - Report backend readiness for training
 //! - `export_coreml_training_job` - Trigger CoreML export for a completed job
-//! - `get_training_logs` - Get training logs for a job
 //! - `get_training_metrics` - Get training metrics for a job
 //! - `get_training_report` - Get training report artifact
 //! - `get_training_queue` - Get current training queue status

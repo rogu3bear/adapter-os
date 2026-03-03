@@ -3,17 +3,18 @@
 //! Tests model loading, unloading, status checking, validation,
 //! and import operations with proper tenant isolation.
 
+use adapteros_api_types::models::PatchModelRequest;
 use adapteros_api_types::ModelLoadStatus;
 use adapteros_core::Result;
 use adapteros_server_api::handlers::models::{
-    get_all_models_status, get_model_status, list_models_with_stats, validate_model,
+    get_all_models_status, get_model_status, list_models_with_stats, patch_model, validate_model,
 };
-use axum::extract::{Path, Query, State};
+use axum::extract::{Json, Path, Query, State};
 use axum::http::StatusCode;
 use axum::Extension;
 
 mod common;
-use common::{setup_state, test_admin_claims, test_viewer_claims};
+use common::{setup_state, test_admin_claims, test_operator_claims, test_viewer_claims};
 
 /// Test listing all models with stats
 #[tokio::test]
@@ -269,6 +270,175 @@ async fn model_status_respects_tenant_isolation() -> Result<()> {
             // Some implementations might allow viewing but show different status
             // This is acceptable as long as sensitive data isn't leaked
         }
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn patch_model_requires_manage_role() -> Result<()> {
+    let state = setup_state(None).await.expect("state");
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("rename-role-model")
+    .bind("Rename Role Model")
+    .bind("rename-role-hash")
+    .bind("rename-role-config")
+    .bind("rename-role-tokenizer")
+    .bind("rename-role-tokenizer-cfg")
+    .bind("tenant-1")
+    .execute(state.db.pool_result()?)
+    .await?;
+
+    let claims = test_viewer_claims();
+    let result = patch_model(
+        State(state),
+        Extension(claims),
+        Path("rename-role-model".to_string()),
+        Json(PatchModelRequest {
+            name: "new-name".to_string(),
+        }),
+    )
+    .await;
+
+    match result {
+        Err(err) => assert_eq!(err.status, StatusCode::FORBIDDEN),
+        Ok(_) => panic!("viewer role should not rename models"),
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn patch_model_updates_name() -> Result<()> {
+    let state = setup_state(None).await.expect("state");
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("rename-target-model")
+    .bind("Rename Target Model")
+    .bind("rename-target-hash")
+    .bind("rename-target-config")
+    .bind("rename-target-tokenizer")
+    .bind("rename-target-tokenizer-cfg")
+    .bind("tenant-1")
+    .execute(state.db.pool_result()?)
+    .await?;
+
+    let claims = test_admin_claims();
+    let result = patch_model(
+        State(state.clone()),
+        Extension(claims),
+        Path("rename-target-model".to_string()),
+        Json(PatchModelRequest {
+            name: "renamed-model".to_string(),
+        }),
+    )
+    .await;
+
+    match result {
+        Ok(status) => assert_eq!(status, StatusCode::NO_CONTENT),
+        Err(err) => panic!("rename should succeed, got error: {}", err),
+    }
+
+    let model = state
+        .db
+        .get_model("rename-target-model")
+        .await?
+        .expect("model should still exist");
+    assert_eq!(model.name, "renamed-model");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn patch_model_conflict_on_duplicate_name() -> Result<()> {
+    let state = setup_state(None).await.expect("state");
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("rename-existing-model")
+    .bind("existing-model-name")
+    .bind("rename-existing-hash")
+    .bind("rename-existing-config")
+    .bind("rename-existing-tokenizer")
+    .bind("rename-existing-tokenizer-cfg")
+    .bind("tenant-1")
+    .execute(state.db.pool_result()?)
+    .await?;
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("rename-candidate-model")
+    .bind("candidate-model-name")
+    .bind("rename-candidate-hash")
+    .bind("rename-candidate-config")
+    .bind("rename-candidate-tokenizer")
+    .bind("rename-candidate-tokenizer-cfg")
+    .bind("tenant-1")
+    .execute(state.db.pool_result()?)
+    .await?;
+
+    let claims = test_admin_claims();
+    let result = patch_model(
+        State(state),
+        Extension(claims),
+        Path("rename-candidate-model".to_string()),
+        Json(PatchModelRequest {
+            name: "existing-model-name".to_string(),
+        }),
+    )
+    .await;
+
+    match result {
+        Err(err) => assert_eq!(err.status, StatusCode::CONFLICT),
+        Ok(_) => panic!("rename should fail on duplicate name"),
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn patch_model_respects_tenant_isolation() -> Result<()> {
+    let state = setup_state(None).await.expect("state");
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("tenant1-rename-only")
+    .bind("tenant1-rename-only")
+    .bind("tenant1-rename-hash")
+    .bind("tenant1-rename-config")
+    .bind("tenant1-rename-tokenizer")
+    .bind("tenant1-rename-tokenizer-cfg")
+    .bind("tenant-1")
+    .execute(state.db.pool_result()?)
+    .await?;
+
+    let claims = test_operator_claims(); // operator in default tenant
+    let result = patch_model(
+        State(state),
+        Extension(claims),
+        Path("tenant1-rename-only".to_string()),
+        Json(PatchModelRequest {
+            name: "should-not-rename".to_string(),
+        }),
+    )
+    .await;
+
+    match result {
+        Err(err) => assert_eq!(err.status, StatusCode::NOT_FOUND),
+        Ok(_) => panic!("cross-tenant rename should not succeed"),
     }
 
     Ok(())

@@ -6,7 +6,7 @@ use crate::supervisor::ServiceSupervisor;
 use adapteros_telemetry::middleware::api_logger_middleware;
 use axum::http::{header, HeaderValue, Method, Request};
 use axum::{
-    extract::{Extension, Path, Query, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -171,10 +171,6 @@ impl SupervisorServer {
                 post(start_essential_handler),
             )
             .route("/v1/services/essential/stop", post(stop_essential_handler))
-            .route(
-                "/v1/services/:service_id/logs",
-                get(get_service_logs_handler),
-            )
             .with_state(state.clone())
             .layer(middleware::from_fn_with_state(
                 state.clone(),
@@ -535,60 +531,6 @@ async fn stop_essential_handler(
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({
-                "error": e.to_string()
-            })),
-        )
-            .into_response(),
-    }
-}
-
-/// Query parameters for log retrieval
-#[derive(Deserialize)]
-struct LogsQuery {
-    #[serde(default = "default_log_lines")]
-    lines: usize,
-}
-
-fn default_log_lines() -> usize {
-    100
-}
-
-/// Get service logs
-async fn get_service_logs_handler(
-    State(state): State<AppState>,
-    Extension(claims): Extension<crate::auth::Claims>,
-    Path(service_id): Path<String>,
-    Query(params): Query<LogsQuery>,
-) -> axum::response::Response {
-    // Check permission
-    if !state.auth_service.has_permission(&claims, "services.read") {
-        return (
-            StatusCode::FORBIDDEN,
-            axum::Json(serde_json::json!({
-                "error": "insufficient permissions",
-                "required": "services.read"
-            })),
-        )
-            .into_response();
-    }
-
-    match state
-        .supervisor
-        .get_service_logs(&service_id, params.lines)
-        .await
-    {
-        Ok(logs) => {
-            #[derive(Serialize)]
-            struct LogsResponse {
-                service_id: String,
-                logs: Vec<String>,
-            }
-
-            axum::Json(LogsResponse { service_id, logs }).into_response()
-        }
-        Err(e) => (
-            StatusCode::NOT_FOUND,
             axum::Json(serde_json::json!({
                 "error": e.to_string()
             })),

@@ -11,6 +11,7 @@ use crate::control_plane::model_worker_lifecycle_reducer::{
 };
 use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
+use crate::model_roots::resolve_model_allowed_roots;
 use crate::model_status::aggregate_status;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
@@ -24,10 +25,12 @@ use adapteros_core::WorkerStatus;
 use adapteros_db::users::Role;
 use adapteros_lora_worker::memory::UmaStats;
 use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use dashmap::DashMap;
 use std::collections::HashSet;
 use std::path::{Path as StdPath, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tracing::{error, warn};
 
@@ -45,6 +48,8 @@ const ACTION_MODEL_IMPORT: &str = "model.import";
 const ACTION_MODEL_REGISTER_SAFE: &str = "model.register_safe";
 const MODEL_LOAD_STALE_AFTER_SECS: i64 = 180;
 const MODEL_LOAD_ATTEMPTS_PER_WORKER: usize = 2;
+static MODEL_LOAD_LOCKS: LazyLock<DashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+    LazyLock::new(DashMap::new);
 
 struct CompatibilityRule {
     backend: &'static str,
@@ -99,20 +104,20 @@ async fn reduce_model_lifecycle_event(
         .map_err(|e| format!("lifecycle reducer error: {}", e))
 }
 
-async fn model_allowed_roots() -> Result<Vec<PathBuf>, String> {
-    let location = resolve_base_model_location(None, None, false).map_err(|e| e.to_string())?;
-    if !location.cache_root.exists() {
-        tokio::fs::create_dir_all(&location.cache_root)
-            .await
-            .map_err(|e| {
-                format!(
-                    "Failed to create model cache root {}: {}",
-                    location.cache_root.display(),
-                    e
-                )
-            })?;
-    }
-    Ok(vec![location.cache_root])
+async fn model_allowed_roots(state: &AppState) -> Result<Vec<PathBuf>, String> {
+    resolve_model_allowed_roots(Some(&state.db)).await
+}
+
+async fn acquire_model_load_guard(
+    tenant_id: &str,
+    model_id: &str,
+) -> tokio::sync::OwnedMutexGuard<()> {
+    let key = format!("{}::{}", tenant_id, model_id);
+    let lock = MODEL_LOAD_LOCKS
+        .entry(key)
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone();
+    lock.lock_owned().await
 }
 
 async fn has_safetensors_files(dir: &StdPath) -> bool {
@@ -319,7 +324,7 @@ async fn fallback_to_last_known_good_base_model(
             })
     });
 
-    let allowed_roots = model_allowed_roots().await?;
+    let allowed_roots = model_allowed_roots(state).await?;
     let canonical_path =
         canonicalize_strict_in_allowed_roots(StdPath::new(&fallback_path), &allowed_roots)
             .map_err(|e| format!("Fallback path rejected: {}", e))?;
@@ -457,8 +462,8 @@ async fn validate_model_compatibility(
 
 // Import and re-export consolidated model types from shared crate
 pub use adapteros_api_types::models::{
-    AllModelsStatusResponse, AneMemoryStatus, ModelStatusResponse, SeedModelRequest,
-    SeedModelResponse,
+    AllModelsStatusResponse, AneMemoryStatus, ModelStatusResponse, PatchModelRequest,
+    SeedModelRequest, SeedModelResponse,
 };
 
 /// Alias for backward compatibility with existing code
@@ -595,6 +600,7 @@ pub async fn load_model(
     let model_id = crate::id_resolver::resolve_any_id(&state.db, &model_id).await?;
 
     let tenant_id = &claims.tenant_id;
+    let _model_load_guard = acquire_model_load_guard(tenant_id, &model_id).await;
     let now = chrono::Utc::now().to_rfc3339();
 
     // Check if model exists in database
@@ -873,7 +879,7 @@ pub async fn load_model(
         .map(normalize_backend_label)
         .unwrap_or("mlx");
     let format = model.format.as_deref();
-    let allowed_roots = match model_allowed_roots().await {
+    let allowed_roots = match model_allowed_roots(&state).await {
         Ok(roots) => roots,
         Err(e) => {
             let err_msg = format!("failed to resolve model roots: {}", e);
@@ -2073,7 +2079,7 @@ pub async fn import_model(
         ));
     }
 
-    let allowed_roots = model_allowed_roots().await.map_err(|e| {
+    let allowed_roots = model_allowed_roots(&state).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -2933,6 +2939,87 @@ pub async fn get_download_progress(
         imports,
         total_active,
     }))
+}
+
+/// Rename a model
+///
+/// Updates the registry name only; model files are not moved on disk.
+///
+/// # Endpoint
+/// PATCH /v1/models/{model_id}
+///
+/// # Errors
+/// - `FORBIDDEN` (403): User lacks required role
+/// - `BAD_REQUEST` (400): Invalid model name
+/// - `NOT_FOUND` (404): Model does not exist or is not visible to tenant
+/// - `CONFLICT` (409): Model name already exists
+/// - `INTERNAL_ERROR` (500): Database error
+#[utoipa::path(
+    patch,
+    path = "/v1/models/{model_id}",
+    request_body = PatchModelRequest,
+    params(
+        ("model_id" = String, Path, description = "Model ID (or name) to rename")
+    ),
+    responses(
+        (status = 204, description = "Model renamed"),
+        (status = 400, description = "Invalid request"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Model not found"),
+        (status = 409, description = "Name conflict"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "models"
+)]
+pub async fn patch_model(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(model_id): Path<String>,
+    Json(req): Json<PatchModelRequest>,
+) -> Result<StatusCode, ApiError> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])
+        .map_err(|_| ApiError::forbidden("access denied"))?;
+
+    let requested_model = crate::id_resolver::resolve_any_id(&state.db, &model_id).await?;
+    let tenant_id = &claims.tenant_id;
+    let new_name = req.name.trim();
+    if new_name.is_empty() {
+        return Err(ApiError::bad_request("model name cannot be empty"));
+    }
+
+    let model = match state
+        .db
+        .get_model_for_tenant(tenant_id, &requested_model)
+        .await
+        .map_err(ApiError::db_error)?
+    {
+        Some(model) => Some(model),
+        None => state
+            .db
+            .get_model_by_name_for_tenant(tenant_id, &requested_model)
+            .await
+            .map_err(ApiError::db_error)?,
+    }
+    .ok_or_else(|| ApiError::not_found("model"))?;
+
+    state
+        .db
+        .update_model_name_for_tenant(tenant_id, &model.id, new_name)
+        .await
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("Model not found") || msg.contains("model not found") {
+                ApiError::not_found("model")
+            } else if msg.contains("cannot be empty") {
+                ApiError::bad_request(msg)
+            } else if msg.contains("UNIQUE constraint failed: models.name") {
+                ApiError::conflict("model name already exists")
+            } else {
+                ApiError::db_error(e)
+            }
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Delete a model

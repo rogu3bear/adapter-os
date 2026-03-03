@@ -242,6 +242,8 @@ pub struct ShutdownConfig {
     pub federation_timeout: Duration,
     /// Timeout for UDS metrics exporter shutdown
     pub uds_metrics_timeout: Duration,
+    /// Timeout for local action log service shutdown
+    pub local_log_service_timeout: Duration,
     /// Timeout for git daemon shutdown
     pub git_daemon_timeout: Duration,
     /// Timeout for policy watcher shutdown
@@ -256,6 +258,7 @@ impl Default for ShutdownConfig {
             telemetry_timeout: Duration::from_secs(10),
             federation_timeout: Duration::from_secs(15),
             uds_metrics_timeout: Duration::from_secs(5),
+            local_log_service_timeout: Duration::from_secs(5),
             git_daemon_timeout: Duration::from_secs(10),
             policy_watcher_timeout: Duration::from_secs(5),
             overall_timeout: Duration::from_secs(30),
@@ -310,6 +313,7 @@ pub struct ShutdownCoordinator {
     alert_handle: Option<DeterministicJoinHandle>,
     policy_watcher_handle: Option<JoinHandle<()>>,
     uds_metrics_handle: Option<JoinHandle<()>>,
+    local_log_service_handle: Option<JoinHandle<()>>,
     git_daemon_handle: Option<JoinHandle<()>>,
     config: ShutdownConfig,
 }
@@ -326,6 +330,10 @@ impl std::fmt::Debug for ShutdownCoordinator {
                 &self.policy_watcher_handle.is_some(),
             )
             .field("uds_metrics_handle", &self.uds_metrics_handle.is_some())
+            .field(
+                "local_log_service_handle",
+                &self.local_log_service_handle.is_some(),
+            )
             .field("git_daemon_handle", &self.git_daemon_handle.is_some())
             .field("config", &self.config)
             .finish()
@@ -349,6 +357,7 @@ impl ShutdownCoordinator {
             alert_handle: None,
             policy_watcher_handle: None,
             uds_metrics_handle: None,
+            local_log_service_handle: None,
             git_daemon_handle: None,
             config,
         }
@@ -387,6 +396,11 @@ impl ShutdownCoordinator {
     /// Set UDS metrics exporter handle
     pub fn set_uds_metrics_handle(&mut self, handle: JoinHandle<()>) {
         self.uds_metrics_handle = Some(handle);
+    }
+
+    /// Set local action log service handle
+    pub fn set_local_log_service_handle(&mut self, handle: JoinHandle<()>) {
+        self.local_log_service_handle = Some(handle);
     }
 
     /// Set git daemon handle
@@ -581,7 +595,45 @@ impl ShutdownCoordinator {
             }
         }
 
-        // 4. Git daemon - stop polling and file watching
+        // 4. Local action log service - close UDS socket and active readers
+        if let Some(mut handle) = self.local_log_service_handle.take() {
+            self.report_progress(
+                "local_log_service",
+                ShutdownStatus::InProgress,
+                start_time.elapsed(),
+            );
+            match tokio::time::timeout(self.config.local_log_service_timeout, &mut handle).await {
+                Ok(result) => match result {
+                    Ok(_) => {
+                        self.report_progress(
+                            "local_log_service",
+                            ShutdownStatus::Completed,
+                            start_time.elapsed(),
+                        );
+                    }
+                    Err(e) => {
+                        warn!("Local action log service shutdown failed with error: {}", e);
+                        self.report_progress(
+                            "local_log_service",
+                            ShutdownStatus::Failed(format!("Task error: {}", e)),
+                            start_time.elapsed(),
+                        );
+                        failed_components.push("local_log_service".to_string());
+                    }
+                },
+                Err(_) => {
+                    handle.abort();
+                    self.report_progress(
+                        "local_log_service",
+                        ShutdownStatus::Timeout,
+                        start_time.elapsed(),
+                    );
+                    failed_components.push("local_log_service".to_string());
+                }
+            }
+        }
+
+        // 5. Git daemon - stop polling and file watching
         if let Some(mut handle) = self.git_daemon_handle.take() {
             self.report_progress(
                 "git_daemon",
@@ -619,7 +671,7 @@ impl ShutdownCoordinator {
             }
         }
 
-        // 5. Policy watcher - stop hash validation sweeps
+        // 6. Policy watcher - stop hash validation sweeps
         if let Some(mut handle) = self.policy_watcher_handle.take() {
             self.report_progress(
                 "policy_watcher",
@@ -657,7 +709,7 @@ impl ShutdownCoordinator {
             }
         }
 
-        // 6. Alert watcher - stop job monitoring
+        // 7. Alert watcher - stop job monitoring
         if let Some(handle) = self.alert_handle.take() {
             self.report_progress(
                 "alert_watcher",
@@ -673,7 +725,7 @@ impl ShutdownCoordinator {
             // Note: DeterministicJoinHandle doesn't support timeout waiting
         }
 
-        // 7. Background tasks - status writer, TTL cleanup, heartbeat recovery
+        // 8. Background tasks - status writer, TTL cleanup, heartbeat recovery
         let background_handles = std::mem::take(&mut self.background_handles);
         if !background_handles.is_empty() {
             info!(
@@ -902,6 +954,7 @@ mod tests {
         assert_eq!(config.telemetry_timeout, Duration::from_secs(10));
         assert_eq!(config.federation_timeout, Duration::from_secs(15));
         assert_eq!(config.uds_metrics_timeout, Duration::from_secs(5));
+        assert_eq!(config.local_log_service_timeout, Duration::from_secs(5));
         assert_eq!(config.overall_timeout, Duration::from_secs(30));
     }
 }

@@ -63,8 +63,28 @@ const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
 const METRIC_TRUST_NEEDS_APPROVAL: &str = "training_jobs_rejected_trust_needs_approval";
 const METRIC_ENDPOINT_JOBS: &str = "training_endpoint_jobs_requests";
 const METRIC_ENDPOINT_START: &str = "training_endpoint_start_requests";
+const METRIC_ENDPOINT_BACKEND_READINESS: &str = "training_endpoint_backend_readiness_requests";
 
 const PREPROCESS_CACHE_MARKER: &str = "manifest.json";
+
+fn append_training_action_or_warn(
+    job_id: &str,
+    actor: &str,
+    action: &str,
+    outcome: &str,
+    message: &str,
+) {
+    if let Err(e) =
+        crate::local_log_service::append_training_action(job_id, actor, action, outcome, message)
+    {
+        warn!(
+            job_id = %job_id,
+            action = %action,
+            error = %e,
+            "failed to append training action log"
+        );
+    }
+}
 
 #[derive(Debug, serde::Deserialize)]
 struct PreprocessManifestSummary {
@@ -2374,6 +2394,14 @@ pub async fn create_training_job(
             )
         })?;
 
+    append_training_action_or_warn(
+        &job.id,
+        &claims.sub,
+        "create_training_job",
+        "accepted",
+        "training job accepted via /v1/training/jobs",
+    );
+
     // Emit SSE lifecycle event for training job start
     state
         .sse_manager
@@ -2507,6 +2535,10 @@ pub async fn get_training_backend_readiness(
     Extension(claims): Extension<Claims>,
     Query(query): Query<BackendReadinessQuery>,
 ) -> Result<Json<TrainingBackendReadinessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    state
+        .metrics_registry
+        .record_metric(METRIC_ENDPOINT_BACKEND_READINESS.to_string(), 1.0)
+        .await;
     require_permission(&claims, Permission::TrainingView)?;
 
     let requested_backend = query
@@ -3936,6 +3968,14 @@ pub async fn start_training(
         tracing::warn!(error = %e, "Audit log failed");
     }
 
+    append_training_action_or_warn(
+        &job.id,
+        &claims.sub,
+        "start_training",
+        "accepted",
+        "training job accepted via /v1/training/start",
+    );
+
     info!(
         job_id = %job.id,
         adapter_name = %job.adapter_name,
@@ -4450,15 +4490,6 @@ mod tests {
     }
 
     #[test]
-    fn build_training_status_logs_includes_status_line() {
-        let logs = build_training_status_logs(&sample_job("job-log", TrainingJobStatus::Cancelled));
-        assert!(
-            logs.iter().any(|line| line == "Status: cancelled"),
-            "status line should be present in logs payload"
-        );
-    }
-
-    #[test]
     fn resolve_terminal_error_fields_prefers_progress_values() {
         let progress = serde_json::json!({
             "error_message": "progress failure",
@@ -4833,6 +4864,13 @@ pub async fn cancel_training(
             error!(job_id = %job_id, error = %e, "Failed to cancel training job");
 
             let error_str = e.to_string();
+            append_training_action_or_warn(
+                &job_id,
+                &claims.sub,
+                "cancel_training",
+                "failed",
+                &error_str,
+            );
             // Fire-and-forget audit logging to avoid requiring a multi-thread runtime.
             let audit_db = state.db.clone();
             let audit_claims = claims.clone();
@@ -4890,6 +4928,14 @@ pub async fn cancel_training(
     {
         tracing::warn!(error = %e, "Audit log failed");
     }
+
+    append_training_action_or_warn(
+        &job_id,
+        &claims.sub,
+        "cancel_training",
+        "success",
+        "training job cancelled",
+    );
 
     info!(job_id = %job_id, user_id = %claims.sub, "Cancelled training job");
     Ok(StatusCode::NO_CONTENT)
@@ -5033,6 +5079,13 @@ pub async fn retry_training(
             error!(original_job_id = %job_id, error = %e, "Failed to create retry job");
 
             let error_str = e.to_string();
+            append_training_action_or_warn(
+                &job_id,
+                &claims.sub,
+                "retry_training",
+                "failed",
+                &error_str,
+            );
             // Fire-and-forget audit logging to avoid requiring a multi-thread runtime.
             let audit_db = state.db.clone();
             let audit_claims = claims.clone();
@@ -5077,6 +5130,21 @@ pub async fn retry_training(
     {
         tracing::warn!(error = %e, "Audit log failed");
     }
+
+    append_training_action_or_warn(
+        &job_id,
+        &claims.sub,
+        "retry_training",
+        "success",
+        &format!("created retry job {}", new_job.id),
+    );
+    append_training_action_or_warn(
+        &new_job.id,
+        &claims.sub,
+        "retry_training",
+        "accepted",
+        &format!("retry created from {}", job_id),
+    );
 
     info!(
         original_job_id = %job_id,
@@ -5738,77 +5806,6 @@ pub async fn update_training_priority(
 pub struct TrainingMetricsQuery {
     pub metric_name: Option<String>,
     pub limit: Option<i64>,
-}
-
-fn build_training_status_logs(job: &adapteros_orchestrator::TrainingJob) -> Vec<String> {
-    let mut logs = vec![
-        "=== Training Job Status ===".to_string(),
-        format!("Job ID: {}", job.id),
-        format!("Status: {}", job.status),
-    ];
-
-    if !job.created_at.is_empty() {
-        logs.push(format!("Created: {}", job.created_at));
-    }
-    if let Some(started) = job.started_at.as_ref().filter(|s| !s.is_empty()) {
-        logs.push(format!("Started: {}", started));
-    }
-    if let Some(completed) = job.completed_at.as_ref().filter(|s| !s.is_empty()) {
-        logs.push(format!("Completed: {}", completed));
-    }
-
-    if job.progress_pct > 0.0 || job.current_epoch > 0 {
-        logs.push(format!("Progress: {:.1}%", job.progress_pct));
-    }
-    if job.total_epochs > 0 {
-        logs.push(format!(
-            "Step: {} / {}",
-            job.current_epoch, job.total_epochs
-        ));
-    }
-
-    logs.push("".to_string());
-    logs.push("Note: Stdout/stderr logs are not persisted. Use GET /v1/training/jobs/{job_id}/metrics for training metrics.".to_string());
-    logs
-}
-
-/// Get training logs for a job
-///
-/// Note: Training stdout/stderr logs are not currently persisted in the database.
-/// This endpoint returns job status information. For training metrics (loss, accuracy, etc.),
-/// use the `/v1/training/jobs/{job_id}/metrics` endpoint instead.
-#[utoipa::path(
-    tag = "training",
-    get,
-    path = "/v1/training/jobs/{job_id}/logs",
-    params(
-        ("job_id" = String, Path, description = "Training job ID")
-    ),
-    responses(
-        (status = 200, description = "Training job status (logs not persisted)", body = Vec<String>),
-        (status = 404, description = "Training job not found", body = ErrorResponse)
-    )
-)]
-pub async fn get_training_logs(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(job_id): Path<String>,
-) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
-    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
-
-    let job = load_authoritative_training_job(&state, &job_id).await?;
-
-    // Validate tenant isolation: job must belong to caller's tenant
-    if job.tenant_id.as_deref() != Some(&claims.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied to training job").with_code("FORBIDDEN")),
-        ));
-    }
-
-    Ok(Json(build_training_status_logs(&job)))
 }
 
 /// Get training metrics for a job

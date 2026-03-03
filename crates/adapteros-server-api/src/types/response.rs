@@ -80,6 +80,8 @@ pub struct JobDetailResponse {
     pub payload_json: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs_path: Option<String>,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,

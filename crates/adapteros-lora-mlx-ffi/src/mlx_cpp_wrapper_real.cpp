@@ -531,6 +531,15 @@ struct MLXModelWrapper {
       return &it->second;
     }
 
+    // Many Qwen/VL exports namespace text weights under "language_model.*".
+    if (name.rfind("language_model.", 0) != 0) {
+      std::string prefixed = "language_model." + name;
+      it = weights.find(prefixed);
+      if (it != weights.end()) {
+        return &it->second;
+      }
+    }
+
     // Try common naming variations
     std::vector<std::string> alternatives;
     if (name == "token_embeddings.weight") {
@@ -544,6 +553,14 @@ struct MLXModelWrapper {
       it = weights.find(alt);
       if (it != weights.end()) {
         return &it->second;
+      }
+
+      if (alt.rfind("language_model.", 0) != 0) {
+        std::string prefixed_alt = "language_model." + alt;
+        it = weights.find(prefixed_alt);
+        if (it != weights.end()) {
+          return &it->second;
+        }
       }
     }
 

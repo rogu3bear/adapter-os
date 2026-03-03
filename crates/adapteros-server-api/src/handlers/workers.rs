@@ -1193,7 +1193,7 @@ pub async fn register_worker(
         .await
         .map_err(ApiError::db_error)?;
 
-    let plan = match plan {
+    let mut plan = match plan {
         Some(p) => p,
         None => {
             // In development mode, auto-create the manifest and plan
@@ -1279,6 +1279,58 @@ pub async fn register_worker(
     };
 
     // 3. Validate manifest compatibility
+    if req.manifest_hash != plan.manifest_hash_b3 {
+        let is_dev_mode = state.runtime_mode.map(|m| m.is_dev()).unwrap_or(false);
+        if is_dev_mode {
+            warn!(
+                worker_id = %req.worker_id,
+                plan_id = %req.plan_id,
+                previous_hash = %plan.manifest_hash_b3,
+                new_hash = %req.manifest_hash,
+                "Manifest hash drift detected in dev mode; reconciling plan manifest hash"
+            );
+
+            let manifest_exists = state
+                .db
+                .get_manifest_by_hash(&req.manifest_hash)
+                .await
+                .map_err(ApiError::db_error)?;
+            if manifest_exists.is_none() {
+                state
+                    .db
+                    .create_manifest(&req.tenant_id, &req.manifest_hash, "{}")
+                    .await
+                    .map_err(ApiError::db_error)?;
+                info!(
+                    tenant_id = %req.tenant_id,
+                    manifest_hash = %req.manifest_hash,
+                    "Auto-created manifest during dev plan reconciliation"
+                );
+            }
+
+            let updated = state
+                .db
+                .update_plan_manifest_hash_by_plan_id(&req.plan_id, &req.manifest_hash)
+                .await
+                .map_err(ApiError::db_error)?;
+            if !updated {
+                return Err(ApiError::internal(
+                    "Failed to reconcile plan manifest hash in dev mode",
+                )
+                .with_details(format!("Plan ID: {}", req.plan_id)));
+            }
+
+            plan = state
+                .db
+                .get_plan_by_plan_id(&req.plan_id)
+                .await
+                .map_err(ApiError::db_error)?
+                .ok_or_else(|| {
+                    ApiError::internal("Plan reconciliation succeeded but plan not found")
+                })?;
+        }
+    }
+
     if req.manifest_hash != plan.manifest_hash_b3 {
         warn!(
             worker_id = %req.worker_id,

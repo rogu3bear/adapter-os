@@ -56,7 +56,6 @@ pub use handlers::{
     disable_plugin,
     enable_plugin,
     // Services
-    get_service_logs,
     // Settings
     get_settings,
     list_plugins,
@@ -75,7 +74,6 @@ pub use handlers::{
     system_config,
     update_settings,
     AdminStatusResponse,
-    LogsQuery,
     MaintenanceScope,
     RequestMaintenanceBody,
     RequestShutdownBody,

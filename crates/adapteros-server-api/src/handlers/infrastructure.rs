@@ -795,6 +795,7 @@ pub async fn get_job(
         user_id: job.user_id,
         payload_json: job.payload_json,
         result_json: job.result_json,
+        logs_path: job.logs_path,
         created_at: job.created_at,
         started_at: job.started_at,
         finished_at: job.finished_at,
@@ -969,6 +970,49 @@ mod jobs_tests {
 
         let resp = app(state).oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_job_includes_logs_path_when_present() {
+        let state = build_test_state().await;
+        let job_id = state
+            .db
+            .create_job(
+                "training_dataset_from_upload",
+                Some("tenant-a"),
+                Some("user-jobs-test"),
+                "{\"k\":1}",
+            )
+            .await
+            .unwrap();
+
+        state
+            .db
+            .update_job_logs_path(&job_id, Some("/abs/var/logs/actions/jobs/job_example.log"))
+            .await
+            .unwrap();
+
+        let mut req = Request::builder()
+            .uri(format!("/v1/jobs/{}", job_id))
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(make_claims("tenant-a", "viewer"));
+
+        let resp = app(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            parsed
+                .get("logs_path")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default(),
+            "/abs/var/logs/actions/jobs/job_example.log"
+        );
     }
 
     #[tokio::test]

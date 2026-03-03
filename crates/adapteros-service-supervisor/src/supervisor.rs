@@ -430,16 +430,6 @@ impl ServiceSupervisor {
         Ok(crate::health::HealthResponse::from_monitor(&self.health_monitor).await)
     }
 
-    /// Get service logs
-    pub async fn get_service_logs(&self, service_id: &str, lines: usize) -> Result<Vec<String>> {
-        let services = self.services.read().await;
-        if let Some(service) = services.get(service_id) {
-            service.read_logs(lines).await
-        } else {
-            Err(SupervisorError::ServiceNotFound(service_id.to_string()))
-        }
-    }
-
     /// Shutdown the supervisor
     pub async fn shutdown(&self) -> Result<()> {
         info!("Shutting down service supervisor...");

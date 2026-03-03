@@ -117,7 +117,7 @@ pub struct DatasetTrustOverrideRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CompleteChunkedUploadRequest {
-    /// Dataset name (optional, defaults to file name)
+    /// Dataset name hint (optional). Naming is source-derived from uploaded file names.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Dataset description
@@ -181,6 +181,9 @@ pub struct UploadSessionStatusResponse {
     pub created_at: String,
     /// Compression format detected
     pub compression_format: String,
+    /// Structured error code when session is failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
 }
 
 /// Query parameters for progress stream

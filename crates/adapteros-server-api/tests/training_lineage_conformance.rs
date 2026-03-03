@@ -5,11 +5,17 @@ use adapteros_api_types::training::{
 use adapteros_api_types::workers::WorkerCapabilities;
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_orchestrator::training::compute_combined_data_spec_hash;
-use adapteros_server_api::handlers::training::start_training;
+use adapteros_server_api::handlers::training::{
+    get_training_backend_readiness, start_training, BackendReadinessQuery,
+};
 use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::types::{ErrorResponse, TrainingJobResponse};
 use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
-use axum::{extract::State, http::StatusCode, Extension, Json};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    Extension, Json,
+};
 use tempfile::TempDir;
 use tokio::time::Duration;
 
@@ -20,6 +26,7 @@ use common::{register_test_model, register_test_worker, setup_state, test_admin_
 const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
 const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
 const METRIC_TRUST_NEEDS_APPROVAL: &str = "training_jobs_rejected_trust_needs_approval";
+const METRIC_ENDPOINT_BACKEND_READINESS: &str = "training_endpoint_backend_readiness_requests";
 
 async fn create_test_repo(
     state: &adapteros_server_api::state::AppState,
@@ -464,4 +471,31 @@ async fn allowed_with_warning_trust_passes_and_preserves_canonical_tokens() {
         .map(|s| s.get_points(None, None).len())
         .unwrap_or(0);
     assert_eq!(blocked + needs_approval, 0);
+}
+
+#[tokio::test]
+async fn backend_readiness_records_endpoint_metric() {
+    let state = setup_state(None).await.unwrap();
+    let claims = test_admin_claims();
+
+    let _ = get_training_backend_readiness(
+        State(state.clone()),
+        Extension(claims),
+        Query(BackendReadinessQuery {
+            preferred_backend: None,
+            backend_policy: None,
+            coreml_fallback: None,
+            require_gpu: None,
+        }),
+    )
+    .await;
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    let count = state
+        .metrics_registry
+        .get_series_async(METRIC_ENDPOINT_BACKEND_READINESS)
+        .await
+        .map(|s| s.get_points(None, None).len())
+        .unwrap_or(0);
+    assert_eq!(count, 1);
 }

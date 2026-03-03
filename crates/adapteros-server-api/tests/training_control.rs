@@ -17,7 +17,6 @@ use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_lora_worker::training::AdapterManifest;
 use adapteros_orchestrator::training::compute_combined_data_spec_hash;
 use adapteros_orchestrator::TrainingJobStatus;
-use adapteros_server_api::handlers::get_training_logs;
 use adapteros_server_api::handlers::training::{
     cancel_training, list_training_jobs, start_training,
 };
@@ -588,41 +587,6 @@ async fn test_training_list_exposes_required_metadata() {
         .is_some_and(|h| !h.is_empty()));
     assert_eq!(listed.artifact_path, listed.aos_path);
     assert_eq!(listed.artifact_hash_b3, listed.package_hash_b3);
-}
-
-#[tokio::test]
-async fn test_training_logs_return_entries() {
-    let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
-    let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
-
-    let (_, Json(job)) = start_training(
-        State(state.clone()),
-        Extension(claims.clone()),
-        Extension(ClientIp("127.0.0.1".to_string())),
-        Json(make_request("adapter-logs", repo_id, &base_model_id)),
-    )
-    .await
-    .expect("start training");
-
-    let _ = wait_for_terminal(&state, &job.id).await;
-
-    let Json(logs) = get_training_logs(
-        State(state.clone()),
-        Extension(claims),
-        axum::extract::Path(job.id.clone()),
-    )
-    .await
-    .expect("logs");
-
-    assert!(
-        !logs.is_empty(),
-        "training logs should include at least one entry"
-    );
-    assert!(
-        logs.iter().any(|l| l.contains("Training job")),
-        "logs should contain creation message"
-    );
 }
 
 #[tokio::test]

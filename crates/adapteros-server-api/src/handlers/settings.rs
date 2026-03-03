@@ -5,6 +5,7 @@
 use crate::auth::Claims;
 use crate::ip_extraction::ClientIp;
 use crate::middleware::require_role;
+use crate::model_roots::parse_discovery_roots;
 use crate::runtime_config_store;
 use crate::state::AppState;
 use crate::types::*;
@@ -51,6 +52,9 @@ pub async fn get_settings(
         })?;
 
     if let Some(loaded) = loaded {
+        if let Some(models) = loaded.document.settings.models.clone() {
+            settings.models = models;
+        }
         settings.effective_source = Some(loaded.effective_source);
         settings.applied_at = Some(loaded.document.updated_at);
         settings.pending_restart_fields = loaded.document.pending_restart_fields;
@@ -86,7 +90,7 @@ pub async fn get_effective_settings(
 ) -> Result<Json<EffectiveSettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
 
-    let settings = {
+    let mut settings = {
         let config = state.config.read().map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -107,6 +111,12 @@ pub async fn get_effective_settings(
                 ),
             )
         })?;
+
+    if let Some(loaded) = loaded.as_ref() {
+        if let Some(models) = loaded.document.settings.models.as_ref() {
+            settings.models = models.clone();
+        }
+    }
 
     Ok(Json(
         runtime_config_store::build_effective_settings_response(&settings, loaded.as_ref()),
@@ -180,6 +190,10 @@ pub async fn update_settings(
 
     if req.general.is_some() {
         updated_sections.push("general");
+    }
+
+    if req.models.is_some() {
+        updated_sections.push("models");
     }
 
     if req.server.is_some() {
@@ -287,6 +301,44 @@ pub async fn update_settings(
 
 /// Validate settings request before persisting
 fn validate_settings_request(req: &UpdateSettingsRequest) -> Result<(), String> {
+    // Validate model discovery settings
+    if let Some(ref models) = req.models {
+        let mut parsed_roots = 0usize;
+        for raw in &models.discovery_roots {
+            for path in parse_discovery_roots(raw) {
+                parsed_roots += 1;
+                if !path.exists() {
+                    return Err(format!(
+                        "model discovery root does not exist: {}",
+                        path.display()
+                    ));
+                }
+                if !path.is_dir() {
+                    return Err(format!(
+                        "model discovery root is not a directory: {}",
+                        path.display()
+                    ));
+                }
+            }
+        }
+
+        if parsed_roots == 0 {
+            return Err("models.discovery_roots must include at least one path".to_string());
+        }
+
+        if let Some(model_path) = models.selected_model_path.as_deref() {
+            if model_path.trim().is_empty() {
+                return Err("models.selected_model_path must not be empty".to_string());
+            }
+        }
+
+        if let Some(manifest_path) = models.selected_manifest_path.as_deref() {
+            if manifest_path.trim().is_empty() {
+                return Err("models.selected_manifest_path must not be empty".to_string());
+            }
+        }
+    }
+
     // Validate server settings
     if let Some(ref server) = req.server {
         if server.http_port == 0 {

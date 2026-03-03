@@ -16,7 +16,6 @@
 //! - `POST /v1/training/start` - Start full training job
 //!
 //! ## Job Details
-//! - `GET  /v1/training/jobs/{job_id}/logs` - Get training logs
 //! - `GET  /v1/training/jobs/{job_id}/metrics` - Get training metrics
 //! - `GET  /v1/training/jobs/{job_id}/report` - Get training report artifact
 //! - `GET  /v1/training/jobs/{job_id}/progress` - SSE stream of training progress
@@ -105,7 +104,6 @@ pub mod paths {
     pub const JOB_BY_ID: &str = "/v1/training/jobs/{job_id}";
     pub const JOB_CANCEL: &str = "/v1/training/jobs/{job_id}/cancel";
     pub const JOB_RETRY: &str = "/v1/training/jobs/{job_id}/retry";
-    pub const JOB_LOGS: &str = "/v1/training/jobs/{job_id}/logs";
     pub const JOB_METRICS: &str = "/v1/training/jobs/{job_id}/metrics";
     pub const JOB_REPORT: &str = "/v1/training/jobs/{job_id}/report";
     pub const JOB_PROGRESS: &str = "/v1/training/jobs/{job_id}/progress";

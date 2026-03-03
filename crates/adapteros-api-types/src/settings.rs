@@ -12,6 +12,7 @@ pub struct SystemSettings {
     #[serde(default = "schema_version")]
     pub schema_version: String,
     pub general: GeneralSettings,
+    pub models: ModelSettings,
     pub server: ServerSettings,
     pub security: SecuritySettings,
     pub performance: PerformanceSettings,
@@ -33,6 +34,21 @@ pub struct GeneralSettings {
     pub system_name: String,
     pub environment: String,
     pub api_base_url: String,
+}
+
+/// Model discovery and selection settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct ModelSettings {
+    #[serde(default)]
+    pub discovery_roots: Vec<String>,
+    /// Optional worker base-model directory used for startup when env overrides are unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_model_path: Option<String>,
+    /// Optional explicit worker manifest path used for startup when env overrides are unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_manifest_path: Option<String>,
 }
 
 /// Server settings
@@ -75,6 +91,8 @@ pub struct PerformanceSettings {
 #[serde(rename_all = "snake_case")]
 pub struct UpdateSettingsRequest {
     pub general: Option<GeneralSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<ModelSettings>,
     pub server: Option<ServerSettings>,
     pub security: Option<SecuritySettings>,
     pub performance: Option<PerformanceSettings>,

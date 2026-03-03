@@ -12,8 +12,8 @@ use adapteros_telemetry::events::{RouterCandidate as TelemetryCandidate, RouterD
 use adapteros_telemetry::writer::RouterDecisionWriter;
 use adapteros_types::routing::RouterModelType;
 use rand::Rng;
-use rand_chacha::ChaCha20Rng;
 use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use smallvec::SmallVec;
 use std::collections::HashSet;
 use std::sync::OnceLock;

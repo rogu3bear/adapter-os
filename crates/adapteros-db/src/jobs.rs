@@ -78,6 +78,16 @@ impl Db {
         Ok(())
     }
 
+    pub async fn update_job_logs_path(&self, id: &str, logs_path: Option<&str>) -> Result<()> {
+        sqlx::query("UPDATE jobs SET logs_path = ? WHERE id = ?")
+            .bind(logs_path)
+            .bind(id)
+            .execute(self.pool_result()?)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update job logs path: {}", e)))?;
+        Ok(())
+    }
+
     pub async fn get_job(&self, id: &str) -> Result<Option<Job>> {
         let job = sqlx::query_as::<_, Job>(
             "SELECT id, kind, tenant_id, user_id, payload_json, status, result_json, logs_path, created_at, started_at, finished_at FROM jobs WHERE id = ?"

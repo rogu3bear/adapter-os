@@ -994,7 +994,21 @@ impl FileValidator {
         if format != "jsonl" {
             return Err(anyhow!("Only jsonl datasets are supported by PLAN_4"));
         }
-        for (line_num, line) in content.lines().enumerate() {
+        let content_ref = content.as_ref();
+        let preview_truncated = metadata.len() > n as u64;
+        let preview_to_parse = if preview_truncated {
+            if buffer.last().copied() == Some(b'\n') {
+                content_ref
+            } else if let Some(last_newline_index) = content_ref.rfind('\n') {
+                &content_ref[..last_newline_index]
+            } else {
+                ""
+            }
+        } else {
+            content_ref
+        };
+
+        for (line_num, line) in preview_to_parse.lines().enumerate() {
             if !line.trim().is_empty() {
                 match serde_json::from_str::<serde_json::Value>(line) {
                     Ok(_) => {}
@@ -1065,5 +1079,37 @@ mod tests {
         assert_eq!(session.file_name, "data.jsonl");
         assert_eq!(session.total_size, 100_000_000);
         assert_eq!(session.workspace_id, Some("test-workspace".to_string()));
+    }
+
+    #[tokio::test]
+    async fn quick_validate_accepts_truncated_preview_tail() {
+        let temp_dir = test_utils::tempdir_with_prefix("aos-test-");
+        let file_path = temp_dir.path().join("preview-tail.jsonl");
+        let oversized_prompt = "x".repeat(70 * 1024);
+        let content = format!(
+            "{{\"prompt\":\"{}\",\"response\":\"ok\"}}\n{{\"prompt\":\"two\",\"response\":\"three\"}}\n",
+            oversized_prompt
+        );
+        fs::write(&file_path, content).await.expect("write file");
+
+        let result = FileValidator::quick_validate(&file_path, "jsonl", 64 * 1024).await;
+        assert!(
+            result.is_ok(),
+            "truncated preview tail should be ignored: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn quick_validate_rejects_invalid_complete_line() {
+        let temp_dir = test_utils::tempdir_with_prefix("aos-test-");
+        let file_path = temp_dir.path().join("invalid-line.jsonl");
+        let content = "{\"prompt\":\"ok\",\"response\":\"yes\"}\n{\"prompt\":\"broken\"\n";
+        fs::write(&file_path, content).await.expect("write file");
+
+        let result = FileValidator::quick_validate(&file_path, "jsonl", content.len()).await;
+        assert!(result.is_err(), "expected invalid complete line to fail");
+        let message = result.err().unwrap().to_string();
+        assert!(message.contains("Invalid JSON at line 2"));
     }
 }

@@ -6,11 +6,12 @@
 //!
 //! It also applies live-safe fields to `ApiConfig` and emits effective-source metadata.
 
+use crate::model_roots::default_model_discovery_roots;
 use crate::state::{ApiConfig, GeneralConfig};
 use adapteros_api_types::{
-    EffectiveSettingsEntry, EffectiveSettingsResponse, GeneralSettings, PerformanceSettings,
-    SecuritySettings, ServerSettings, SettingsReconcileResponse, SystemSettings,
-    UpdateSettingsRequest,
+    EffectiveSettingsEntry, EffectiveSettingsResponse, GeneralSettings, ModelSettings,
+    PerformanceSettings, SecuritySettings, ServerSettings, SettingsReconcileResponse,
+    SystemSettings, UpdateSettingsRequest,
 };
 use adapteros_core::defaults::DEFAULT_SERVER_URL;
 use adapteros_db::{Db, NewRuntimeConfigSnapshot, RuntimeConfigSnapshotRecord};
@@ -26,6 +27,9 @@ const MANAGED_KEYS: &[&str] = &[
     "general.system_name",
     "general.environment",
     "general.api_base_url",
+    "models.discovery_roots",
+    "models.selected_model_path",
+    "models.selected_manifest_path",
     "server.http_port",
     "server.https_port",
     "server.uds_socket_path",
@@ -453,6 +457,38 @@ pub fn warn_or_fail_on_managed_env_collisions(doc: &RuntimeConfigDocument) -> Re
                 .map(|g| g.api_base_url.clone()),
         ),
         (
+            "models.discovery_roots",
+            "AOS_MODEL_DISCOVERY_ROOTS",
+            doc.settings
+                .models
+                .as_ref()
+                .map(|m| m.discovery_roots.join(",")),
+        ),
+        (
+            "models.selected_model_path",
+            "AOS_MODEL_PATH",
+            doc.settings
+                .models
+                .as_ref()
+                .and_then(|m| m.selected_model_path.clone()),
+        ),
+        (
+            "models.selected_manifest_path",
+            "AOS_WORKER_MANIFEST",
+            doc.settings
+                .models
+                .as_ref()
+                .and_then(|m| m.selected_manifest_path.clone()),
+        ),
+        (
+            "models.selected_manifest_path",
+            "AOS_MANIFEST_PATH",
+            doc.settings
+                .models
+                .as_ref()
+                .and_then(|m| m.selected_manifest_path.clone()),
+        ),
+        (
             "server.http_port",
             "AOS_SERVER_PORT",
             doc.settings
@@ -543,6 +579,14 @@ pub fn apply_runtime_overrides(
         ]);
     }
 
+    if request.models.is_some() {
+        report.applied_live.extend([
+            "models.discovery_roots".to_string(),
+            "models.selected_model_path".to_string(),
+            "models.selected_manifest_path".to_string(),
+        ]);
+    }
+
     if request.server.is_some() {
         report.queued_for_restart.extend([
             "server.http_port".to_string(),
@@ -586,6 +630,27 @@ pub fn settings_from_api_config(api: &ApiConfig) -> SystemSettings {
                 .as_ref()
                 .and_then(|g| g.api_base_url.clone())
                 .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string()),
+        },
+        models: ModelSettings {
+            discovery_roots: default_model_discovery_roots()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|path| path.to_string_lossy().to_string())
+                .collect(),
+            selected_model_path: std::env::var("AOS_MODEL_PATH")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty()),
+            selected_manifest_path: std::env::var("AOS_WORKER_MANIFEST")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .or_else(|| {
+                    std::env::var("AOS_MANIFEST_PATH")
+                        .ok()
+                        .map(|v| v.trim().to_string())
+                        .filter(|v| !v.is_empty())
+                }),
         },
         server: ServerSettings {
             http_port: api.server.http_port.unwrap_or(18080),
@@ -634,6 +699,11 @@ pub fn build_effective_settings_response(
             source_map.insert("general.system_name".to_string(), src.clone());
             source_map.insert("general.environment".to_string(), src.clone());
             source_map.insert("general.api_base_url".to_string(), src.clone());
+        }
+        if loaded.document.settings.models.is_some() {
+            source_map.insert("models.discovery_roots".to_string(), src.clone());
+            source_map.insert("models.selected_model_path".to_string(), src.clone());
+            source_map.insert("models.selected_manifest_path".to_string(), src.clone());
         }
         if loaded.document.settings.server.is_some() {
             source_map.insert("server.http_port".to_string(), src.clone());
@@ -685,6 +755,24 @@ pub fn build_effective_settings_response(
         &mut entries,
         "general.api_base_url",
         serde_json::json!(settings.general.api_base_url),
+        &source_map,
+    );
+    add_entry(
+        &mut entries,
+        "models.discovery_roots",
+        serde_json::json!(settings.models.discovery_roots),
+        &source_map,
+    );
+    add_entry(
+        &mut entries,
+        "models.selected_model_path",
+        serde_json::json!(settings.models.selected_model_path),
+        &source_map,
+    );
+    add_entry(
+        &mut entries,
+        "models.selected_manifest_path",
+        serde_json::json!(settings.models.selected_manifest_path),
         &source_map,
     );
     add_entry(
@@ -810,6 +898,7 @@ mod tests {
                 environment: "staging".to_string(),
                 api_base_url: "http://127.0.0.1:18080".to_string(),
             }),
+            models: None,
             server: Some(ServerSettings {
                 http_port: 19080,
                 https_port: None,

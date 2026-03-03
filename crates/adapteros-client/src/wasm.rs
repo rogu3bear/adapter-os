@@ -1,4 +1,4 @@
-use crate::{types::*, CpClient};
+use crate::{adapterOSClient, types::*, TelemetryBundleResponse, TelemetryEvent};
 use anyhow::{Context, Result};
 use gloo_net::http::Request;
 
@@ -15,11 +15,7 @@ macro_rules! check_response {
     };
 }
 
-impl CpClient for WasmClient {
-    fn new(base_url: String) -> Self {
-        Self { base_url }
-    }
-
+impl adapterOSClient for WasmClient {
     async fn health(&self) -> Result<HealthResponse> {
         let url = format!("{}/healthz", self.base_url);
         let resp = Request::get(&url).send().await?;
@@ -60,6 +56,105 @@ impl CpClient for WasmClient {
         let resp = Request::post(&url).json(&req)?.send().await?;
         check_response!(resp, "Failed to create tenant");
         resp.json().await.context("Failed to parse tenant response")
+    }
+
+    async fn list_adapters(&self) -> Result<Vec<AdapterResponse>> {
+        let url = format!("{}/v1/adapters", self.base_url);
+        let resp = Request::get(&url).send().await?;
+        check_response!(resp, "Failed to list adapters");
+        resp.json().await.context("Failed to parse adapters")
+    }
+
+    async fn register_adapter(&self, req: RegisterAdapterRequest) -> Result<AdapterResponse> {
+        let url = format!("{}/v1/adapters/register", self.base_url);
+        let resp = Request::post(&url).json(&req)?.send().await?;
+        check_response!(resp, "Failed to register adapter");
+        resp.json()
+            .await
+            .context("Failed to parse adapter response")
+    }
+
+    async fn pin_adapter(&self, adapter_id: &str, pinned: bool) -> Result<()> {
+        let url = format!("{}/v1/adapters/{}/pin", self.base_url, adapter_id);
+        let req_body = serde_json::json!({ "pinned": pinned });
+        let resp = Request::post(&url).json(&req_body)?.send().await?;
+        check_response!(resp, "Failed to pin adapter");
+        Ok(())
+    }
+
+    async fn get_memory_usage(&self) -> Result<MemoryUsageResponse> {
+        let url = format!("{}/v1/system/memory", self.base_url);
+        let resp = Request::get(&url).send().await?;
+        check_response!(resp, "Failed to get memory usage");
+        resp.json().await.context("Failed to parse memory usage")
+    }
+
+    async fn start_adapter_training(
+        &self,
+        req: StartTrainingRequest,
+    ) -> Result<TrainingSessionResponse> {
+        let url = format!("{}/v1/training/start", self.base_url);
+        let resp = Request::post(&url).json(&req)?.send().await?;
+        check_response!(resp, "Failed to start adapter training");
+        resp.json()
+            .await
+            .context("Failed to parse training session response")
+    }
+
+    async fn get_training_session(&self, session_id: &str) -> Result<TrainingSessionResponse> {
+        let url = format!("{}/v1/training/jobs/{}", self.base_url, session_id);
+        let resp = Request::get(&url).send().await?;
+        check_response!(resp, "Failed to get training session");
+        resp.json()
+            .await
+            .context("Failed to parse training session response")
+    }
+
+    async fn list_training_sessions(&self) -> Result<Vec<TrainingSessionResponse>> {
+        let url = format!("{}/v1/training/jobs", self.base_url);
+        let resp = Request::get(&url).send().await?;
+        check_response!(resp, "Failed to list training sessions");
+        resp.json()
+            .await
+            .context("Failed to parse training sessions response")
+    }
+
+    async fn get_telemetry_events(&self, filters: TelemetryFilters) -> Result<Vec<TelemetryEvent>> {
+        let mut url = format!("{}/v1/telemetry/events", self.base_url);
+        let mut params = Vec::new();
+
+        if let Some(limit) = filters.limit {
+            params.push(format!("limit={}", limit));
+        }
+        if let Some(tenant_id) = filters.tenant_id {
+            params.push(format!("tenant_id={}", tenant_id));
+        }
+        if let Some(user_id) = filters.user_id {
+            params.push(format!("user_id={}", user_id));
+        }
+        if let Some(start_time) = filters.start_time {
+            params.push(format!("start_time={}", start_time));
+        }
+        if let Some(end_time) = filters.end_time {
+            params.push(format!("end_time={}", end_time));
+        }
+        if let Some(event_type) = filters.event_type {
+            params.push(format!("event_type={}", event_type));
+        }
+        if let Some(level) = filters.level {
+            params.push(format!("level={}", level));
+        }
+
+        if !params.is_empty() {
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
+
+        let resp = Request::get(&url).send().await?;
+        check_response!(resp, "Failed to get telemetry events");
+        resp.json()
+            .await
+            .context("Failed to parse telemetry events response")
     }
 
     async fn list_nodes(&self) -> Result<Vec<NodeResponse>> {
@@ -253,8 +348,8 @@ impl CpClient for WasmClient {
         resp.json().await.context("Failed to parse commit details")
     }
 
-    async fn evict_adapter(&self, adapter_id: String) -> Result<()> {
-        let url = format!("{}/v1/code/adapters/{}/evict", self.base_url, adapter_id);
+    async fn evict_adapter(&self, adapter_id: &str) -> Result<()> {
+        let url = format!("{}/v1/adapters/{}/evict", self.base_url, adapter_id);
         let resp = Request::post(&url).send().await?;
         check_response!(resp, "Failed to evict adapter");
         Ok(())
@@ -317,5 +412,11 @@ impl CpClient for WasmClient {
         resp.json()
             .await
             .context("Failed to parse metrics comparison")
+    }
+}
+
+impl WasmClient {
+    pub fn new(base_url: String) -> Self {
+        Self { base_url }
     }
 }

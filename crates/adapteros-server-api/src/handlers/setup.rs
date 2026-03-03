@@ -3,12 +3,12 @@
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
+use crate::model_roots::resolve_model_allowed_roots;
 use crate::state::AppState;
 use adapteros_api_types::{
     schema_version, SetupDiscoverModelsResponse, SetupDiscoveredModel, SetupMigrateResponse,
     SetupSeedModelResult, SetupSeedModelStatus, SetupSeedModelsRequest, SetupSeedModelsResponse,
 };
-use adapteros_config::resolve_base_model_location;
 use adapteros_db::users::Role;
 use adapteros_db::{SetupSeedOptions, SetupSeedStatus};
 use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
@@ -20,23 +20,10 @@ use chrono::Utc;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-async fn model_allowed_roots() -> Result<Vec<PathBuf>, ApiError> {
-    let location = resolve_base_model_location(None, None, false)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-
-    if !location.cache_root.exists() {
-        tokio::fs::create_dir_all(&location.cache_root)
-            .await
-            .map_err(|e| {
-                ApiError::internal(format!(
-                    "Failed to create model cache root {}: {}",
-                    location.cache_root.display(),
-                    e
-                ))
-            })?;
-    }
-
-    Ok(vec![location.cache_root])
+async fn model_allowed_roots(state: &AppState) -> Result<Vec<PathBuf>, ApiError> {
+    resolve_model_allowed_roots(Some(&state.db))
+        .await
+        .map_err(ApiError::internal)
 }
 
 fn canonicalize_model_path(path: &Path, allowed_roots: &[PathBuf]) -> Result<PathBuf, ApiError> {
@@ -94,18 +81,26 @@ pub async fn setup_discover_models(
 ) -> ApiResult<SetupDiscoverModelsResponse> {
     require_any_role(&claims, &[Role::Admin]).map_err(|_| ApiError::forbidden("access denied"))?;
 
-    let allowed_roots = model_allowed_roots().await?;
+    let allowed_roots = model_allowed_roots(&state).await?;
     let canonical_roots: Vec<PathBuf> = allowed_roots
         .iter()
         .map(|root| canonicalize_model_path(root, &allowed_roots))
         .collect::<Result<Vec<_>, _>>()?;
 
     let registered_paths: HashSet<String> = if state.db.pool_opt().is_some() {
-        sqlx::query_scalar::<_, String>("SELECT model_path FROM models")
-            .fetch_all(state.db.pool_result()?)
-            .await
-            .map_err(ApiError::db_error)?
+        let db_paths: Vec<String> =
+            sqlx::query_scalar::<_, String>("SELECT model_path FROM models")
+                .fetch_all(state.db.pool_result()?)
+                .await
+                .map_err(ApiError::db_error)?;
+        db_paths
             .into_iter()
+            .flat_map(|path| {
+                let canonical = canonicalize_model_path(Path::new(&path), &allowed_roots)
+                    .ok()
+                    .map(|p| p.to_string_lossy().to_string());
+                std::iter::once(path).chain(canonical)
+            })
             .collect()
     } else {
         HashSet::new()
@@ -162,7 +157,7 @@ pub async fn setup_seed_models(
         return Err(ApiError::bad_request("model_paths must not be empty"));
     }
 
-    let allowed_roots = model_allowed_roots().await?;
+    let allowed_roots = model_allowed_roots(&state).await?;
     let canonical_paths: Vec<PathBuf> = req
         .model_paths
         .iter()

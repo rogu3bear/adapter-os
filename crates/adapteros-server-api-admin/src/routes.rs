@@ -19,7 +19,6 @@ use crate::handlers::{
     disable_plugin,
     enable_plugin,
     // Service handlers
-    get_service_logs,
     // Settings handlers
     get_settings,
     list_plugins,
@@ -79,7 +78,6 @@ where
 /// - `POST /v1/services/:id/restart` - Restart a service
 /// - `POST /v1/services/essential/start` - Start all essential services
 /// - `POST /v1/services/essential/stop` - Stop all essential services
-/// - `GET /v1/services/:id/logs` - Get service logs
 ///
 /// ### Plugins (viewer+ for read, operator+ for write)
 /// - `GET /v1/plugins` - List all plugins
@@ -125,7 +123,6 @@ where
             "/v1/services/essential/stop",
             post(stop_essential_services::<S>),
         )
-        .route("/v1/services/:service_id/logs", get(get_service_logs::<S>))
         // Plugin routes
         .route("/v1/plugins", get(list_plugins::<S>))
         .route("/v1/plugins/:name", get(plugin_status::<S>))

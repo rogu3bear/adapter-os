@@ -523,6 +523,138 @@ async fn get_model_by_name_for_tenant_allows_global_model() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn update_model_name_for_tenant_success() -> Result<()> {
+    let db = new_test_db().await?;
+    create_tenant(&db, "tenant-a").await?;
+
+    let model_id = db
+        .import_model_from_path(
+            "rename-source",
+            "/var/models/rename-source",
+            "safetensors",
+            "metal",
+            "tenant-a",
+            "user-1",
+            ModelImportStatus::Importing,
+        )
+        .await?;
+
+    db.update_model_name_for_tenant("tenant-a", &model_id, "rename-target")
+        .await?;
+
+    let renamed = db.get_model(&model_id).await?.expect("model should exist");
+    assert_eq!(renamed.name, "rename-target");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_model_name_for_tenant_rejects_empty_name() -> Result<()> {
+    let db = new_test_db().await?;
+    create_tenant(&db, "tenant-a").await?;
+
+    let model_id = db
+        .import_model_from_path(
+            "rename-empty",
+            "/var/models/rename-empty",
+            "safetensors",
+            "metal",
+            "tenant-a",
+            "user-1",
+            ModelImportStatus::Importing,
+        )
+        .await?;
+
+    let err = db
+        .update_model_name_for_tenant("tenant-a", &model_id, "   ")
+        .await
+        .expect_err("empty names should fail");
+    assert!(
+        err.to_string().contains("Model name cannot be empty"),
+        "unexpected error: {}",
+        err
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_model_name_for_tenant_denies_other_tenant() -> Result<()> {
+    let db = new_test_db().await?;
+    create_tenant(&db, "tenant-a").await?;
+    create_tenant(&db, "tenant-b").await?;
+
+    let model_id = db
+        .import_model_from_path(
+            "tenant-a-only",
+            "/var/models/tenant-a-only",
+            "safetensors",
+            "metal",
+            "tenant-a",
+            "user-1",
+            ModelImportStatus::Importing,
+        )
+        .await?;
+
+    let err = db
+        .update_model_name_for_tenant("tenant-b", &model_id, "should-not-apply")
+        .await
+        .expect_err("cross-tenant rename should fail");
+    assert!(
+        err.to_string().contains("Model not found"),
+        "unexpected error: {}",
+        err
+    );
+
+    let model = db.get_model(&model_id).await?.expect("model should exist");
+    assert_eq!(model.name, "tenant-a-only");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_model_name_for_tenant_conflicts_on_duplicate_name() -> Result<()> {
+    let db = new_test_db().await?;
+    create_tenant(&db, "tenant-a").await?;
+
+    db.import_model_from_path(
+        "existing-name",
+        "/var/models/existing-name",
+        "safetensors",
+        "metal",
+        "tenant-a",
+        "user-1",
+        ModelImportStatus::Importing,
+    )
+    .await?;
+
+    let model_id = db
+        .import_model_from_path(
+            "rename-candidate",
+            "/var/models/rename-candidate",
+            "safetensors",
+            "metal",
+            "tenant-a",
+            "user-1",
+            ModelImportStatus::Importing,
+        )
+        .await?;
+
+    let err = db
+        .update_model_name_for_tenant("tenant-a", &model_id, "existing-name")
+        .await
+        .expect_err("duplicate target name should fail");
+    assert!(
+        err.to_string()
+            .contains("UNIQUE constraint failed: models.name"),
+        "unexpected error: {}",
+        err
+    );
+
+    Ok(())
+}
+
 // ============================================================================
 // Model Import Tests
 // ============================================================================

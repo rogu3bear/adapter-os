@@ -56,6 +56,7 @@ use tracing::{debug, error, info, warn};
 
 const METRIC_CHUNKED_UPLOAD_COMPLETED: &str = "chunked_upload_completed";
 const METRIC_CHUNKED_UPLOAD_FAILED: &str = "chunked_upload_failed";
+const CHUNKED_UPLOAD_SESSION_FAILED_CODE: &str = "UPLOAD_SESSION_FAILED";
 
 async fn mark_session_failed_with_metric(
     state: &AppState,
@@ -70,6 +71,16 @@ async fn mark_session_failed_with_metric(
         return true;
     }
     false
+}
+
+fn derive_upload_session_error_code(session_record: &UploadSessionRecord) -> Option<String> {
+    if session_record.status.eq_ignore_ascii_case("failed")
+        || session_record.error_message.is_some()
+    {
+        Some(CHUNKED_UPLOAD_SESSION_FAILED_CODE.to_string())
+    } else {
+        None
+    }
 }
 
 async fn ensure_session_loaded(
@@ -1406,7 +1417,7 @@ pub async fn get_upload_session_status(
         .await
         .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
-    let _session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
+    let session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
     let session = state
         .upload_session_manager
         .get_session(&session_id)
@@ -1439,6 +1450,7 @@ pub async fn get_upload_session_status(
         is_complete,
         created_at,
         compression_format: format!("{:?}", session.compression),
+        error_code: derive_upload_session_error_code(&session_record),
     }))
 }
 

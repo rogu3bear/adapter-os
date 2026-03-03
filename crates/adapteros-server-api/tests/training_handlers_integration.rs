@@ -5,7 +5,7 @@
 
 use adapteros_core::Result;
 use adapteros_server_api::handlers::{
-    cancel_training, get_training_job, get_training_logs, get_training_queue, list_training_jobs,
+    cancel_training, get_training_job, get_training_queue, list_training_jobs,
 };
 use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::types::TrainingListParams;
@@ -250,81 +250,6 @@ async fn get_training_job_prefers_db_status_over_in_memory_shadow() -> Result<()
     assert_eq!(
         job.status, "cancelled",
         "DB status should be authoritative over in-memory shadow state"
-    );
-
-    delete_test_training_job(&state, &in_memory_job.id).await?;
-    Ok(())
-}
-
-/// Test training logs use authoritative DB status when in-memory state diverges.
-#[tokio::test]
-async fn get_training_logs_prefers_db_status_over_in_memory_shadow() -> Result<()> {
-    let state = setup_state(None).await.expect("state");
-
-    let in_memory_job = state
-        .training_service
-        .start_training(
-            "shadow-logs-job".to_string(),
-            TrainingConfig::default(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            true,
-            DataLineageMode::Synthetic,
-            Some("tenant-1".to_string()),
-            Some("tenant-1-user".to_string()),
-            Some("admin".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("start in-memory job");
-
-    state.db.ensure_direct_training_repo_exists("user1").await?;
-
-    adapteros_db::sqlx::query(
-        "INSERT INTO repository_training_jobs (id, repo_id, tenant_id, training_config_json, status, progress_json, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&in_memory_job.id)
-    .bind("direct-training")
-    .bind("tenant-1")
-    .bind("{\"rank\":16,\"alpha\":32}")
-    .bind("cancelled")
-    .bind("{}")
-    .bind("user1")
-    .execute(state.db.pool_result()?)
-    .await?;
-
-    let claims = test_admin_claims();
-    let logs = get_training_logs(
-        State(state.clone()),
-        Extension(claims),
-        Path(in_memory_job.id.clone()),
-    )
-    .await
-    .expect("logs should succeed")
-    .0;
-
-    assert!(
-        logs.iter().any(|line| line == "Status: cancelled"),
-        "logs should reflect authoritative DB status"
     );
 
     delete_test_training_job(&state, &in_memory_job.id).await?;

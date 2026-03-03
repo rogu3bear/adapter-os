@@ -125,6 +125,55 @@ impl Db {
         Ok(plan)
     }
 
+    /// Update the manifest hash associated with a logical plan id.
+    /// Returns true when an existing plan row was updated.
+    pub async fn update_plan_manifest_hash_by_plan_id(
+        &self,
+        plan_id_b3: &str,
+        manifest_hash_b3: &str,
+    ) -> Result<bool> {
+        let mut updated = false;
+
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                let result =
+                    sqlx::query("UPDATE plans SET manifest_hash_b3 = ? WHERE plan_id_b3 = ?")
+                        .bind(manifest_hash_b3)
+                        .bind(plan_id_b3)
+                        .execute(pool)
+                        .await
+                        .map_err(|e| {
+                            AosError::Database(format!(
+                                "Failed to update plan manifest hash by plan_id: {}",
+                                e
+                            ))
+                        })?;
+                updated |= result.rows_affected() > 0;
+            } else if !self.storage_mode().write_to_kv() {
+                return Err(AosError::Database(
+                    "SQL backend unavailable for update_plan_manifest_hash_by_plan_id".to_string(),
+                ));
+            }
+        }
+
+        if self.storage_mode().write_to_kv() {
+            if let Some(repo) = self.get_plan_kv_repo() {
+                if let Some(mut kv_plan) = repo
+                    .list_all()
+                    .await?
+                    .into_iter()
+                    .find(|p| p.plan_id_b3 == plan_id_b3)
+                {
+                    kv_plan.manifest_hash_b3 = manifest_hash_b3.to_string();
+                    repo.put_plan(kv_plan).await?;
+                    updated = true;
+                }
+            }
+        }
+
+        Ok(updated)
+    }
+
     pub async fn list_plans_by_tenant(&self, tenant_id: &str) -> Result<Vec<Plan>> {
         if self.storage_mode().read_from_kv() {
             if let Some(repo) = self.get_plan_kv_repo() {

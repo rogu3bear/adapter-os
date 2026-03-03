@@ -179,9 +179,16 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         worker_id: String,
         jti_cache: Arc<Mutex<JtiCacheStore>>,
     ) -> Self {
+        let jti_cache_capacity = match jti_cache.try_lock() {
+            Ok(cache) => cache.capacity(),
+            Err(_) => {
+                warn!("JTI cache lock busy while constructing UDS server; omitting exact capacity");
+                0
+            }
+        };
         info!(
             worker_id = %worker_id,
-            jti_cache_capacity = jti_cache.blocking_lock().capacity(),
+            jti_cache_capacity = jti_cache_capacity,
             "UDS server configured with worker token validation and persistent JTI cache"
         );
         Self {

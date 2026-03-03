@@ -84,6 +84,7 @@ pub struct ClientTelemetryEvent {
 }
 
 /// Conversion from canonical TelemetryEvent to client DTO
+#[cfg(not(target_arch = "wasm32"))]
 impl From<adapteros_telemetry::unified_events::TelemetryEvent> for ClientTelemetryEvent {
     fn from(ev: adapteros_telemetry::unified_events::TelemetryEvent) -> Self {
         ClientTelemetryEvent {

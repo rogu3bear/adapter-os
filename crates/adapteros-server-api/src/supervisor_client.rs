@@ -324,54 +324,6 @@ impl SupervisorClient {
             .await
     }
 
-    /// Get service logs
-    ///
-    /// # Arguments
-    /// * `service_id` - The ID of the service
-    /// * `lines` - Optional number of lines to retrieve (defaults to 100)
-    ///
-    /// # Errors
-    /// Returns `AosError::NotFound` if the service doesn't exist
-    /// Returns `AosError::Network` if the request fails
-    pub async fn get_service_logs(
-        &self,
-        service_id: &str,
-        lines: Option<u32>,
-    ) -> Result<Vec<String>> {
-        let mut url = format!("{}/api/services/{}/logs", self.base_url, service_id);
-        if let Some(lines) = lines {
-            url.push_str(&format!("?lines={}", lines));
-        }
-
-        let response = self
-            .retry_request(|| async { self.client.get(&url).timeout(self.timeout).send().await })
-            .await?;
-
-        match response.status() {
-            StatusCode::OK => {
-                #[derive(Deserialize)]
-                struct LogsResponse {
-                    logs: Vec<String>,
-                }
-
-                let logs_response: LogsResponse = response.json().await.map_err(|e| {
-                    AosError::Network(format!("Failed to parse logs response: {}", e))
-                })?;
-
-                Ok(logs_response.logs)
-            }
-            StatusCode::NOT_FOUND => Err(AosError::NotFound(format!(
-                "Service '{}' not found",
-                service_id
-            ))),
-            status => Err(AosError::Network(format!(
-                "Supervisor API returned status {}: {}",
-                status,
-                response.text().await.unwrap_or_default()
-            ))),
-        }
-    }
-
     /// Health check - verify supervisor is reachable
     ///
     /// # Errors

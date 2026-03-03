@@ -11,22 +11,27 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
+
+# Feature-gated dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
-# Feature-gated dependencies
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { workspace = true, features = ["sync", "net", "io-util", "time"] }
 tokio-stream.workspace = true
 futures-util.workspace = true
 async-stream.workspace = true
 eventsource-client = "0.12"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+adapteros-api-types = { path = "../adapteros-api-types", default-features = false, features = ["wasm"] }
+adapteros-types = { path = "../adapteros-types", default-features = false, features = ["wasm"] }
 gloo-net = { version = "0.5", features = ["http", "json", "eventsource"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["EventSource", "MessageEvent"] }
 js-sys = "0.3"
+
 [features]
 default = []

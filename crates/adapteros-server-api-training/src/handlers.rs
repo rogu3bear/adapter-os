@@ -31,7 +31,6 @@
 //! - `export_coreml_training_job` - Trigger CoreML export
 //!
 //! ## Metrics & Logs
-//! - `get_training_logs` - Get job logs
 //! - `get_training_metrics` - Get job metrics
 //! - `get_training_report` - Get training report artifact
 //!
