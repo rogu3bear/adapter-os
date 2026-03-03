@@ -39,6 +39,19 @@ aosctl models quantize-qwen35 \
 
 Compatibility mode (not default): add `--metrics-from-flags` and pass explicit metric flags.
 
+## Beginner Assisted Flow
+
+Use guided setup when running this for the first time:
+
+```bash
+aosctl models quantize-qwen35 \
+  --input var/models/Qwen3.5-27B \
+  --output . \
+  --guided
+```
+
+Use `--dry-run` to validate inputs/revision and preview execution without writing quantized artifacts.
+
 ## Gate Policy
 
 The command evaluates and enforces:

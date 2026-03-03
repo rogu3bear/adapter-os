@@ -86,6 +86,7 @@ flowchart TB
 aosctl models quantize-qwen35 \
   --input var/models/Qwen3.5-27B \
   --output . \
+  --guided \
   --revision auto \
   --golden-prompts data/golden_prompts.jsonl \
   --calibration data/calibration.jsonl \
@@ -94,6 +95,25 @@ aosctl models quantize-qwen35 \
 ```
 
 Default behavior computes gate metrics in-command using deterministic evaluation flow. Legacy compatibility mode is available via `--metrics-from-flags`.
+
+Beginner-first flow:
+
+```bash
+aosctl models quantize-qwen35 \
+  --input var/models/Qwen3.5-27B \
+  --output . \
+  --guided
+```
+
+Preflight only:
+
+```bash
+aosctl models quantize-qwen35 \
+  --input var/models/Qwen3.5-27B \
+  --output . \
+  --guided \
+  --dry-run
+```
 
 Exit codes:
 

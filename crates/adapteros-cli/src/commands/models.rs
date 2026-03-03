@@ -74,6 +74,7 @@ pub enum ModelsCommand {
     --input var/models/Qwen3.5-27B \
     --output . \
     --enforce-gates \
+    --guided \
     --metrics-from-flags \
     --golden-prompts data/golden_prompts.jsonl \
     --calibration data/calibration.jsonl \
@@ -134,6 +135,18 @@ pub enum ModelsCommand {
         /// Enforce acceptance gates and fallback ladder
         #[arg(long, default_value_t = false)]
         enforce_gates: bool,
+
+        /// Interactive guided setup for missing inputs and beginner UX
+        #[arg(long, default_value_t = false)]
+        guided: bool,
+
+        /// Preflight only: validate and resolve revision without quantizing
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+
+        /// Print beginner-friendly failure explanations on gate failure
+        #[arg(long, default_value_t = true)]
+        beginner_explain: bool,
 
         /// Compatibility mode: read gate metrics from CLI flags instead of computing in command
         #[arg(long, default_value_t = false)]
@@ -200,6 +213,9 @@ pub async fn handle_models_command(
             calibration,
             baseline_fp16,
             enforce_gates,
+            guided,
+            dry_run,
+            beginner_explain,
             metrics_from_flags,
             logit_cosine_mean,
             ppl_delta_pct,
@@ -223,6 +239,9 @@ pub async fn handle_models_command(
                 baseline_fp16,
                 enforce_gates,
                 metrics_from_flags,
+                guided,
+                dry_run,
+                beginner_explain,
                 metrics: GateMetrics {
                     logit_cosine_mean,
                     ppl_delta_pct,

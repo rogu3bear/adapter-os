@@ -10,6 +10,7 @@ use adapteros_core::AosError;
 use adapteros_db::{Db, SetupSeedOptions};
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
+use dialoguer::{theme::ColorfulTheme, Confirm, Input};
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -40,6 +41,9 @@ pub struct QuantizeQwen35Request {
     pub baseline_fp16: Option<PathBuf>,
     pub enforce_gates: bool,
     pub metrics_from_flags: bool,
+    pub guided: bool,
+    pub dry_run: bool,
+    pub beginner_explain: bool,
     pub metrics: GateMetrics,
     pub output_json: bool,
 }
@@ -227,11 +231,12 @@ pub async fn run_qwen35_pipeline(
     mut req: QuantizeQwen35Request,
     out: &OutputWriter,
 ) -> Result<QuantizationRunOutcome> {
-    validate_request(&req)?;
-
     if req.hf_repo.trim().is_empty() {
         req.hf_repo = DEFAULT_HF_REPO.to_string();
     }
+
+    maybe_collect_guided_inputs(&mut req, out)?;
+    validate_request(&req)?;
 
     out.section("Quantize Qwen3.5-27B");
     out.info("phase 1/6: resolve source revision + validate inputs");
@@ -259,6 +264,30 @@ pub async fn run_qwen35_pipeline(
     out.kv("Repo", &req.hf_repo);
     out.kv("Revision", &revision_sha);
     out.kv("Profile", &primary_profile);
+
+    if req.dry_run {
+        let report = QuantizationRunReport {
+            phase: "dry_run".to_string(),
+            selected_profile: primary_profile,
+            artifact_dir: primary_artifact_dir.display().to_string(),
+            fallback_attempted: false,
+            gates_passed: false,
+            failed_gates: Vec::new(),
+            gate_decisions: Vec::new(),
+            aggregate_checksum: String::new(),
+            reproducibility_digest: String::new(),
+            baseline_ref: req.baseline_fp16.as_ref().map(|p| p.display().to_string()),
+            revision_sha,
+            registry_seeded: false,
+        };
+        out.info("dry-run enabled: preflight validated, quantization skipped");
+        emit_report(out, req.output_json, &report)?;
+        return Ok(QuantizationRunOutcome {
+            report,
+            exit_code: 0,
+        });
+    }
+
     out.info("phase 2/6: quantize primary profile");
 
     let primary_result = run_profile(
@@ -271,6 +300,7 @@ pub async fn run_qwen35_pipeline(
         &primary_artifact_name,
         out,
     )?;
+    out.info("phase 3/6: evaluate primary profile gates");
 
     if primary_result.gates_passed {
         out.info("phase 5/6: register passing artifact");
@@ -290,6 +320,7 @@ pub async fn run_qwen35_pipeline(
         report.phase = "complete_without_registration".to_string();
         report.registry_seeded = false;
         out.warning("gates not satisfied; artifact was not registered");
+        emit_beginner_guidance(out, &req, &report);
         emit_report(out, req.output_json, &report)?;
         return Ok(QuantizationRunOutcome {
             report,
@@ -327,11 +358,13 @@ pub async fn run_qwen35_pipeline(
         out,
     )?;
     fallback_result.fallback_attempted = true;
+    out.info("phase 4/6: evaluate fallback profile gates");
 
     if !fallback_result.gates_passed {
         fallback_result.phase = "failed_gates".to_string();
         fallback_result.registry_seeded = false;
         out.warning("fallback gates failed; no artifact registered");
+        emit_beginner_guidance(out, &req, &fallback_result);
         emit_report(out, req.output_json, &fallback_result)?;
         return Ok(QuantizationRunOutcome {
             report: fallback_result,
@@ -343,6 +376,7 @@ pub async fn run_qwen35_pipeline(
     fallback_result.registry_seeded =
         register_quantized_artifact(Path::new(&fallback_result.artifact_dir), out).await?;
     fallback_result.phase = "complete".to_string();
+    out.info("phase 6/6: final report");
     emit_report(out, req.output_json, &fallback_result)?;
     Ok(QuantizationRunOutcome {
         report: fallback_result,
@@ -399,6 +433,161 @@ fn validate_request(req: &QuantizeQwen35Request) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn maybe_collect_guided_inputs(req: &mut QuantizeQwen35Request, out: &OutputWriter) -> Result<()> {
+    if !req.guided {
+        return Ok(());
+    }
+    if req.output_json {
+        return Err(anyhow!("--guided cannot be combined with --json output"));
+    }
+
+    out.info("guided setup: collecting required release inputs");
+    let theme = ColorfulTheme::default();
+
+    req.enforce_gates = Confirm::with_theme(&theme)
+        .with_prompt("Enforce release gates (recommended for production)?")
+        .default(req.enforce_gates || req.golden_prompts.is_some() || req.calibration.is_some())
+        .interact()
+        .context("failed to read guided confirmation for gate enforcement")?;
+
+    if req.hf_repo.trim().is_empty() {
+        req.hf_repo = Input::with_theme(&theme)
+            .with_prompt("Hugging Face repo")
+            .default(DEFAULT_HF_REPO.to_string())
+            .interact_text()
+            .context("failed to read guided hf repo")?;
+    }
+
+    if req.revision.as_deref().unwrap_or("auto").trim().is_empty() {
+        req.revision = Some(
+            Input::with_theme(&theme)
+                .with_prompt("Revision SHA or auto")
+                .default("auto".to_string())
+                .interact_text()
+                .context("failed to read guided revision")?,
+        );
+    }
+
+    if req.enforce_gates {
+        if req.golden_prompts.is_none() {
+            req.golden_prompts = Some(prompt_path(&theme, "Path to golden prompts JSONL")?);
+        }
+        if req.calibration.is_none() {
+            req.calibration = Some(prompt_path(&theme, "Path to calibration JSONL")?);
+        }
+        if req.baseline_fp16.is_none() {
+            req.baseline_fp16 = Some(prompt_path(&theme, "Path to baseline FP16 artifact")?);
+        }
+    }
+
+    if req.enforce_gates {
+        let compute_in_command = Confirm::with_theme(&theme)
+            .with_prompt("Compute evaluation metrics in-command?")
+            .default(!req.metrics_from_flags)
+            .interact()
+            .context("failed to read guided metric mode")?;
+        req.metrics_from_flags = !compute_in_command;
+    }
+
+    req.dry_run = Confirm::with_theme(&theme)
+        .with_prompt("Run preflight only (dry run)?")
+        .default(req.dry_run)
+        .interact()
+        .context("failed to read guided dry-run choice")?;
+
+    Ok(())
+}
+
+fn prompt_path(theme: &ColorfulTheme, label: &str) -> Result<PathBuf> {
+    let value: String = Input::with_theme(theme)
+        .with_prompt(label)
+        .interact_text()
+        .context("failed to read guided path")?;
+    Ok(PathBuf::from(value))
+}
+
+fn emit_beginner_guidance(
+    out: &OutputWriter,
+    req: &QuantizeQwen35Request,
+    report: &QuantizationRunReport,
+) {
+    if !req.beginner_explain || req.output_json {
+        return;
+    }
+    if report.failed_gates.is_empty() {
+        return;
+    }
+
+    out.info("Beginner guidance:");
+    for failed in &report.failed_gates {
+        out.info(format!("- {}", explain_failed_gate(failed)));
+    }
+    out.info(format!(
+        "- Re-run command: {}",
+        suggested_rerun_command(req)
+    ));
+}
+
+fn explain_failed_gate(failed: &str) -> String {
+    if failed.starts_with("eval.logit_cosine_mean") {
+        return "Model output similarity dropped below threshold; use a safer profile (g128/int8) or refresh calibration data.".to_string();
+    }
+    if failed.starts_with("eval.ppl_delta_pct") {
+        return "Perplexity increased too much versus baseline; quality regression is above policy.".to_string();
+    }
+    if failed.starts_with("eval.task_proxy_delta_abs") {
+        return "Task proxy quality loss exceeded limit; adjust quantization profile or calibration set.".to_string();
+    }
+    if failed.starts_with("perf.tok_s_1k") || failed.starts_with("perf.tok_s_8k") {
+        return "Throughput is below release target; verify hardware profile and reduce runtime pressure.".to_string();
+    }
+    if failed.starts_with("perf.rss_mb_peak") {
+        return "Peak memory exceeded budget; lower context/batch pressure or use fallback profile.".to_string();
+    }
+    if failed.starts_with("eval.human_critical_regressions") {
+        return "Human spot-check found critical regressions; do not promote this artifact."
+            .to_string();
+    }
+    if failed.starts_with("eval.dataset_validation_missing") {
+        return "Evaluation dataset validation is missing; provide valid golden/calibration JSONL chat-format files.".to_string();
+    }
+    if failed.starts_with("eval.baseline_fp16_missing") {
+        return "Baseline FP16 artifact is missing; provide --baseline-fp16 for policy comparison."
+            .to_string();
+    }
+    format!("Gate failed: {failed}")
+}
+
+fn suggested_rerun_command(req: &QuantizeQwen35Request) -> String {
+    let mut cmd = vec![
+        "aosctl models quantize-qwen35".to_string(),
+        format!("--input {}", req.input.display()),
+        format!("--output {}", req.output_root.display()),
+        format!("--hf-repo {}", req.hf_repo),
+        format!("--revision {}", req.revision.as_deref().unwrap_or("auto")),
+        format!("--group-size {}", req.group_size),
+        format!("--context-default {}", req.context_default),
+        format!("--context-max {}", req.context_max),
+        format!("--seed {}", req.seed),
+    ];
+    if req.enforce_gates {
+        cmd.push("--enforce-gates".to_string());
+    }
+    if let Some(path) = &req.golden_prompts {
+        cmd.push(format!("--golden-prompts {}", path.display()));
+    }
+    if let Some(path) = &req.calibration {
+        cmd.push(format!("--calibration {}", path.display()));
+    }
+    if let Some(path) = &req.baseline_fp16 {
+        cmd.push(format!("--baseline-fp16 {}", path.display()));
+    }
+    if req.metrics_from_flags {
+        cmd.push("--metrics-from-flags".to_string());
+    }
+    cmd.join(" ")
 }
 
 async fn register_quantized_artifact(artifact_dir: &Path, out: &OutputWriter) -> Result<bool> {
@@ -1433,6 +1622,9 @@ impl Default for QuantizeQwen35Request {
             baseline_fp16: None,
             enforce_gates: false,
             metrics_from_flags: false,
+            guided: false,
+            dry_run: false,
+            beginner_explain: true,
             metrics: GateMetrics::default(),
             output_json: false,
         }
@@ -1550,6 +1742,9 @@ mod tests {
             baseline_fp16: Some(input_dir),
             enforce_gates: true,
             metrics_from_flags: true,
+            guided: false,
+            dry_run: false,
+            beginner_explain: true,
             metrics: GateMetrics {
                 logit_cosine_mean: Some(0.5),
                 ppl_delta_pct: Some(20.0),
@@ -1568,6 +1763,42 @@ mod tests {
         assert_eq!(outcome.exit_code, 2);
         assert!(!outcome.report.registry_seeded);
         assert!(!outcome.report.gates_passed);
+    }
+
+    #[tokio::test]
+    async fn dry_run_exits_without_writing_artifacts() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let temp = TempDir::with_prefix("aos-qwen35-dry-run-").expect("create temp");
+        let input_dir = temp.path().join("input");
+        std::fs::create_dir_all(&input_dir).expect("create input dir");
+        write_test_safetensor(&input_dir.join("model-qwen-test.safetensors"));
+        std::fs::write(input_dir.join("config.json"), "{}").expect("write config");
+        std::fs::write(input_dir.join("tokenizer.json"), "{\"test\":true}")
+            .expect("write tokenizer");
+
+        let output = OutputWriter::new(OutputMode::Quiet, false);
+        let req = QuantizeQwen35Request {
+            input: input_dir,
+            output_root: temp.path().to_path_buf(),
+            revision: Some("abcdef1234567890".to_string()),
+            dry_run: true,
+            ..QuantizeQwen35Request::default()
+        };
+
+        let outcome = run_qwen35_pipeline(req, &output)
+            .await
+            .expect("dry-run outcome");
+        assert_eq!(outcome.exit_code, 0);
+        assert_eq!(outcome.report.phase, "dry_run");
+        assert!(!Path::new(&outcome.report.artifact_dir).exists());
+    }
+
+    #[test]
+    fn beginner_explanation_maps_known_gate_failures() {
+        let text = explain_failed_gate("eval.logit_cosine_mean:0.9<0.985");
+        assert!(text.contains("similarity"));
+        let fallback = explain_failed_gate("unknown.gate");
+        assert!(fallback.contains("Gate failed"));
     }
 
     #[test]
