@@ -6,8 +6,10 @@ use adapteros_core::defaults::DEFAULT_TRAINING_REPORTS_SUBDIR;
 use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::{loss_to_perplexity_curve, TrainingResult};
 use adapteros_types::training::{
-    OptimizerConfigSummary, TrainingReportCurves, TrainingReportMetricDefinitions,
-    TrainingReportSummary, TrainingReportV1,
+    OptimizerConfigSummary, TrainingQuantizationReportV1, TrainingReportCurves,
+    TrainingReportMetricDefinitions, TrainingReportSummary, TrainingReportV1,
+    TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS,
+    TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE,
 };
 
 pub(crate) fn training_report_path(artifacts_root: &Path, job_id: &str) -> PathBuf {
@@ -145,6 +147,13 @@ fn build_training_report(
             total_steps: "Total training steps, defined as examples processed across all epochs.".to_string(),
             total_tokens: "Total tokens processed across the training split.".to_string(),
         },
+        quantization_report: Some(TrainingQuantizationReportV1 {
+            gate_source: TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS.to_string(),
+            probe_status: TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE.to_string(),
+            probe_error: None,
+            policy_metrics: None,
+            probe_metrics: None,
+        }),
         generated_at_unix_ms,
     }
 }
@@ -271,6 +280,10 @@ mod tests {
     "early_stopped": "True when training stopped before target_epochs without cancellation.",
     "total_steps": "Total training steps, defined as examples processed across all epochs.",
     "total_tokens": "Total tokens processed across the training split."
+  },
+  "quantization_report": {
+    "gate_source": "policy_metrics",
+    "probe_status": "unavailable"
   },
   "generated_at_unix_ms": 1700000000000
 }"#;

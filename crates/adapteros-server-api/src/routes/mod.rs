@@ -433,6 +433,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::orchestration::list_orchestration_sessions,
         handlers::orchestration::update_orchestration_config,
         handlers::settings::get_settings,
+        handlers::settings::get_effective_settings,
+        handlers::settings::reconcile_settings,
         handlers::settings::update_settings,
         handlers::golden::list_golden_runs,
         handlers::golden::get_golden_run,
@@ -2602,6 +2604,14 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/settings",
             get(handlers::settings::get_settings).put(handlers::settings::update_settings),
+        )
+        .route(
+            "/v1/settings/effective",
+            get(handlers::settings::get_effective_settings),
+        )
+        .route(
+            "/v1/settings/reconcile",
+            post(handlers::settings::reconcile_settings),
         )
         // Golden run promotion routes
         .route("/v1/golden/runs", get(handlers::golden::list_golden_runs))

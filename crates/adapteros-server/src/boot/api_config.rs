@@ -10,6 +10,7 @@
 //! of active connections and security settings.
 
 use adapteros_core::{BackendKind, SeedMode};
+use adapteros_db::Db;
 use adapteros_server_api::config::Config;
 use adapteros_server_api::state::{ApiConfig, BackgroundTaskTracker};
 use anyhow::Result;
@@ -35,12 +36,15 @@ use crate::shutdown::ShutdownCoordinator;
 /// # Errors
 ///
 /// Returns an error if the config lock is poisoned.
-pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock<ApiConfig>>> {
+pub async fn build_api_config(
+    server_config: Arc<RwLock<Config>>,
+    db: &Db,
+) -> Result<Arc<RwLock<ApiConfig>>> {
     let cfg = server_config
         .read()
         .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
-    Ok(Arc::new(RwLock::new(ApiConfig {
+    let api_config = Arc::new(RwLock::new(ApiConfig {
         metrics: adapteros_server_api::state::MetricsConfig {
             enabled: cfg.metrics.enabled,
             bearer_token: cfg.metrics.bearer_token.clone(),
@@ -123,7 +127,19 @@ pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock
             ..Default::default()
         }),
         inference_cache: Default::default(),
-    })))
+    }));
+
+    if let Err(e) =
+        adapteros_server_api::runtime_config_store::apply_loaded_runtime_config(db, &api_config)
+            .await
+    {
+        warn!(
+            error = %e,
+            "Failed to apply persisted runtime config at startup; continuing with base config"
+        );
+    }
+
+    Ok(api_config)
 }
 
 /// Spawns a SIGHUP handler for hot-reloading configuration on Unix systems.

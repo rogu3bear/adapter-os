@@ -74,6 +74,8 @@ pub enum ModelsCommand {
     --input var/models/Qwen3.5-27B \
     --output . \
     --enforce-gates \
+    --enable-native-probes \
+    --probe-max-samples 8 \
     --guided \
     --metrics-from-flags \
     --golden-prompts data/golden_prompts.jsonl \
@@ -152,6 +154,14 @@ pub enum ModelsCommand {
         #[arg(long, default_value_t = false)]
         metrics_from_flags: bool,
 
+        /// Enable best-effort native MLX runtime probes (informational only in this phase)
+        #[arg(long, default_value_t = false)]
+        enable_native_probes: bool,
+
+        /// Maximum deterministic probe samples when native probes are enabled
+        #[arg(long)]
+        probe_max_samples: Option<u32>,
+
         /// Measured mean logit cosine versus FP16 baseline
         #[arg(long)]
         logit_cosine_mean: Option<f64>,
@@ -217,6 +227,8 @@ pub async fn handle_models_command(
             dry_run,
             beginner_explain,
             metrics_from_flags,
+            enable_native_probes,
+            probe_max_samples,
             logit_cosine_mean,
             ppl_delta_pct,
             task_proxy_delta_abs,
@@ -239,6 +251,8 @@ pub async fn handle_models_command(
                 baseline_fp16,
                 enforce_gates,
                 metrics_from_flags,
+                enable_native_probes,
+                probe_max_samples,
                 guided,
                 dry_run,
                 beginner_explain,

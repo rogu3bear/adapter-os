@@ -118,6 +118,7 @@ pub mod reconciler;
 pub mod request_id;
 pub mod request_tracker;
 pub mod routes;
+pub mod runtime_config_store;
 pub mod runtime_mode;
 pub mod security;
 pub mod self_hosting;

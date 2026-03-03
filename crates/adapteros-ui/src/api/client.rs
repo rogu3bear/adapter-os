@@ -1088,6 +1088,21 @@ impl ApiClient {
         self.put("/v1/settings", request).await
     }
 
+    /// Get effective settings with per-key source metadata.
+    pub async fn get_effective_settings(
+        &self,
+    ) -> ApiResult<adapteros_api_types::EffectiveSettingsResponse> {
+        self.get("/v1/settings/effective").await
+    }
+
+    /// Reconcile runtime settings dual-write state (file + DB).
+    pub async fn reconcile_settings(
+        &self,
+    ) -> ApiResult<adapteros_api_types::SettingsReconcileResponse> {
+        self.post::<serde_json::Value, _>("/v1/settings/reconcile", &serde_json::json!({}))
+            .await
+    }
+
     // --- Dashboard ---
 
     /// Get dashboard widget configuration

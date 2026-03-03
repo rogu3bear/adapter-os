@@ -238,6 +238,23 @@ mod command_parsing {
     }
 
     #[test]
+    fn test_models_quantize_qwen35_native_probe_flags_parse() {
+        let result = parse_cli(vec![
+            "aosctl",
+            "models",
+            "quantize-qwen35",
+            "--input",
+            "/tmp/model",
+            "--output",
+            ".",
+            "--enable-native-probes",
+            "--probe-max-samples",
+            "8",
+        ]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn test_version_flag() {
         let result = parse_cli(vec!["aosctl", "--version"]);
         assert!(result.is_err());

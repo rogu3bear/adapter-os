@@ -58,6 +58,9 @@ use crate::{model_status::ModelLoadStatus, schema_version};
 /// Current training data contract version and backend enums (re-exported for clients).
 pub use adapteros_types::training::{
     LoraTier, TrainingBackendKind, TrainingBackendPolicy, TRAINING_DATA_CONTRACT_VERSION,
+    TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS, TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED,
+    TRAINING_QUANTIZATION_PROBE_STATUS_FAILED, TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS,
+    TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE,
 };
 
 /// Canonicalize training contract versions accepted at API boundaries.

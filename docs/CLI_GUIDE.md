@@ -87,6 +87,8 @@ aosctl models quantize-qwen35 \
   --input var/models/Qwen3.5-27B \
   --output . \
   --guided \
+  --enable-native-probes \
+  --probe-max-samples 8 \
   --revision auto \
   --golden-prompts data/golden_prompts.jsonl \
   --calibration data/calibration.jsonl \
@@ -95,6 +97,18 @@ aosctl models quantize-qwen35 \
 ```
 
 Default behavior computes gate metrics in-command using deterministic evaluation flow. Legacy compatibility mode is available via `--metrics-from-flags`.
+
+Optional native probe mode:
+- Enable with `--enable-native-probes` (and optionally `--probe-max-samples <N>`).
+- Probe outputs are informational in this phase and do **not** replace gate authority.
+- Probe status contract:
+  - `disabled`: probes were not requested.
+  - `unavailable`: probe prerequisites/runtime context were not satisfied.
+  - `failed`: probe was attempted but runtime/model probe execution failed.
+  - `success`: probe completed and emitted probe metrics.
+- In multi-backend mode, native probe execution is runtime-dependent and best-effort.
+- Gates remain evaluated from deterministic `policy_metrics`.
+- This pass does not add a dedicated real-MLX integration test.
 
 Beginner-first flow:
 

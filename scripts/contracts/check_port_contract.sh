@@ -8,9 +8,12 @@ ALLOWLIST_REGEX='(^crates/adapteros-config/tests/network_defaults_guard.rs:)|(^s
 
 FORBIDDEN_PATTERN='localhost:8080|127\\.0\\.0\\.1:8080|localhost:3200|127\\.0\\.0\\.1:3200|localhost:3300|127\\.0\\.0\\.1:3300|localhost:3301|127\\.0\\.0\\.1:3301|localhost:9443|127\\.0\\.0\\.1:9443|localhost:9090|127\\.0\\.0\\.1:9090|localhost:50051|127\\.0\\.0\\.1:50051|localhost:5173|127\\.0\\.0\\.1:5173|localhost:3210|127\\.0\\.0\\.1:3210|localhost:4317|127\\.0\\.0\\.1:4317|localhost:8200|127\\.0\\.0\\.1:8200|localhost:9011|127\\.0\\.0\\.1:9011|localhost:5432|127\\.0\\.0\\.1:5432|localhost:4566|127\\.0\\.0\\.1:4566'
 
-search_roots=(start crates scripts tests configs deploy monitoring)
+search_roots=(start crates scripts tests configs deploy monitoring xtask)
 if [[ -d "etc" ]]; then
   search_roots+=(etc)
+fi
+if [[ -d ".github" ]]; then
+  search_roots+=(".github")
 fi
 
 hits="$((rg -n --no-heading -S "$FORBIDDEN_PATTERN" \

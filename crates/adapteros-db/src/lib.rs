@@ -3139,10 +3139,12 @@ pub use federation::{PeerSyncState, PeerSyncStatus, QuarantineDetails, Quarantin
 pub mod auth_sessions;
 pub mod auth_sessions_kv;
 pub use auth_sessions::AuthSession;
+pub mod runtime_config_snapshots;
 pub mod runtime_sessions;
 pub mod runtime_sessions_kv;
 pub use dashboard_configs::DashboardWidgetConfig;
 pub use notifications::{Notification, NotificationType};
+pub use runtime_config_snapshots::{NewRuntimeConfigSnapshot, RuntimeConfigSnapshotRecord};
 pub use runtime_sessions::RuntimeSession;
 pub use tutorials::TutorialStatus;
 pub use workspace_active_state::WorkspaceActiveState;

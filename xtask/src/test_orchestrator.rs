@@ -970,7 +970,16 @@ fn check_mlx_env() -> bool {
 }
 
 fn check_readyz() -> bool {
-    let port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
+    let port = std::env::var("AOS_SERVER_PORT")
+        .ok()
+        .or_else(|| {
+            std::env::var("AOS_PORT_PANE_BASE")
+                .ok()
+                .and_then(|raw| raw.parse::<u16>().ok())
+                .filter(|base| *base > 0 && *base <= 65523)
+                .map(|base| base.to_string())
+        })
+        .unwrap_or_else(|| "18080".to_string());
     let addr = format!("127.0.0.1:{port}");
     let mut stream = match std::net::TcpStream::connect(addr) {
         Ok(stream) => stream,

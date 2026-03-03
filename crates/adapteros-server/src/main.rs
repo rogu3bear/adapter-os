@@ -336,7 +336,7 @@ async fn main() -> Result<()> {
                 "router_build",
                 failure_codes::ROUTER_BUILD_FAILED,
                 RetryPolicy::no_retry(),
-                |_| async { build_api_config(config_ctx.server_config.clone()) },
+                |_| async { build_api_config(config_ctx.server_config.clone(), &db_ctx.db).await },
                 None,
             )
             .await?;

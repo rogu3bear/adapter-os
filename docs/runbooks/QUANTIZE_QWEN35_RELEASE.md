@@ -34,10 +34,25 @@ aosctl models quantize-qwen35 \
   --golden-prompts data/golden_prompts.jsonl \
   --calibration data/calibration.jsonl \
   --baseline-fp16 artifacts/fp16/qwen3.5-27b \
+  --enable-native-probes \
+  --probe-max-samples 8 \
   --enforce-gates
 ```
 
 Compatibility mode (not default): add `--metrics-from-flags` and pass explicit metric flags.
+
+Native probe mode (phase 1):
+- `--enable-native-probes` enables best-effort MLX runtime probes.
+- `--probe-max-samples` controls deterministic probe sample count.
+- Probe values are recorded for evidence/telemetry only.
+- Probe status contract:
+  - `disabled`: probes were not requested.
+  - `unavailable`: probe prerequisites/runtime context were not satisfied.
+  - `failed`: probe was attempted but runtime/model probe execution failed.
+  - `success`: probe completed and emitted probe metrics.
+- In multi-backend mode, probe execution is runtime-dependent and best-effort.
+- Gate pass/fail authority remains deterministic policy-computed metrics (`gate_source=policy_metrics`).
+- This pass does not add a dedicated integration test with a real MLX model/runtime.
 
 ## Beginner Assisted Flow
 

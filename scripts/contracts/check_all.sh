@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 scripts/contracts/check_contract_artifacts.sh
 scripts/contracts/check_port_contract.sh
+scripts/contracts/check_runtime_settings_contract.sh
 scripts/contracts/check_repo_layout_contract.sh
 scripts/contracts/check_api_route_tiers.py
 scripts/contracts/check_api_surface.py

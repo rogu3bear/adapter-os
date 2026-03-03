@@ -37,6 +37,16 @@ pub use preprocessed_example::{
 
 /// Training report schema version.
 pub const TRAINING_REPORT_VERSION: u32 = 1;
+/// Canonical quantization gate source string for report contracts.
+pub const TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS: &str = "policy_metrics";
+/// Canonical probe status: probes not requested.
+pub const TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED: &str = "disabled";
+/// Canonical probe status: probe prerequisites/runtime context unavailable.
+pub const TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE: &str = "unavailable";
+/// Canonical probe status: probe attempted but runtime/model execution failed.
+pub const TRAINING_QUANTIZATION_PROBE_STATUS_FAILED: &str = "failed";
+/// Canonical probe status: probe execution succeeded with metrics.
+pub const TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS: &str = "success";
 
 fn default_training_report_version() -> u32 {
     TRAINING_REPORT_VERSION
@@ -1567,6 +1577,79 @@ pub struct TrainingReportMetricDefinitions {
     pub total_tokens: String,
 }
 
+/// Policy-computed quantization metrics included in training reports.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingQuantizationEvalMetricsV1 {
+    /// Mean cosine similarity between baseline and quantized logits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logit_cosine_mean: Option<f64>,
+    /// Percent perplexity delta relative to baseline.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ppl_delta_pct: Option<f64>,
+    /// Absolute task-proxy delta from baseline.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_proxy_delta_abs: Option<f64>,
+    /// Throughput for 1k context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tok_s_1k: Option<f64>,
+    /// Throughput for 8k context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tok_s_8k: Option<f64>,
+    /// Peak resident set size in MB.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rss_mb_peak: Option<f64>,
+    /// Human-critical regressions counted during evaluation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub human_critical_regressions: Option<u32>,
+}
+
+/// Native probe metrics included in training reports (informational only).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingQuantizationProbeMetricsV1 {
+    /// Mean cosine similarity from native probe execution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logit_cosine_mean: Option<f64>,
+    /// Percent perplexity delta measured by native probe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ppl_delta_pct: Option<f64>,
+    /// Throughput for 1k context from native probe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tok_s_1k: Option<f64>,
+    /// Throughput for 8k context from native probe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tok_s_8k: Option<f64>,
+}
+
+/// Quantization provenance block for training reports.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingQuantizationReportV1 {
+    /// Gate authority source (canonical default: "policy_metrics").
+    pub gate_source: String,
+    /// Native probe execution status.
+    ///
+    /// Canonical values:
+    /// - "disabled"
+    /// - "unavailable"
+    /// - "failed"
+    /// - "success"
+    pub probe_status: String,
+    /// Optional probe error details when unavailable/failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe_error: Option<String>,
+    /// Policy-computed metrics used for gate decisions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_metrics: Option<TrainingQuantizationEvalMetricsV1>,
+    /// Native-probe metrics (informational only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe_metrics: Option<TrainingQuantizationProbeMetricsV1>,
+}
+
 /// Training report artifact (v1).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -1597,6 +1680,9 @@ pub struct TrainingReportV1 {
     pub summary: TrainingReportSummary,
     /// Metric definitions for report fields.
     pub metric_definitions: TrainingReportMetricDefinitions,
+    /// Quantization provenance and probe state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quantization_report: Option<TrainingQuantizationReportV1>,
     /// Report generation timestamp (unix ms).
     pub generated_at_unix_ms: u64,
 }
@@ -1758,5 +1844,179 @@ mod tests {
         assert!(json.get("learning_rate").is_some());
         assert!(json.get("tokens_per_second").is_some());
         assert!(json.get("weights_hash_b3").is_some());
+    }
+
+    #[test]
+    fn training_report_quantization_roundtrip() {
+        let report = TrainingReportV1 {
+            report_version: 1,
+            pipeline_id: "pipeline-1".to_string(),
+            dataset_id: "dataset-1".to_string(),
+            dataset_content_hash: "b3:dataset".to_string(),
+            split_hash: "b3:split".to_string(),
+            base_model_id: "base-1".to_string(),
+            base_model_hash: "b3:base".to_string(),
+            optimizer: OptimizerConfigSummary {
+                optimizer_type: "adam".to_string(),
+                beta1: 0.9,
+                beta2: 0.999,
+                epsilon: 1e-8,
+                weight_decay: 0.0,
+                momentum: 0.0,
+            },
+            training_config_hash: "b3:config".to_string(),
+            curves: TrainingReportCurves {
+                train_loss: vec![0.5],
+                train_ppl: vec![1.6],
+                val_loss: vec![0.6],
+                val_ppl: vec![1.8],
+            },
+            summary: TrainingReportSummary {
+                best_epoch: 1,
+                final_epoch: 1,
+                early_stopped: false,
+                total_steps: 10,
+                total_tokens: 100,
+            },
+            metric_definitions: TrainingReportMetricDefinitions {
+                train_loss: "train loss".to_string(),
+                train_ppl: "train ppl".to_string(),
+                val_loss: "val loss".to_string(),
+                val_ppl: "val ppl".to_string(),
+                best_epoch: "best epoch".to_string(),
+                final_epoch: "final epoch".to_string(),
+                early_stopped: "early stopped".to_string(),
+                total_steps: "total steps".to_string(),
+                total_tokens: "total tokens".to_string(),
+            },
+            quantization_report: Some(TrainingQuantizationReportV1 {
+                gate_source: TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS.to_string(),
+                probe_status: TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS.to_string(),
+                probe_error: None,
+                policy_metrics: Some(TrainingQuantizationEvalMetricsV1 {
+                    logit_cosine_mean: Some(0.99),
+                    ppl_delta_pct: Some(1.2),
+                    task_proxy_delta_abs: None,
+                    tok_s_1k: Some(12.3),
+                    tok_s_8k: Some(7.1),
+                    rss_mb_peak: None,
+                    human_critical_regressions: Some(0),
+                }),
+                probe_metrics: Some(TrainingQuantizationProbeMetricsV1 {
+                    logit_cosine_mean: Some(0.98),
+                    ppl_delta_pct: Some(1.3),
+                    tok_s_1k: Some(11.0),
+                    tok_s_8k: Some(6.0),
+                }),
+            }),
+            generated_at_unix_ms: 1_700_000_000_000,
+        };
+
+        let json = serde_json::to_string(&report).expect("serialize training report");
+        let decoded: TrainingReportV1 =
+            serde_json::from_str(&json).expect("deserialize training report");
+        assert_eq!(decoded.quantization_report, report.quantization_report);
+    }
+
+    #[test]
+    fn training_report_deserializes_without_quantization_report() {
+        let legacy_json = serde_json::json!({
+            "report_version": 1,
+            "pipeline_id": "pipeline-1",
+            "dataset_id": "dataset-1",
+            "dataset_content_hash": "b3:dataset",
+            "split_hash": "b3:split",
+            "base_model_id": "base-1",
+            "base_model_hash": "b3:base",
+            "optimizer": {
+                "optimizer_type": "adam",
+                "beta1": 0.9,
+                "beta2": 0.999,
+                "epsilon": 1e-8,
+                "weight_decay": 0.0,
+                "momentum": 0.0
+            },
+            "training_config_hash": "b3:config",
+            "curves": {
+                "train_loss": [0.5],
+                "train_ppl": [1.6],
+                "val_loss": [0.6],
+                "val_ppl": [1.8]
+            },
+            "summary": {
+                "best_epoch": 1,
+                "final_epoch": 1,
+                "early_stopped": false,
+                "total_steps": 10,
+                "total_tokens": 100
+            },
+            "metric_definitions": {
+                "train_loss": "train loss",
+                "train_ppl": "train ppl",
+                "val_loss": "val loss",
+                "val_ppl": "val ppl",
+                "best_epoch": "best epoch",
+                "final_epoch": "final epoch",
+                "early_stopped": "early stopped",
+                "total_steps": "total steps",
+                "total_tokens": "total tokens"
+            },
+            "generated_at_unix_ms": 1700000000000_u64
+        });
+
+        let decoded: TrainingReportV1 =
+            serde_json::from_value(legacy_json).expect("legacy report should parse");
+        assert!(decoded.quantization_report.is_none());
+    }
+
+    #[test]
+    fn training_report_omits_quantization_report_when_absent() {
+        let report = TrainingReportV1 {
+            report_version: 1,
+            pipeline_id: "pipeline-1".to_string(),
+            dataset_id: "dataset-1".to_string(),
+            dataset_content_hash: "b3:dataset".to_string(),
+            split_hash: "b3:split".to_string(),
+            base_model_id: "base-1".to_string(),
+            base_model_hash: "b3:base".to_string(),
+            optimizer: OptimizerConfigSummary {
+                optimizer_type: "adam".to_string(),
+                beta1: 0.9,
+                beta2: 0.999,
+                epsilon: 1e-8,
+                weight_decay: 0.0,
+                momentum: 0.0,
+            },
+            training_config_hash: "b3:config".to_string(),
+            curves: TrainingReportCurves {
+                train_loss: vec![0.5],
+                train_ppl: vec![1.6],
+                val_loss: vec![0.6],
+                val_ppl: vec![1.8],
+            },
+            summary: TrainingReportSummary {
+                best_epoch: 1,
+                final_epoch: 1,
+                early_stopped: false,
+                total_steps: 10,
+                total_tokens: 100,
+            },
+            metric_definitions: TrainingReportMetricDefinitions {
+                train_loss: "train loss".to_string(),
+                train_ppl: "train ppl".to_string(),
+                val_loss: "val loss".to_string(),
+                val_ppl: "val ppl".to_string(),
+                best_epoch: "best epoch".to_string(),
+                final_epoch: "final epoch".to_string(),
+                early_stopped: "early stopped".to_string(),
+                total_steps: "total steps".to_string(),
+                total_tokens: "total tokens".to_string(),
+            },
+            quantization_report: None,
+            generated_at_unix_ms: 1_700_000_000_000,
+        };
+
+        let value = serde_json::to_value(report).expect("serialize report");
+        assert!(value.get("quantization_report").is_none());
     }
 }

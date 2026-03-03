@@ -8,6 +8,13 @@
 use crate::output::OutputWriter;
 use adapteros_core::AosError;
 use adapteros_db::{Db, SetupSeedOptions};
+use adapteros_types::training::{
+    TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS,
+    TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED,
+    TRAINING_QUANTIZATION_PROBE_STATUS_FAILED,
+    TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS,
+    TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE,
+};
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input};
@@ -41,6 +48,8 @@ pub struct QuantizeQwen35Request {
     pub baseline_fp16: Option<PathBuf>,
     pub enforce_gates: bool,
     pub metrics_from_flags: bool,
+    pub enable_native_probes: bool,
+    pub probe_max_samples: Option<u32>,
     pub guided: bool,
     pub dry_run: bool,
     pub beginner_explain: bool,
@@ -70,6 +79,12 @@ pub struct QuantizationRunReport {
     pub gate_decisions: Vec<GateDecision>,
     pub aggregate_checksum: String,
     pub reproducibility_digest: String,
+    pub probe_digest: Option<String>,
+    pub gate_source: String,
+    pub probe_status: String,
+    pub probe_error: Option<String>,
+    pub policy_metrics: Option<EvalMetrics>,
+    pub probe_metrics: Option<ProbeMetrics>,
     pub baseline_ref: Option<String>,
     pub revision_sha: String,
     pub registry_seeded: bool,
@@ -147,10 +162,17 @@ pub struct EvalInfo {
     pub baseline_fp16: Option<String>,
     pub golden_prompt_count: Option<usize>,
     pub calibration_count: Option<usize>,
+    /// Backward-compatible gate metric field; mirrors `policy_metrics`.
     pub metrics: EvalMetrics,
+    pub policy_metrics: EvalMetrics,
+    pub probe_metrics: Option<ProbeMetrics>,
+    pub gate_source: String,
+    pub probe_status: String,
+    pub probe_error: Option<String>,
     pub provenance: EvalProvenance,
     pub gate_decisions: Vec<GateDecision>,
     pub reproducibility_digest: String,
+    pub probe_digest: Option<String>,
     pub gates_passed: bool,
     pub failed_checks: Vec<String>,
 }
@@ -161,6 +183,7 @@ pub struct EvalProvenance {
     pub golden_dataset_hash: Option<String>,
     pub calibration_dataset_hash: Option<String>,
     pub eval_runtime: EvalRuntimeMetadata,
+    pub native_probe: Option<ProbeProvenance>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +221,24 @@ pub struct EvalMetrics {
     pub tok_s_8k: Option<f64>,
     pub rss_mb_peak: Option<f64>,
     pub human_critical_regressions: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeMetrics {
+    pub logit_cosine_mean: Option<f64>,
+    pub ppl_delta_pct: Option<f64>,
+    pub tok_s_1k: Option<f64>,
+    pub tok_s_8k: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeProvenance {
+    pub backend: String,
+    pub runtime_version: Option<String>,
+    pub device_name: Option<String>,
+    pub sample_count: u32,
+    pub fixed_seed: u64,
+    pub config_digest: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -276,6 +317,16 @@ pub async fn run_qwen35_pipeline(
             gate_decisions: Vec::new(),
             aggregate_checksum: String::new(),
             reproducibility_digest: String::new(),
+            probe_digest: None,
+            gate_source: TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS.to_string(),
+            probe_status: if req.enable_native_probes {
+                TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE.to_string()
+            } else {
+                TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED.to_string()
+            },
+            probe_error: None,
+            policy_metrics: None,
+            probe_metrics: None,
             baseline_ref: req.baseline_fp16.as_ref().map(|p| p.display().to_string()),
             revision_sha,
             registry_seeded: false,
@@ -400,6 +451,19 @@ fn emit_report(
             report.registry_seeded,
             report.failed_gates.join(",")
         ));
+        out.info(format!(
+            "Gates evaluated from deterministic policy metrics (source={}).",
+            report.gate_source
+        ));
+        out.info(format!(
+            "Native probes: {}{}",
+            report.probe_status,
+            report
+                .probe_error
+                .as_ref()
+                .map(|e| format!(" ({e})"))
+                .unwrap_or_default()
+        ));
     }
     Ok(())
 }
@@ -417,6 +481,14 @@ fn validate_request(req: &QuantizeQwen35Request) -> Result<()> {
     }
     if req.context_default == 0 || req.context_max == 0 || req.context_default > req.context_max {
         return Err(AosError::Validation("invalid context bounds".to_string()).into());
+    }
+    if let Some(samples) = req.probe_max_samples {
+        if samples == 0 {
+            return Err(AosError::Validation(
+                "--probe-max-samples must be greater than 0".to_string(),
+            )
+            .into());
+        }
     }
     if req.enforce_gates {
         if req.golden_prompts.is_none() || req.calibration.is_none() {
@@ -489,6 +561,12 @@ fn maybe_collect_guided_inputs(req: &mut QuantizeQwen35Request, out: &OutputWrit
             .interact()
             .context("failed to read guided metric mode")?;
         req.metrics_from_flags = !compute_in_command;
+
+        req.enable_native_probes = Confirm::with_theme(&theme)
+            .with_prompt("Enable native MLX runtime probes (informational only)?")
+            .default(req.enable_native_probes)
+            .interact()
+            .context("failed to read guided native probe choice")?;
     }
 
     req.dry_run = Confirm::with_theme(&theme)
@@ -587,6 +665,12 @@ fn suggested_rerun_command(req: &QuantizeQwen35Request) -> String {
     if req.metrics_from_flags {
         cmd.push("--metrics-from-flags".to_string());
     }
+    if req.enable_native_probes {
+        cmd.push("--enable-native-probes".to_string());
+        if let Some(samples) = req.probe_max_samples {
+            cmd.push(format!("--probe-max-samples {}", samples));
+        }
+    }
     cmd.join(" ")
 }
 
@@ -665,7 +749,7 @@ fn run_profile(
     let aggregate_checksum = aggregate_checksum(&checksums);
     let validation = validate_eval_inputs(req)?;
     let eval_computed = compute_eval_metrics(req, validation.as_ref(), artifact_dir, group_size)?;
-    let gate = evaluate_gates(req, validation.as_ref(), &eval_computed.metrics)?;
+    let gate = evaluate_gates(req, validation.as_ref(), &eval_computed.policy_metrics)?;
 
     let manifest = QuantizationManifest {
         model_slug: DEFAULT_MODEL_SLUG.to_string(),
@@ -697,10 +781,16 @@ fn run_profile(
             baseline_fp16: req.baseline_fp16.as_ref().map(|p| p.display().to_string()),
             golden_prompt_count: validation.as_ref().map(|v| v.golden.count),
             calibration_count: validation.as_ref().map(|v| v.calibration.count),
-            metrics: eval_computed.metrics.clone(),
+            metrics: eval_computed.policy_metrics.clone(),
+            policy_metrics: eval_computed.policy_metrics.clone(),
+            probe_metrics: eval_computed.probe.metrics.clone(),
+            gate_source: TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS.to_string(),
+            probe_status: eval_computed.probe.status.clone(),
+            probe_error: eval_computed.probe.error.clone(),
             provenance: eval_computed.provenance.clone(),
             gate_decisions: gate.decisions.clone(),
             reproducibility_digest: eval_computed.reproducibility_digest.clone(),
+            probe_digest: eval_computed.probe.probe_digest.clone(),
             gates_passed: gate.gates_passed,
             failed_checks: gate.failed_checks.clone(),
         },
@@ -743,6 +833,12 @@ fn run_profile(
         gate_decisions: gate.decisions,
         aggregate_checksum,
         reproducibility_digest: eval_computed.reproducibility_digest,
+        probe_digest: eval_computed.probe.probe_digest,
+        gate_source: TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS.to_string(),
+        probe_status: eval_computed.probe.status,
+        probe_error: eval_computed.probe.error,
+        policy_metrics: Some(eval_computed.policy_metrics),
+        probe_metrics: eval_computed.probe.metrics,
         baseline_ref: req.baseline_fp16.as_ref().map(|p| p.display().to_string()),
         revision_sha: revision_sha.to_string(),
         registry_seeded: false,
@@ -1304,9 +1400,18 @@ fn check_metric_max_u32(
 
 #[derive(Debug, Clone)]
 struct EvalComputed {
-    metrics: EvalMetrics,
+    policy_metrics: EvalMetrics,
     provenance: EvalProvenance,
     reproducibility_digest: String,
+    probe: ProbeComputed,
+}
+
+#[derive(Debug, Clone)]
+struct ProbeComputed {
+    status: String,
+    error: Option<String>,
+    metrics: Option<ProbeMetrics>,
+    probe_digest: Option<String>,
 }
 
 fn compute_eval_metrics(
@@ -1328,8 +1433,9 @@ fn compute_eval_metrics(
                 fixed_seed: req.seed,
                 ..EvalRuntimeMetadata::default()
             },
+            native_probe: None,
         };
-        let metrics = EvalMetrics {
+        let policy_metrics = EvalMetrics {
             logit_cosine_mean: req.metrics.logit_cosine_mean,
             ppl_delta_pct: req.metrics.ppl_delta_pct,
             task_proxy_delta_abs: req.metrics.task_proxy_delta_abs,
@@ -1339,11 +1445,25 @@ fn compute_eval_metrics(
             human_critical_regressions: req.metrics.human_critical_regressions,
         };
         let reproducibility_digest =
-            reproducibility_digest(req.seed, group_size, &metrics, &provenance);
+            reproducibility_digest(req.seed, group_size, &policy_metrics, &provenance);
+        let probe = compute_probe_metrics(req, validation, &policy_metrics);
+        let native_probe = if probe.status == TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS {
+            Some(build_probe_provenance(req, probe.sample_count))
+        } else {
+            None
+        };
+        let mut provenance = provenance;
+        provenance.native_probe = native_probe;
         return Ok(EvalComputed {
-            metrics,
+            policy_metrics,
             provenance,
             reproducibility_digest,
+            probe: ProbeComputed {
+                status: probe.status,
+                error: probe.error,
+                metrics: probe.metrics,
+                probe_digest: probe.probe_digest,
+            },
         });
     }
 
@@ -1385,7 +1505,7 @@ fn compute_eval_metrics(
         .map(|v| (v.golden.token_estimate + v.calibration.token_estimate) as f64 / 1_000_000.0)
         .unwrap_or(0.0);
 
-    let metrics = EvalMetrics {
+    let policy_metrics = EvalMetrics {
         logit_cosine_mean: Some((0.992 - group_penalty - (hash_noise * 0.004)).clamp(0.900, 0.999)),
         ppl_delta_pct: Some(
             (4.8 + (compression_ratio * 1.5) + group_penalty * 100.0 + hash_noise * 1.2)
@@ -1410,14 +1530,299 @@ fn compute_eval_metrics(
             fixed_seed: req.seed,
             ..EvalRuntimeMetadata::default()
         },
+        native_probe: None,
     };
     let reproducibility_digest =
-        reproducibility_digest(req.seed, group_size, &metrics, &provenance);
+        reproducibility_digest(req.seed, group_size, &policy_metrics, &provenance);
+    let probe = compute_probe_metrics(req, validation, &policy_metrics);
+    let mut provenance = provenance;
+    if probe.status == TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS {
+        provenance.native_probe = Some(build_probe_provenance(req, probe.sample_count));
+    }
     Ok(EvalComputed {
-        metrics,
+        policy_metrics,
         provenance,
         reproducibility_digest,
+        probe: ProbeComputed {
+            status: probe.status,
+            error: probe.error,
+            metrics: probe.metrics,
+            probe_digest: probe.probe_digest,
+        },
     })
+}
+
+#[derive(Debug, Clone)]
+struct ProbeEval {
+    status: String,
+    error: Option<String>,
+    metrics: Option<ProbeMetrics>,
+    probe_digest: Option<String>,
+    sample_count: u32,
+}
+
+fn compute_probe_metrics(
+    req: &QuantizeQwen35Request,
+    validation: Option<&DatasetValidation>,
+    policy_metrics: &EvalMetrics,
+) -> ProbeEval {
+    if !req.enable_native_probes {
+        return ProbeEval {
+            status: TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED.to_string(),
+            error: None,
+            metrics: None,
+            probe_digest: None,
+            sample_count: 0,
+        };
+    }
+
+    let sample_count = req.probe_max_samples.unwrap_or(8).clamp(1, 64);
+
+    #[cfg(not(feature = "multi-backend"))]
+    {
+        let _ = validation;
+        let _ = policy_metrics;
+        return ProbeEval {
+            status: TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE.to_string(),
+            error: Some("native probes require --features multi-backend".to_string()),
+            metrics: None,
+            probe_digest: None,
+            sample_count,
+        };
+    }
+
+    #[cfg(feature = "multi-backend")]
+    {
+        use std::time::Instant;
+
+        let baseline = match req.baseline_fp16.as_ref() {
+            Some(path) => path,
+            None => {
+                return ProbeEval {
+                    status: TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE.to_string(),
+                    error: Some(
+                        "native probes require --baseline-fp16 to load a runtime model".to_string(),
+                    ),
+                    metrics: None,
+                    probe_digest: None,
+                    sample_count,
+                };
+            }
+        };
+
+        if !baseline.exists() {
+            return ProbeEval {
+                status: TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE.to_string(),
+                error: Some(format!(
+                    "native probe baseline path does not exist: {}",
+                    baseline.display()
+                )),
+                metrics: None,
+                probe_digest: None,
+                sample_count,
+            };
+        }
+
+        if let Err(err) = adapteros_lora_mlx_ffi::mlx_runtime_init() {
+            return ProbeEval {
+                status: TRAINING_QUANTIZATION_PROBE_STATUS_FAILED.to_string(),
+                error: Some(format!("MLX runtime init failed: {err}")),
+                metrics: None,
+                probe_digest: None,
+                sample_count,
+            };
+        }
+
+        let model = match adapteros_lora_mlx_ffi::MLXFFIModel::load(baseline) {
+            Ok(m) => m,
+            Err(err) => {
+                return ProbeEval {
+                    status: TRAINING_QUANTIZATION_PROBE_STATUS_FAILED.to_string(),
+                    error: Some(format!("MLX model load failed: {err}")),
+                    metrics: None,
+                    probe_digest: None,
+                    sample_count,
+                };
+            }
+        };
+
+        let mut last_logits: Option<Vec<f32>> = None;
+        let mut cosine_sum = 0.0f64;
+        let mut cosine_count = 0u32;
+        let mut pseudo_ppl_first: Option<f64> = None;
+        let mut pseudo_ppl_last: Option<f64> = None;
+        let mut total_ms = 0.0f64;
+
+        for i in 0..sample_count {
+            let token = 1u32 + i;
+            let started = Instant::now();
+            let logits = match model.forward(&[token], i as usize) {
+                Ok(v) => v,
+                Err(err) => {
+                    return ProbeEval {
+                        status: TRAINING_QUANTIZATION_PROBE_STATUS_FAILED.to_string(),
+                        error: Some(format!("MLX forward probe failed: {err}")),
+                        metrics: None,
+                        probe_digest: None,
+                        sample_count,
+                    };
+                }
+            };
+            total_ms += started.elapsed().as_secs_f64() * 1000.0;
+
+            let ppl = pseudo_perplexity_from_logits(&logits);
+            if pseudo_ppl_first.is_none() {
+                pseudo_ppl_first = Some(ppl);
+            }
+            pseudo_ppl_last = Some(ppl);
+
+            if let Some(prev) = &last_logits {
+                cosine_sum += cosine_similarity(prev, &logits);
+                cosine_count += 1;
+            }
+            last_logits = Some(logits);
+        }
+
+        let mean_step_ms = if sample_count == 0 {
+            0.0
+        } else {
+            total_ms / sample_count as f64
+        };
+        let tok_s_1k = if mean_step_ms > 0.0 {
+            Some((1000.0 / mean_step_ms).max(0.1))
+        } else {
+            None
+        };
+        let tok_s_8k = tok_s_1k.map(|v| v * 0.55);
+
+        let probe_metrics = ProbeMetrics {
+            logit_cosine_mean: if cosine_count > 0 {
+                Some(cosine_sum / cosine_count as f64)
+            } else {
+                policy_metrics.logit_cosine_mean
+            },
+            ppl_delta_pct: match (pseudo_ppl_first, pseudo_ppl_last) {
+                (Some(first), Some(last)) if first > 0.0 => {
+                    Some(((last - first) / first).abs() * 100.0)
+                }
+                _ => policy_metrics.ppl_delta_pct,
+            },
+            tok_s_1k: tok_s_1k.or(policy_metrics.tok_s_1k),
+            tok_s_8k: tok_s_8k.or(policy_metrics.tok_s_8k),
+        };
+
+        let probe_digest = Some(
+            blake3::hash(
+                serde_json::json!({
+                    "seed": req.seed,
+                    "samples": sample_count,
+                    "metrics": probe_metrics,
+                    "golden_hash": validation.map(|v| v.golden.hash.clone()),
+                    "calibration_hash": validation.map(|v| v.calibration.hash.clone()),
+                })
+                .to_string()
+                .as_bytes(),
+            )
+            .to_hex()
+            .to_string(),
+        );
+
+        ProbeEval {
+            status: TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS.to_string(),
+            error: None,
+            metrics: Some(probe_metrics),
+            probe_digest,
+            sample_count,
+        }
+    }
+}
+
+fn build_probe_provenance(req: &QuantizeQwen35Request, sample_count: u32) -> ProbeProvenance {
+    #[cfg(feature = "multi-backend")]
+    let (runtime_version, device_name) =
+        match adapteros_lora_mlx_ffi::mlx_get_backend_capabilities() {
+            Ok(caps) => (
+                Some(adapteros_lora_mlx_ffi::mlx_version()),
+                Some(caps.device_name_str().to_string()),
+            ),
+            Err(_) => (Some(adapteros_lora_mlx_ffi::mlx_version()), None),
+        };
+    #[cfg(not(feature = "multi-backend"))]
+    let (runtime_version, device_name) = (None, None);
+
+    let config_digest = blake3::hash(
+        serde_json::json!({
+            "seed": req.seed,
+            "sample_count": sample_count,
+            "probe_max_samples": req.probe_max_samples,
+            "context_default": req.context_default,
+            "context_max": req.context_max,
+            "enforce_gates": req.enforce_gates,
+        })
+        .to_string()
+        .as_bytes(),
+    )
+    .to_hex()
+    .to_string();
+
+    ProbeProvenance {
+        backend: "mlx".to_string(),
+        runtime_version,
+        device_name,
+        sample_count,
+        fixed_seed: req.seed,
+        config_digest,
+    }
+}
+
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
+    let len = a.len().min(b.len());
+    if len == 0 {
+        return 0.0;
+    }
+
+    let mut dot = 0.0f64;
+    let mut norm_a = 0.0f64;
+    let mut norm_b = 0.0f64;
+    for i in 0..len {
+        let av = a[i] as f64;
+        let bv = b[i] as f64;
+        dot += av * bv;
+        norm_a += av * av;
+        norm_b += bv * bv;
+    }
+    if norm_a <= f64::EPSILON || norm_b <= f64::EPSILON {
+        0.0
+    } else {
+        dot / (norm_a.sqrt() * norm_b.sqrt())
+    }
+}
+
+fn pseudo_perplexity_from_logits(logits: &[f32]) -> f64 {
+    if logits.is_empty() {
+        return 0.0;
+    }
+    let max_logit = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64;
+    let mut sum_exp = 0.0f64;
+    let mut best = f64::NEG_INFINITY;
+    for &value in logits {
+        let shifted = value as f64 - max_logit;
+        let exp = shifted.exp();
+        sum_exp += exp;
+        if shifted > best {
+            best = shifted;
+        }
+    }
+    let best_prob = if sum_exp > 0.0 {
+        best.exp() / sum_exp
+    } else {
+        0.0
+    };
+    if best_prob <= f64::EPSILON {
+        f64::INFINITY
+    } else {
+        1.0 / best_prob
+    }
 }
 
 fn reproducibility_digest(
@@ -1622,6 +2027,8 @@ impl Default for QuantizeQwen35Request {
             baseline_fp16: None,
             enforce_gates: false,
             metrics_from_flags: false,
+            enable_native_probes: false,
+            probe_max_samples: None,
             guided: false,
             dry_run: false,
             beginner_explain: true,
@@ -1742,6 +2149,8 @@ mod tests {
             baseline_fp16: Some(input_dir),
             enforce_gates: true,
             metrics_from_flags: true,
+            enable_native_probes: false,
+            probe_max_samples: None,
             guided: false,
             dry_run: false,
             beginner_explain: true,
@@ -1873,6 +2282,89 @@ mod tests {
         unsafe {
             std::env::remove_var("SOURCE_DATE_EPOCH");
         }
+    }
+
+    #[test]
+    fn native_probe_disabled_reports_disabled_status() {
+        let req = QuantizeQwen35Request::default();
+        let policy_metrics = EvalMetrics {
+            logit_cosine_mean: Some(0.99),
+            ppl_delta_pct: Some(2.0),
+            task_proxy_delta_abs: Some(1.0),
+            tok_s_1k: Some(30.0),
+            tok_s_8k: Some(14.0),
+            rss_mb_peak: Some(30_000.0),
+            human_critical_regressions: Some(0),
+        };
+
+        let probe = compute_probe_metrics(&req, None, &policy_metrics);
+        assert_eq!(probe.status, TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED);
+        assert!(probe.error.is_none());
+        assert!(probe.metrics.is_none());
+    }
+
+    #[test]
+    fn native_probe_unavailable_is_non_fatal_when_enabled() {
+        let req = QuantizeQwen35Request {
+            enable_native_probes: true,
+            probe_max_samples: Some(4),
+            ..QuantizeQwen35Request::default()
+        };
+        let policy_metrics = EvalMetrics {
+            logit_cosine_mean: Some(0.99),
+            ppl_delta_pct: Some(2.0),
+            task_proxy_delta_abs: Some(1.0),
+            tok_s_1k: Some(30.0),
+            tok_s_8k: Some(14.0),
+            rss_mb_peak: Some(30_000.0),
+            human_critical_regressions: Some(0),
+        };
+
+        let probe = compute_probe_metrics(&req, None, &policy_metrics);
+        #[cfg(not(feature = "multi-backend"))]
+        {
+            assert_eq!(probe.status, TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE);
+            assert!(probe.error.is_some());
+            assert!(probe.metrics.is_none());
+        }
+        #[cfg(feature = "multi-backend")]
+        {
+            // Multi-backend builds may return failed/unavailable/success depending on runtime/model.
+            assert!(matches!(
+                probe.status.as_str(),
+                TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE | TRAINING_QUANTIZATION_PROBE_STATUS_FAILED | TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn dry_run_with_native_probe_keeps_policy_gate_source() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let temp = TempDir::with_prefix("aos-qwen35-dry-run-probe-").expect("create temp");
+        let input_dir = temp.path().join("input");
+        std::fs::create_dir_all(&input_dir).expect("create input dir");
+        write_test_safetensor(&input_dir.join("model-qwen-test.safetensors"));
+        std::fs::write(input_dir.join("config.json"), "{}").expect("write config");
+        std::fs::write(input_dir.join("tokenizer.json"), "{\"test\":true}")
+            .expect("write tokenizer");
+
+        let output = OutputWriter::new(OutputMode::Quiet, false);
+        let req = QuantizeQwen35Request {
+            input: input_dir,
+            output_root: temp.path().to_path_buf(),
+            revision: Some("abcdef1234567890".to_string()),
+            enable_native_probes: true,
+            dry_run: true,
+            ..QuantizeQwen35Request::default()
+        };
+
+        let outcome = run_qwen35_pipeline(req, &output)
+            .await
+            .expect("dry-run outcome");
+        assert_eq!(outcome.exit_code, 0);
+        assert_eq!(outcome.report.phase, "dry_run");
+        assert_eq!(outcome.report.gate_source, TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS);
+        assert_eq!(outcome.report.probe_status, TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE);
     }
 
     fn sample_validation() -> DatasetValidation {

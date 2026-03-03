@@ -6,7 +6,11 @@ use crate::api::use_api_client;
 use crate::components::{Card, DetailRow, Spinner};
 use crate::constants::ui_language;
 use crate::hooks::use_polling;
-use adapteros_api_types::{TrainingJobResponse, TrainingMetricEntry};
+use adapteros_api_types::{
+    TrainingJobResponse, TrainingMetricEntry, TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS,
+    TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED, TRAINING_QUANTIZATION_PROBE_STATUS_FAILED,
+    TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS, TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE,
+};
 use leptos::prelude::*;
 
 use crate::pages::training::components::CoremlBadges;
@@ -315,6 +319,71 @@ fn DualCurveChart(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProvenanceChipTone {
+    Standard,
+    Muted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProvenanceChip {
+    label: String,
+    tone: ProvenanceChipTone,
+}
+
+fn normalize_status_token(value: &str) -> String {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', " ")
+        .replace('-', " ")
+}
+
+fn gate_source_label(gate_source: &str) -> String {
+    if gate_source.eq_ignore_ascii_case(TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS) {
+        "Policy-computed (gate source)".to_string()
+    } else {
+        let readable = normalize_status_token(gate_source);
+        format!("Gate source: {readable}")
+    }
+}
+
+fn quantization_provenance_chips(
+    gate_source: Option<&str>,
+    probe_status: Option<&str>,
+) -> Vec<ProvenanceChip> {
+    let (Some(gate_source), Some(probe_status)) = (gate_source, probe_status) else {
+        return vec![ProvenanceChip {
+            label: "Provenance unavailable (legacy report)".to_string(),
+            tone: ProvenanceChipTone::Muted,
+        }];
+    };
+
+    let mut chips = vec![ProvenanceChip {
+        label: gate_source_label(gate_source),
+        tone: ProvenanceChipTone::Standard,
+    }];
+
+    match probe_status.trim().to_ascii_lowercase().as_str() {
+        TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS => chips.push(ProvenanceChip {
+            label: "Native probe (informational)".to_string(),
+            tone: ProvenanceChipTone::Standard,
+        }),
+        TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE
+        | TRAINING_QUANTIZATION_PROBE_STATUS_FAILED => chips.push(ProvenanceChip {
+            label: "Probe unavailable".to_string(),
+            tone: ProvenanceChipTone::Muted,
+        }),
+        TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED => {}
+        _ => chips.push(ProvenanceChip {
+            label: format!("Probe status: {}", normalize_status_token(probe_status)),
+            tone: ProvenanceChipTone::Muted,
+        }),
+    }
+
+    chips
+}
+
 /// Metrics tab - live or final metrics display
 #[component]
 pub fn MetricsTabContent(
@@ -355,6 +424,37 @@ pub fn MetricsTabContent(
     }
 
     view! {
+        {move || {
+            if !is_completed || report_loading.try_get().unwrap_or(false) {
+                return ().into_any();
+            }
+
+            let maybe_report = report_signal.try_get().flatten();
+            let Some(report) = maybe_report else {
+                return ().into_any();
+            };
+
+            let quantization_report = report.report.quantization_report.as_ref();
+            let chips = quantization_provenance_chips(
+                quantization_report.map(|report| report.gate_source.as_str()),
+                quantization_report.map(|report| report.probe_status.as_str()),
+            );
+
+            view! {
+                <div class="mb-3 flex flex-wrap items-center gap-2 text-2xs">
+                    {chips.into_iter().map(|chip| {
+                        let class = match chip.tone {
+                            ProvenanceChipTone::Standard => "inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-muted-foreground".to_string(),
+                            ProvenanceChipTone::Muted => "inline-flex items-center rounded-full border border-border/60 bg-muted/20 px-2 py-0.5 text-muted-foreground".to_string(),
+                        };
+                        view! {
+                            <span class=class>{chip.label}</span>
+                        }
+                    }).collect::<Vec<_>>()}
+                </div>
+            }.into_any()
+        }}
+
         // Final metrics (for completed jobs)
         {is_completed.then(|| view! {
             <Card title="Final Metrics".to_string()>
@@ -521,6 +621,42 @@ pub fn MetricsTabContent(
                 <LogViewer job_id=job_id_for_logs/>
             </Card>
         })}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quantization_chips_success_show_native_probe_without_unavailable() {
+        let chips = quantization_provenance_chips(
+            Some(TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS),
+            Some(TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS),
+        );
+        let labels: Vec<String> = chips.into_iter().map(|chip| chip.label).collect();
+        assert!(labels.contains(&"Policy-computed (gate source)".to_string()));
+        assert!(labels.contains(&"Native probe (informational)".to_string()));
+        assert!(!labels.contains(&"Probe unavailable".to_string()));
+    }
+
+    #[test]
+    fn quantization_chips_unavailable_show_probe_unavailable_without_native_probe() {
+        let chips = quantization_provenance_chips(
+            Some(TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS),
+            Some(TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE),
+        );
+        let labels: Vec<String> = chips.into_iter().map(|chip| chip.label).collect();
+        assert!(labels.contains(&"Policy-computed (gate source)".to_string()));
+        assert!(labels.contains(&"Probe unavailable".to_string()));
+        assert!(!labels.contains(&"Native probe (informational)".to_string()));
+    }
+
+    #[test]
+    fn quantization_chips_legacy_report_show_fallback_chip() {
+        let chips = quantization_provenance_chips(None, None);
+        assert_eq!(chips.len(), 1);
+        assert_eq!(chips[0].label, "Provenance unavailable (legacy report)");
     }
 }
 

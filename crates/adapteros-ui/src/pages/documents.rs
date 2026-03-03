@@ -302,11 +302,14 @@ fn build_document_training_request(
         preferred_backend: None,
         backend_policy: None,
         coreml_training_fallback: None,
+        #[cfg(not(target_arch = "wasm32"))]
         coreml_placement: None,
         enable_coreml_export: None,
         require_gpu: None,
         max_gpu_memory_mb: None,
+        #[cfg(not(target_arch = "wasm32"))]
         base_model_path: None,
+        #[cfg(not(target_arch = "wasm32"))]
         preprocessing: None,
         force_resume: None,
         multi_module_training: None,
