@@ -12037,6 +12037,48 @@
         },
         "type": "object"
       },
+      "EffectiveSettingsEntry": {
+        "description": "Effective source entry for a managed key.",
+        "properties": {
+          "effective_source": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {}
+        },
+        "required": [
+          "key",
+          "value",
+          "effective_source"
+        ],
+        "type": "object"
+      },
+      "EffectiveSettingsResponse": {
+        "description": "Effective settings response with source metadata for managed keys.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EffectiveSettingsEntry"
+            },
+            "type": "array"
+          },
+          "managed_keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
       "EmbeddingBenchmarkReport": {
         "description": "Embedding benchmark report\n\nRepresents a single benchmark run with retrieval quality metrics\nand determinism verification results.",
         "properties": {
@@ -28154,11 +28196,82 @@
         ],
         "type": "object"
       },
+      "SettingsReconcileResponse": {
+        "description": "Reconcile response for runtime config file/DB dual-write state.",
+        "properties": {
+          "applied_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effective_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "status",
+          "message"
+        ],
+        "type": "object"
+      },
       "SettingsUpdateResponse": {
         "description": "Settings update response",
         "properties": {
+          "applied_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "applied_live": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "effective_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "message": {
             "type": "string"
+          },
+          "pending_restart_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "queued_for_restart": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "rejected": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "restart_required": {
             "type": "boolean"
@@ -30155,11 +30268,35 @@
       "SystemSettings": {
         "description": "System settings categories",
         "properties": {
+          "applied_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effective_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "general": {
             "$ref": "#/components/schemas/GeneralSettings"
           },
+          "pending_restart_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "performance": {
             "$ref": "#/components/schemas/PerformanceSettings"
+          },
+          "restart_required_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "schema_version": {
             "type": "string"
@@ -33083,6 +33220,154 @@
         ],
         "type": "object"
       },
+      "TrainingQuantizationEvalMetricsV1": {
+        "description": "Policy-computed quantization metrics included in training reports.",
+        "properties": {
+          "human_critical_regressions": {
+            "description": "Human-critical regressions counted during evaluation.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "logit_cosine_mean": {
+            "description": "Mean cosine similarity between baseline and quantized logits.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "ppl_delta_pct": {
+            "description": "Percent perplexity delta relative to baseline.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rss_mb_peak": {
+            "description": "Peak resident set size in MB.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "task_proxy_delta_abs": {
+            "description": "Absolute task-proxy delta from baseline.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tok_s_1k": {
+            "description": "Throughput for 1k context.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tok_s_8k": {
+            "description": "Throughput for 8k context.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TrainingQuantizationProbeMetricsV1": {
+        "description": "Native probe metrics included in training reports (informational only).",
+        "properties": {
+          "logit_cosine_mean": {
+            "description": "Mean cosine similarity from native probe execution.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "ppl_delta_pct": {
+            "description": "Percent perplexity delta measured by native probe.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tok_s_1k": {
+            "description": "Throughput for 1k context from native probe.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tok_s_8k": {
+            "description": "Throughput for 8k context from native probe.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TrainingQuantizationReportV1": {
+        "description": "Quantization provenance block for training reports.",
+        "properties": {
+          "gate_source": {
+            "description": "Gate authority source (canonical default: \"policy_metrics\").",
+            "type": "string"
+          },
+          "policy_metrics": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrainingQuantizationEvalMetricsV1",
+                "description": "Policy-computed metrics used for gate decisions."
+              }
+            ]
+          },
+          "probe_error": {
+            "description": "Optional probe error details when unavailable/failed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "probe_metrics": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrainingQuantizationProbeMetricsV1",
+                "description": "Native-probe metrics (informational only)."
+              }
+            ]
+          },
+          "probe_status": {
+            "description": "Native probe execution status.\n\nCanonical values:\n- \"disabled\"\n- \"unavailable\"\n- \"failed\"\n- \"success\"",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gate_source",
+          "probe_status"
+        ],
+        "type": "object"
+      },
       "TrainingQueueJobSummary": {
         "description": "Summary of a job in the training queue",
         "properties": {
@@ -33390,6 +33675,17 @@
           "pipeline_id": {
             "description": "Pipeline identifier for this training run.",
             "type": "string"
+          },
+          "quantization_report": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrainingQuantizationReportV1",
+                "description": "Quantization provenance and probe state."
+              }
+            ]
           },
           "report_version": {
             "description": "Report schema version.",
@@ -57506,6 +57802,68 @@
           }
         },
         "summary": "Update system settings (admin only)",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/v1/settings/effective": {
+      "get": {
+        "operationId": "get_effective_settings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveSettingsResponse"
+                }
+              }
+            },
+            "description": "Effective settings with source metadata"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get effective settings with source metadata for managed keys.",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/v1/settings/reconcile": {
+      "post": {
+        "operationId": "reconcile_settings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsReconcileResponse"
+                }
+              }
+            },
+            "description": "Settings reconciliation result"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Reconcile runtime settings dual-write state (file + DB).",
         "tags": [
           "settings"
         ]

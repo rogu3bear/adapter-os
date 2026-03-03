@@ -2,12 +2,13 @@ name: Stress Tests
 
 on:
   schedule:
-    - cron: '0 2 * * 0'  # Weekly on Sunday 2 AM UTC
+    - cron: "0 2 * * 0" # Weekly on Sunday 2 AM UTC
   workflow_dispatch:
 
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "1"
 
 jobs:
   stress:
@@ -37,7 +38,7 @@ jobs:
       - name: Run stress tests
         run: |
           mkdir -p var
-          
+
           # Run stress tests if they exist, otherwise skip gracefully
           if cargo test --test stress_tests --release -- --list 2>/dev/null | grep -q "test "; then
             cargo test --test stress_tests --release -- --nocapture --test-threads=1 2>&1 | tee var/stress-test-output.txt
@@ -64,4 +65,3 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             cat var/stress-test-results.json | python3 -m json.tool >> $GITHUB_STEP_SUMMARY || cat var/stress-test-results.json >> $GITHUB_STEP_SUMMARY
           fi
-

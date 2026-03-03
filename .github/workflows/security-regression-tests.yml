@@ -4,29 +4,30 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - 'crates/adapteros-crypto/**'
-      - 'crates/adapteros-core/**'
-      - 'crates/adapteros-db/**'
-      - 'crates/adapteros-domain/**'
-      - 'crates/adapteros-base-llm/**'
-      - 'crates/adapteros-deterministic-exec/**'
-      - 'tests/security_regression_suite.rs'
-      - '.github/workflows/security-regression-tests.yml'
+      - "crates/adapteros-crypto/**"
+      - "crates/adapteros-core/**"
+      - "crates/adapteros-db/**"
+      - "crates/adapteros-domain/**"
+      - "crates/adapteros-base-llm/**"
+      - "crates/adapteros-deterministic-exec/**"
+      - "tests/security_regression_suite.rs"
+      - ".github/workflows/security-regression-tests.yml"
   pull_request:
     branches: [main, develop]
     paths:
-      - 'crates/adapteros-crypto/**'
-      - 'crates/adapteros-core/**'
-      - 'crates/adapteros-db/**'
-      - 'crates/adapteros-domain/**'
-      - 'crates/adapteros-base-llm/**'
-      - 'crates/adapteros-deterministic-exec/**'
-      - 'tests/security_regression_suite.rs'
-      - '.github/workflows/security-regression-tests.yml'
+      - "crates/adapteros-crypto/**"
+      - "crates/adapteros-core/**"
+      - "crates/adapteros-db/**"
+      - "crates/adapteros-domain/**"
+      - "crates/adapteros-base-llm/**"
+      - "crates/adapteros-deterministic-exec/**"
+      - "tests/security_regression_suite.rs"
+      - ".github/workflows/security-regression-tests.yml"
 
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "1"
 
 jobs:
   security-regression-tests:
@@ -77,13 +78,13 @@ jobs:
         run: |
           cargo install cargo-audit --locked
           cargo audit --deny warnings
-        continue-on-error: true  # Advisory - doesn't fail the build yet
+        continue-on-error: true # Advisory - doesn't fail the build yet
 
       - name: Check for hardcoded secrets
         run: |
           cargo install detect-secrets --locked
           detect-secrets scan --baseline .secrets.baseline --suppress-results
-        continue-on-error: true  # Advisory only
+        continue-on-error: true # Advisory only
 
       - name: Generate security test report
         if: always()

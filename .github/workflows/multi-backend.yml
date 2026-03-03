@@ -9,6 +9,7 @@ on:
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "1"
 
 jobs:
   # Linux builds - no Metal, no CoreML

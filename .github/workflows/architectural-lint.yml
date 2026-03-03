@@ -5,6 +5,9 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
+env:
+  SQLX_OFFLINE: "1"
+
 jobs:
   architectural-lint:
     name: Architectural lint check
@@ -67,7 +70,7 @@ jobs:
             }
 
             let body = '## 🔍 Architectural Lint Results\n\n';
-            
+
             if (lintOutput.includes('No architectural violations')) {
               body += '✅ **No architectural violations found.**\n\n';
             } else {
@@ -88,4 +91,3 @@ jobs:
         run: |
           echo "::error::Architectural violations found. Fix violations before merging."
           exit 1
-

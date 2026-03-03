@@ -12,6 +12,8 @@ on:
 jobs:
   infrastructure-check:
     runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: "1"
 
     steps:
       - uses: actions/checkout@v4

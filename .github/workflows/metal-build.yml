@@ -4,14 +4,17 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - 'metal/**/*.metal'
-      - 'crates/adapteros-lora-kernel-mtl/**'
-      - '.github/workflows/metal-build.yml'
+      - "metal/**/*.metal"
+      - "crates/adapteros-lora-kernel-mtl/**"
+      - ".github/workflows/metal-build.yml"
   pull_request:
     branches: [main, develop]
     paths:
-      - 'metal/**/*.metal'
-      - 'crates/adapteros-lora-kernel-mtl/**'
+      - "metal/**/*.metal"
+      - "crates/adapteros-lora-kernel-mtl/**"
+
+env:
+  SQLX_OFFLINE: "1"
 
 jobs:
   build:
