@@ -5,9 +5,9 @@
 use crate::auth::Claims;
 use crate::ip_extraction::ClientIp;
 use crate::middleware::require_role;
+use crate::runtime_config_store;
 use crate::state::AppState;
 use crate::types::*;
-use adapteros_core::defaults::DEFAULT_SERVER_URL;
 use adapteros_db::users::Role;
 use axum::{extract::Extension, extract::State, http::StatusCode, response::Json};
 
@@ -27,59 +27,121 @@ pub async fn get_settings(
 ) -> Result<Json<SystemSettings>, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
 
-    // Load current configuration from AppState
-    let config = state.config.read().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("Configuration lock poisoned").with_code("INTERNAL_ERROR")),
-        )
-    })?;
-
-    let settings = SystemSettings {
-        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        general: GeneralSettings {
-            system_name: config
-                .general
-                .as_ref()
-                .and_then(|g| g.system_name.clone())
-                .unwrap_or_else(|| "adapterOS".to_string()),
-            environment: config
-                .general
-                .as_ref()
-                .and_then(|g| g.environment.clone())
-                .unwrap_or_else(|| "production".to_string()),
-            api_base_url: config
-                .general
-                .as_ref()
-                .and_then(|g| g.api_base_url.clone())
-                .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string()),
-        },
-        server: ServerSettings {
-            http_port: config.server.http_port.unwrap_or(8080),
-            https_port: config.server.https_port,
-            uds_socket_path: config.server.uds_socket.clone(),
-            production_mode: config.server.production_mode,
-        },
-        security: SecuritySettings {
-            jwt_mode: config
-                .security
-                .jwt_mode
-                .clone()
-                .unwrap_or_else(|| "eddsa".to_string()),
-            token_ttl_seconds: config.security.token_ttl_seconds.unwrap_or(28800) as u32, // 8 hours
-            require_mfa: config.security.require_mfa.unwrap_or(false),
-            egress_enabled: !config.security.require_pf_deny,
-            require_pf_deny: config.security.require_pf_deny,
-        },
-        performance: PerformanceSettings {
-            max_adapters: config.performance.max_adapters.unwrap_or(100) as u32,
-            max_workers: config.performance.max_workers.unwrap_or(10) as u32,
-            memory_threshold_pct: config.performance.memory_threshold_pct.unwrap_or(0.85),
-            cache_size_mb: config.performance.cache_size_mb.unwrap_or(1024) as u64,
-        },
+    // Load current configuration from AppState and drop lock before await.
+    let mut settings = {
+        let config = state.config.read().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Configuration lock poisoned").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+        runtime_config_store::settings_from_api_config(&config)
     };
 
+    let loaded = runtime_config_store::load_runtime_config(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new(format!("Failed to load runtime config: {}", e))
+                        .with_code("INTERNAL_ERROR"),
+                ),
+            )
+        })?;
+
+    if let Some(loaded) = loaded {
+        settings.effective_source = Some(loaded.effective_source);
+        settings.applied_at = Some(loaded.document.updated_at);
+        settings.pending_restart_fields = loaded.document.pending_restart_fields;
+    }
+
+    settings.restart_required_fields = vec![
+        "server.http_port".to_string(),
+        "server.https_port".to_string(),
+        "server.uds_socket_path".to_string(),
+        "server.production_mode".to_string(),
+        "security.jwt_mode".to_string(),
+        "security.token_ttl_seconds".to_string(),
+        "security.require_mfa".to_string(),
+        "security.require_pf_deny".to_string(),
+    ];
+
     Ok(Json(settings))
+}
+
+/// Get effective settings with source metadata for managed keys.
+#[utoipa::path(
+    get,
+    path = "/v1/settings/effective",
+    responses(
+        (status = 200, description = "Effective settings with source metadata", body = EffectiveSettingsResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "settings"
+)]
+pub async fn get_effective_settings(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<EffectiveSettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_role(&claims, Role::Admin)?;
+
+    let settings = {
+        let config = state.config.read().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Configuration lock poisoned").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+        runtime_config_store::settings_from_api_config(&config)
+    };
+
+    let loaded = runtime_config_store::load_runtime_config(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new(format!("Failed to load runtime config: {}", e))
+                        .with_code("INTERNAL_ERROR"),
+                ),
+            )
+        })?;
+
+    Ok(Json(
+        runtime_config_store::build_effective_settings_response(&settings, loaded.as_ref()),
+    ))
+}
+
+/// Reconcile runtime settings dual-write state (file + DB).
+#[utoipa::path(
+    post,
+    path = "/v1/settings/reconcile",
+    responses(
+        (status = 200, description = "Settings reconciliation result", body = SettingsReconcileResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "settings"
+)]
+pub async fn reconcile_settings(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<SettingsReconcileResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_role(&claims, Role::Admin)?;
+
+    let response = runtime_config_store::reconcile_runtime_config(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new(format!("Failed to reconcile runtime config: {}", e))
+                        .with_code("INTERNAL_ERROR"),
+                ),
+            )
+        })?;
+
+    Ok(Json(response))
 }
 
 /// Update system settings (admin only)
@@ -134,28 +196,56 @@ pub async fn update_settings(
         updated_sections.push("performance");
     }
 
-    // Persist settings to override file
-    if let Err(e) = persist_settings_override(&req).await {
-        use crate::audit_helper::{actions, log_failure_or_warn, resources};
-        log_failure_or_warn(
-            &state.db,
-            &claims,
-            actions::SETTINGS_UPDATE,
-            resources::SETTINGS,
-            None,
-            &format!("Failed to persist settings: {}", e),
-            Some(client_ip.0.as_str()),
-        )
-        .await;
+    let pending_restart_fields = if restart_required {
+        let mut fields = Vec::new();
+        if req.server.is_some() {
+            fields.extend([
+                "server.http_port".to_string(),
+                "server.https_port".to_string(),
+                "server.uds_socket_path".to_string(),
+                "server.production_mode".to_string(),
+            ]);
+        }
+        if req.security.is_some() {
+            fields.extend([
+                "security.jwt_mode".to_string(),
+                "security.token_ttl_seconds".to_string(),
+                "security.require_mfa".to_string(),
+                "security.require_pf_deny".to_string(),
+            ]);
+        }
+        fields
+    } else {
+        Vec::new()
+    };
 
-        return Err((
+    let persisted = runtime_config_store::persist_runtime_update(
+        &state.db,
+        &req,
+        pending_restart_fields,
+        Some(claims.sub.clone()),
+    )
+    .await
+    .map_err(|e| {
+        (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new(format!("Failed to persist settings: {}", e))
                     .with_code("INTERNAL_ERROR"),
             ),
-        ));
-    }
+        )
+    })?;
+
+    let apply_report =
+        runtime_config_store::apply_runtime_overrides(&state.config, &req).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new(format!("Failed to apply live settings: {}", e))
+                        .with_code("INTERNAL_ERROR"),
+                ),
+            )
+        })?;
 
     // Log successful settings update
     use crate::audit_helper::{actions, log_success_or_warn, resources};
@@ -171,7 +261,7 @@ pub async fn update_settings(
 
     let message = if restart_required {
         format!(
-            "Settings updated: {}. Restart required for changes to take effect.",
+            "Settings updated: {}. Restart required for queued fields.",
             updated_sections.join(", ")
         )
     } else {
@@ -186,6 +276,12 @@ pub async fn update_settings(
         success: true,
         restart_required,
         message,
+        applied_live: apply_report.applied_live,
+        queued_for_restart: apply_report.queued_for_restart,
+        rejected: apply_report.rejected,
+        effective_source: Some(persisted.effective_source),
+        applied_at: Some(persisted.document.updated_at),
+        pending_restart_fields: persisted.document.pending_restart_fields,
     }))
 }
 
@@ -231,64 +327,6 @@ fn validate_settings_request(req: &UpdateSettingsRequest) -> Result<(), String> 
             return Err("cache_size_mb must be greater than 0".to_string());
         }
     }
-
-    Ok(())
-}
-
-/// Persist settings to override file
-async fn persist_settings_override(req: &UpdateSettingsRequest) -> Result<(), std::io::Error> {
-    use std::path::Path;
-
-    let override_path = "var/settings_override.json";
-    let override_dir = Path::new("var");
-
-    // Ensure var directory exists
-    if !override_dir.exists() {
-        tokio::fs::create_dir_all(override_dir).await?;
-    }
-
-    // Read existing overrides if present
-    let mut existing: UpdateSettingsRequest = if Path::new(override_path).exists() {
-        let content = tokio::fs::read_to_string(override_path).await?;
-        serde_json::from_str(&content).unwrap_or(UpdateSettingsRequest {
-            general: None,
-            server: None,
-            security: None,
-            performance: None,
-        })
-    } else {
-        UpdateSettingsRequest {
-            general: None,
-            server: None,
-            security: None,
-            performance: None,
-        }
-    };
-
-    // Merge new settings with existing (new settings override existing)
-    if req.general.is_some() {
-        existing.general = req.general.clone();
-    }
-    if req.server.is_some() {
-        existing.server = req.server.clone();
-    }
-    if req.security.is_some() {
-        existing.security = req.security.clone();
-    }
-    if req.performance.is_some() {
-        existing.performance = req.performance.clone();
-    }
-
-    // Write merged settings to file
-    let json = serde_json::to_string_pretty(&existing)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-    tokio::fs::write(override_path, json).await?;
-
-    tracing::info!(
-        override_path = override_path,
-        "Settings override file written successfully"
-    );
 
     Ok(())
 }

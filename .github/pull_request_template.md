@@ -21,6 +21,11 @@ Describe what this PR changes and why.
 - [ ] Added inline code comments for complex logic (prefer `///` doc comments for public APIs)
 - [ ] Updated ARCHITECTURE.md or docs/ if changing core patterns or subsystems
 
+### Governance Impact
+- [ ] Reviewed governance impact (paths, generated artifacts, tooling state)
+- [ ] If generated artifacts changed, documented generator command and validation check
+- [ ] No unauthorized tracked files under local-only tooling/runtime paths
+
 ### Database Optimizations (Required when changing DB performance)
 - [ ] If this PR includes a DB optimization (indexes, query rewrites, PRAGMA tuning, ANALYZE jobs):
   - [ ] Added/updated an entry in [`optimizations/db/registry.toml`](optimizations/db/registry.toml:1)

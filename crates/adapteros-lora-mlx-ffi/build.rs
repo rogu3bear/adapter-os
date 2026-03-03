@@ -13,6 +13,12 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn verbose_build_warning(message: impl AsRef<str>) {
+    if env::var_os("AOS_BUILD_SCRIPT_VERBOSE").is_some() {
+        println!("cargo:warning={}", message.as_ref());
+    }
+}
+
 struct MlxBuildInfo {
     version: String,
     header_hash: String,
@@ -71,6 +77,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MLX_PATH");
     println!("cargo:rerun-if-env-changed=MLX_FORCE_STUB");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
+    println!("cargo:rerun-if-env-changed=AOS_BUILD_SCRIPT_VERBOSE");
     println!("cargo:rustc-check-cfg=cfg(mlx_stub)");
 
     // Check if C++ MLX feature is enabled
@@ -88,11 +95,11 @@ fn main() {
                     header_hash,
                     header_hash_source,
                 ));
-                println!("cargo:warning==========================================================");
-                println!("cargo:warning=MLX BACKEND: Real C++ FFI (feature 'mlx' enabled)");
-                println!("cargo:warning=MLX version: {}", version);
-                println!("cargo:warning=Include path: {}", include_dir.display());
-                println!("cargo:warning=Library path: {}", lib_dir.display());
+                verbose_build_warning("==========================================================");
+                verbose_build_warning("MLX BACKEND: Real C++ FFI (feature 'mlx' enabled)");
+                verbose_build_warning(format!("MLX version: {}", version));
+                verbose_build_warning(format!("Include path: {}", include_dir.display()));
+                verbose_build_warning(format!("Library path: {}", lib_dir.display()));
 
                 // Run compile+link probe to verify header/library compatibility
                 if let Err(e) = run_mlx_compatibility_probe(&include_dir, &lib_dir) {
@@ -114,8 +121,8 @@ fn main() {
                     panic!("MLX header/library mismatch detected. See warnings above.");
                 }
 
-                println!("cargo:warning=Compatibility probe: PASSED");
-                println!("cargo:warning==========================================================");
+                verbose_build_warning("Compatibility probe: PASSED");
+                verbose_build_warning("==========================================================");
 
                 compile_real_wrapper(&include_dir, &lib_dir);
                 println!("cargo:rustc-link-lib=static=mlx_wrapper");
@@ -252,7 +259,7 @@ int main() {
 fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
     // Check for forced stub
     if env::var("MLX_FORCE_STUB").is_ok() {
-        println!("cargo:warning=MLX_FORCE_STUB set - using stub implementation");
+        verbose_build_warning("MLX_FORCE_STUB set - using stub implementation");
         return None;
     }
 
@@ -260,21 +267,21 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
     if let Ok(mlx_path) = env::var("MLX_PATH") {
         let path = resolve_mlx_path(&mlx_path);
         if path != std::path::Path::new(&mlx_path) {
-            println!(
-                "cargo:warning=Resolved relative MLX_PATH '{}' to '{}'",
+            verbose_build_warning(format!(
+                "Resolved relative MLX_PATH '{}' to '{}'",
                 mlx_path,
                 path.display()
-            );
+            ));
         }
         let include_dir = path.join("include");
         let lib_dir = path.join("lib");
 
         if has_mlx_headers(&include_dir) && has_mlx_library(&lib_dir) {
             let version = detect_mlx_version(&include_dir);
-            println!(
-                "cargo:warning=Found MLX via MLX_PATH: {} ({})",
+            verbose_build_warning(format!(
+                "Found MLX via MLX_PATH: {} ({})",
                 mlx_path, version
-            );
+            ));
             return Some((include_dir, lib_dir, version));
         } else {
             println!(
@@ -286,7 +293,7 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
 
     // Method 2: Try pkg-config
     if let Some((include_dir, lib_dir, version)) = find_mlx_via_pkg_config() {
-        println!("cargo:warning=Found MLX via pkg-config ({})", version);
+        verbose_build_warning(format!("Found MLX via pkg-config ({})", version));
         return Some((include_dir, lib_dir, version));
     }
 
@@ -305,14 +312,14 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
 
         if has_mlx_headers(&include_dir) && has_mlx_library(&lib_dir) {
             let version = detect_mlx_version(&include_dir);
-            println!("cargo:warning=Found MLX at: {} ({})", base_path, version);
+            verbose_build_warning(format!("Found MLX at: {} ({})", base_path, version));
             return Some((include_dir, lib_dir, version));
         }
     }
 
     // Method 4: Check Homebrew Cellar directly
     if let Some((include_dir, lib_dir, version)) = find_mlx_in_homebrew_cellar() {
-        println!("cargo:warning=Found MLX in Homebrew Cellar ({})", version);
+        verbose_build_warning(format!("Found MLX in Homebrew Cellar ({})", version));
         return Some((include_dir, lib_dir, version));
     }
 

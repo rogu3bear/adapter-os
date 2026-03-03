@@ -112,6 +112,48 @@ else
 fi
 ```
 
+## build-targets.sh
+
+**Shared build target partitioning and incremental cache guardrails.**
+
+### Features
+
+- **Flow-partitioned targets**: Resolves target roots for `ui`, `server`, `worker`, and `test`.
+- **Dual-mode binary resolution**: Prefers flow target binaries, then falls back to legacy `target/{debug,release}`.
+- **Incremental guardrails**: Warns/prunes oversized or stale incremental cache directories.
+- **Sccache policy helpers**: Standardized script-level behavior for `AOS_BUILD_USE_SCCACHE`.
+
+### Usage
+
+```bash
+source scripts/lib/build-targets.sh
+
+# Set flow target and export CARGO_TARGET_DIR
+aos_export_cargo_target server
+
+# Optional guardrail preflight
+aos_prune_incremental_if_needed server || true
+
+# Print effective context (target + sccache mode)
+aos_print_build_context server
+
+# Run cargo/trunk command with script-level sccache policy
+aos_run_build_command cargo build -p adapteros-server
+```
+
+### Environment Variables
+
+- `AOS_BUILD_TARGET_ROOT` (default: `var/target`)
+- `AOS_UI_TARGET_DIR`
+- `AOS_SERVER_TARGET_DIR`
+- `AOS_WORKER_TARGET_DIR`
+- `AOS_TEST_TARGET_DIR`
+- `AOS_BUILD_USE_SCCACHE` (`1` default, `0` disables wrapper in script command invocation)
+- `AOS_INCREMENTAL_WARN_GB` (default: `6`)
+- `AOS_INCREMENTAL_PRUNE_GB` (default: `10`)
+- `AOS_INCREMENTAL_MAX_AGE_HOURS` (default: `72`)
+- `AOS_AUTO_PRUNE_INCREMENTAL` (default: `1`)
+
 ## freeze-guard.sh
 
 **Port conflict detection and resource management.**

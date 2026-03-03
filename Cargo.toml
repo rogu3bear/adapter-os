@@ -1,6 +1,6 @@
 [package]
 name = "adapter-os"
-version = "0.14.1"
+version = "0.14.2"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -8,7 +8,9 @@ repository = "https://github.com/rogu3bear/adapter-os"
 
 [workspace]
 resolver = "2"
-exclude = []  # adapteros-server temporarily included for building
+exclude = [
+    "crates/adapteros-codegraph-viewer/src-tauri",
+]  # intentionally maintained outside workspace builds
 members = [
     "crates/adapteros-boot",  # Boot lifecycle management
     "crates/adapteros-auth",  # Centralized authentication
@@ -40,6 +42,7 @@ members = [
     "crates/adapteros-cli",
     "crates/adapteros-tui",  # Terminal UI dashboard
     "crates/adapteros-api",
+    "crates/adapteros-inference-contract",
     "crates/adapteros-lora-quant",
     "crates/adapteros-server",  # Re-enabled for building
     "crates/adapteros-server-api",
@@ -67,13 +70,14 @@ members = [
     "crates/adapteros-trace",
     "crates/adapteros-numerics",
     "crates/adapteros-memory",
+    "crates/adapteros-graph",
+    "crates/adapteros-sbom",
     "crates/adapteros-lint",
     "crates/adapteros-verify",
     "crates/adapteros-federation",
     "crates/adapteros-domain",
     "crates/adapteros-error-recovery",
     "crates/adapteros-error-registry",  # Unified error code registry with recovery actions
-    "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-e2e",
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
@@ -100,7 +104,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.14.1"
+version = "0.14.2"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -210,7 +214,7 @@ toml = "0.8"
 # Database
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 refinery = { version = "0.9", features = ["rusqlite"] }
-sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 libsqlite3-sys = { version = "=0.30.1", features = ["bundled"] }
 
 # Compression & Archive
@@ -218,7 +222,7 @@ zstd = "0.13"
 tar = "0.4"
 
 # Async & Concurrency
-tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net", "fs", "signal", "process"] }
+tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net", "fs", "signal", "process"] }
 tokio-stream = "0.1"
 futures-util = "0.3"
 async-stream = "0.3"
@@ -247,7 +251,7 @@ tantivy = { git = "https://github.com/quickwit-oss/tantivy", branch = "main" }
 # Security: Force oneshot >= 0.1.12 (CVE: Use After Free in async)
 oneshot = "0.1.13"
 tokenizers = "0.22.2"
-safetensors = "0.4"
+safetensors = "0.7"
 
 # Python/MLX Integration - REMOVED (PyO3 cleanup)
 
@@ -409,7 +413,6 @@ adapteros-infra-common = { path = "crates/adapteros-infra-common" }
 adapteros-lora-plan = { path = "crates/adapteros-lora-plan" }
 adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
 adapteros-aos = { path = "crates/adapteros-aos" }
-adapteros-base-llm = { path = "crates/adapteros-base-llm" }
 adapteros-single-file-adapter = { path = "crates/adapteros-single-file-adapter" }
 adapteros-telemetry = { path = "crates/adapteros-telemetry" }
 adapteros-policy = { path = "crates/adapteros-policy" }
@@ -428,6 +431,7 @@ adapteros-model-server = { path = "crates/adapteros-model-server", features = ["
 reqwest = { workspace = true }
 toml = { workspace = true }
 futures-util = { workspace = true }
+libc = "0.2"
 
 base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
@@ -462,6 +466,7 @@ sysinfo = { workspace = true }
 adapteros-api = { path = "crates/adapteros-api" }
 adapteros-deterministic-exec = { path = "crates/adapteros-deterministic-exec" }
 adapteros-replay = { path = "crates/adapteros-replay" }
+adapteros-id = { path = "crates/adapteros-id" }
 adapteros-trace = { path = "crates/adapteros-trace" }
 tracing = { workspace = true }
 tokio = { workspace = true }
@@ -471,7 +476,7 @@ tracing-subscriber = { workspace = true }
 anyhow = "1.0"
 axum = "0.8"
 tower = "0.5"
-sqlx = { version = "0.8.2", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v7", "serde"] }
 blake3 = { workspace = true }
@@ -485,7 +490,7 @@ opt-level = 0
 debug = true
 overflow-checks = true
 lto = false
-panic = "abort"
+panic = "unwind"
 incremental = true
 
 # Sanitizer profiles (require nightly and profile-rustflags feature)

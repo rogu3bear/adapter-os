@@ -284,7 +284,7 @@ validate_env_quick() {
 # Print environment summary
 print_env_summary() {
     echo "Environment configuration:"
-    echo "  Server: ${AOS_SERVER_HOST:-127.0.0.1}:${AOS_SERVER_PORT:-8080}"
+    echo "  Server: ${AOS_SERVER_HOST:-127.0.0.1}:${AOS_SERVER_PORT:-18080}"
     echo "  Database: ${AOS_DATABASE_URL:-not set}"
     echo "  Model: ${AOS_MODEL_PATH:-not set}"
     echo "  Backend: ${AOS_MODEL_BACKEND:-auto}"

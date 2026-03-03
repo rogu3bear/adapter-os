@@ -1,0 +1,118 @@
+{
+  "name": "aos_bundle_format_v1",
+  "description": "Comprehensive training data for the .aos adapter bundle format: binary archive layout, content addressing with BLAKE3 hashes, manifest schema and validation, provenance chain verification, and bundle lifecycle operations (create, verify, load, inspect, compare). All examples are grounded in the actual adapteros-aos crate implementation.",
+  "version": "1.0.0",
+  "category": "storage",
+  "scope": "global",
+  "tier": "critical",
+  "rank": 8,
+  "alpha": 16.0,
+  "target_modules": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "gate_proj"
+  ],
+  "entries": [
+    {
+      "path": "aos-bundle-format.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "supervised",
+      "notes": "2000 examples across five categories: bundle_structure (400), content_addressing (400), manifest_deep_dive (400), provenance_chains (400), bundle_operations (400). Every example is grounded in the actual adapteros-aos crate: AosWriter, open_aos(), parse_segments(), SingleFileAdapter, ProvenanceCertificate, and the 64-byte header + segment index binary layout."
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "crates/adapteros-aos/src/lib.rs",
+      "crates/adapteros-aos/src/writer.rs",
+      "crates/adapteros-aos/src/types.rs",
+      "crates/adapteros-aos/src/sealed.rs",
+      "crates/adapteros-aos/src/single_file/format.rs",
+      "crates/adapteros-aos/src/single_file/mod.rs",
+      "crates/adapteros-aos/src/single_file/validator.rs",
+      "crates/adapteros-aos/src/single_file/loader.rs",
+      "crates/adapteros-db/src/adapters/aos_parser.rs",
+      "crates/adapteros-crypto/src/provenance.rs",
+      "crates/adapteros-artifacts/tests/bundle_format_tests.rs",
+      "crates/adapteros-cli/src/commands/aos.rs",
+      "crates/adapteros-cli/src/commands/verify_adapter.rs",
+      "crates/adapteros-lora-lifecycle/src/loader.rs",
+      "crates/adapteros-types/src/adapters/metadata.rs"
+    ],
+    "created_by": "aos-bundle-format-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "All format details sourced from the adapteros-aos crate implementation. Binary header layout matches writer.rs spec: 64-byte header with AOS\\0 magic, flags, index/manifest offsets. Segment index entries are 80 bytes with segment_id, backend_tag, scope_hash, weights_hash, offset, length. Content addressing uses BLAKE3 throughout. Manifest fields match AdapterManifest struct in format.rs. Provenance chain details from adapteros-crypto provenance.rs ProvenanceCertificate with JCS canonical JSON hashing and Ed25519 signatures."
+  },
+  "evaluation_gates": [
+    "AOS magic bytes are exactly b\"AOS\\0\" (4 bytes)",
+    "Header size is exactly 64 bytes with cache-aligned layout",
+    "Segment index entries are exactly 80 bytes each",
+    "Index offset is always at byte 64 (immediately after header)",
+    "All hashes are BLAKE3 (not SHA-256 or other)",
+    "Signatures are Ed25519 (not RSA or ECDSA)",
+    "Manifest is JSON serialized with serde_json",
+    "Content hash is BLAKE3(manifest_json || weights_bytes)",
+    "Integrity hash covers base_model_hash, training_config_hash, tokenizer_hash, dataset_hash, weights_hash",
+    "Backend tags are u16: Canonical=0, Mlx=1, Metal=2, CoreML=3",
+    "Scope hash is truncated BLAKE3 to 16 bytes",
+    "Provenance certificates use JCS (RFC 8785) canonical JSON for deterministic hashing",
+    "Atomic writes use temp file + rename pattern",
+    "Sealed containers use SEAL magic bytes, not AOS",
+    "AOS_FORMAT_VERSION is 2; MANIFEST_SCHEMA_VERSION is 1.0.0"
+  ],
+  "intent": "Teach adapters the complete .aos bundle format: binary layout, content-addressed storage, manifest schema with all fields and validation rules, provenance chain from dataset through deployment, and all bundle lifecycle operations. This knowledge is critical for adapter creation, verification, loading, debugging, and audit compliance.",
+  "subcategories": {
+    "bundle_structure": "Detailed walkthrough of .aos binary format: 64-byte header fields and offsets, segment index layout (80 bytes per entry), multi-backend segments (Canonical/Mlx/Metal/CoreML), manifest placement, and how all components relate to each other in the archive.",
+    "content_addressing": "How BLAKE3 hashing works for bundles: file-level hashing, per-segment weights hashes in the index, content_hash as BLAKE3(manifest+weights), integrity_hash covering critical fields, scope_hash truncation to 16 bytes, hash verification during load, and deduplication via content-addressed storage paths.",
+    "manifest_deep_dive": "Every AdapterManifest field explained: format_version, schema_version, adapter_id, content_hash, rank, alpha, base_model, target_modules, weights_hash, training_data_hash, per_layer_hashes, metadata with scope_path, provenance, integrity_hash. Validation rules, defaults, and error handling for missing or invalid fields.",
+    "provenance_chains": "Full lineage from source documents through dataset, training run, adapter checkpoint, promotion, to deployment. ProvenanceCertificate structure, JCS canonical hashing, Ed25519 signing, chain completeness scoring, and verification at each link.",
+    "bundle_operations": "Creating bundles with AosWriter and SingleFileAdapter::create(), verifying with SingleFileAdapterValidator, loading with SingleFileAdapterLoader, inspecting manifests and segments, comparing bundle versions, signing with Ed25519, and sealing with SealedAdapterContainer. CLI commands: aosctl aos create, verify, load, info, extract."
+  },
+  "example_counts": {
+    "bundle_structure": 400,
+    "content_addressing": 400,
+    "manifest_deep_dive": 400,
+    "provenance_chains": 400,
+    "bundle_operations": 400,
+    "total": 2000
+  },
+  "format_internals": {
+    "header_size_bytes": 64,
+    "index_entry_size_bytes": 80,
+    "magic_bytes": "AOS\\0",
+    "legacy_magic": "AOS2",
+    "sealed_magic": "SEAL",
+    "current_format_version": 2,
+    "manifest_schema_version": "1.0.0",
+    "hash_algorithm": "BLAKE3",
+    "signature_algorithm": "Ed25519",
+    "scope_hash_truncation_bytes": 16,
+    "backend_tags": {
+      "canonical": 0,
+      "mlx": 1,
+      "metal": 2,
+      "coreml": 3
+    },
+    "header_layout": {
+      "0-3": "Magic: AOS\\0",
+      "4-7": "Flags (u32 LE, bit 0 = has index)",
+      "8-15": "Index offset (u64 LE)",
+      "16-23": "Index size (u64 LE)",
+      "24-31": "Manifest offset (u64 LE)",
+      "32-39": "Manifest size (u64 LE)",
+      "40-63": "Reserved (24 bytes, must be zero)"
+    },
+    "index_entry_layout": {
+      "0-3": "Segment ID (u32 LE)",
+      "4-5": "Backend tag (u16 LE)",
+      "6-7": "Reserved (2 bytes)",
+      "8-15": "Payload offset (u64 LE)",
+      "16-23": "Payload length (u64 LE)",
+      "24-39": "Scope hash (16 bytes, truncated BLAKE3)",
+      "40-71": "Weights hash (32 bytes, full BLAKE3)",
+      "72-79": "Reserved (8 bytes)"
+    }
+  }
+}

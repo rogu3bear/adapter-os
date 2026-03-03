@@ -25,7 +25,7 @@
 //!
 //! ## Usage
 //! ```bash
-//! cargo test --test determinism_replay_harness -- --test-threads=1 --nocapture
+//! cargo test -p adapter-os --no-default-features --test determinism_replay_harness -- --test-threads=1 --nocapture
 //! ```
 
 use adapteros_core::hash::B3Hash;

@@ -14,9 +14,7 @@
 //!
 //! Run with: `cargo test --features extended-tests server_lifecycle`
 
-use adapteros_core::{AosError, Result};
-use adapteros_db::Db;
-use anyhow::Context;
+use anyhow::{Context, Result};
 use serde_json::Value;
 use std::fs;
 use std::net::TcpListener;
@@ -190,7 +188,6 @@ fn start_server(config: &TestServerConfig, extra_args: &[&str]) -> Result<Child>
         .arg(&config.config_path)
         .arg("--pid-file")
         .arg(&config.pid_file_path)
-        .arg("--skip-pf-check")
         .args(extra_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -204,29 +201,44 @@ fn start_server(config: &TestServerConfig, extra_args: &[&str]) -> Result<Child>
 
 /// Find the server binary (adapteros-server or cargo build target)
 fn find_server_binary() -> Result<String> {
-    // Check for pre-built binary
-    let candidates = vec![
-        "target/debug/adapteros-server",
-        "target/release/adapteros-server",
-    ];
+    let target_dir = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string());
+    let mut candidates = Vec::new();
+    for binary in ["aos-server", "adapteros-server"] {
+        candidates.push(format!("{}/debug/{}", target_dir, binary));
+        candidates.push(format!("{}/release/{}", target_dir, binary));
+        candidates.push(format!("target/debug/{}", binary));
+        candidates.push(format!("target/release/{}", binary));
+    }
 
     for candidate in candidates {
-        if std::path::Path::new(candidate).exists() {
-            return Ok(candidate.to_string());
+        if std::path::Path::new(&candidate).exists() {
+            return Ok(candidate);
         }
     }
 
     // Fall back to building from source
     eprintln!("Server binary not found, building from source...");
     let status = Command::new("cargo")
-        .args(&["build", "--bin", "adapteros-server"])
+        .args(["build", "-p", "adapteros-server", "--bin", "aos-server"])
+        .env("CARGO_TERM_PROGRESS_WHEN", "never")
         .status()?;
 
     if !status.success() {
         anyhow::bail!("Failed to build server binary");
     }
 
-    Ok("target/debug/adapteros-server".to_string())
+    for candidate in [
+        format!("{}/debug/aos-server", target_dir),
+        "target/debug/aos-server".to_string(),
+        format!("{}/debug/adapteros-server", target_dir),
+        "target/debug/adapteros-server".to_string(),
+    ] {
+        if std::path::Path::new(&candidate).exists() {
+            return Ok(candidate);
+        }
+    }
+
+    anyhow::bail!("Built server binary but no known output path was found")
 }
 
 /// Wait for server to be ready by checking health endpoint
@@ -624,17 +636,11 @@ async fn test_health_check_degradation() -> Result<()> {
 
     // Query initial health status
     let client = reqwest::Client::new();
-    let response = client
-        .get(&config.health_url())
-        .send()
+    let response = client.get(&config.health_url()).send().await?;
+    let health_data: Value = response
+        .json()
         .await
-        .map_err(|e| AosError::Network(e.to_string()))?;
-    let health_data: Value = response.json().await.map_err(|e| {
-        AosError::Serialization(
-            serde_json::from_str(&e.to_string())
-                .unwrap_or(serde_json::Error::custom("reqwest json failed")),
-        )
-    })?;
+        .context("Failed to deserialize health endpoint response")?;
 
     eprintln!("Initial health status:");
     eprintln!("{}", serde_json::to_string_pretty(&health_data)?);
@@ -651,17 +657,13 @@ async fn test_health_check_degradation() -> Result<()> {
 
     for component in component_names {
         let component_url = format!("{}/healthz/{}", config.base_url(), component);
-        let response = client
-            .get(&component_url)
-            .send()
-            .await
-            .map_err(|e| AosError::Network(e.to_string()))?;
+        let response = client.get(&component_url).send().await?;
 
         if response.status().is_success() {
             let component_health: Value = response
                 .json()
                 .await
-                .map_err(|e| AosError::Network(e.to_string()))?;
+                .context("Failed to deserialize component health response")?;
 
             eprintln!(
                 "✓ Component '{}' health: {}",

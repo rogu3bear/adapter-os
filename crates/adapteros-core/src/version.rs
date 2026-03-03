@@ -319,7 +319,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// - **Major**: Breaking REST API changes (incompatible request/response formats)
 /// - **Minor**: New endpoints or optional fields (backward compatible)
 /// - **Patch**: Bug fixes in schema definitions
-pub const API_SCHEMA_VERSION: &str = "1.0.0";
+pub const API_SCHEMA_VERSION: &str = "2.0.0";
 
 /// Database schema version (migration sequence number)
 ///

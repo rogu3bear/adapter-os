@@ -184,7 +184,7 @@ async fn test_e2e_inference_with_audit_trail() {
     .bind(&claims.tenant_id)
     .bind(manifest_hash)
     .bind(r#"{"version":"1.0","backend":"mlx"}"#)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("Failed to seed manifest");
 
@@ -193,8 +193,8 @@ async fn test_e2e_inference_with_audit_trail() {
     )
     .bind("node-e2e")
     .bind("localhost")
-    .bind("http://localhost:9090")
-    .execute(state.db.pool())
+    .bind("http://localhost:18084")
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("Failed to seed node");
 
@@ -207,7 +207,7 @@ async fn test_e2e_inference_with_audit_trail() {
     .bind("plan-b3-e2e")
     .bind(manifest_hash)
     .bind("layout-hash-e2e")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("Failed to seed plan");
 
@@ -710,7 +710,7 @@ async fn test_training_job_adapter_infer_wiring() {
     adapteros_db::sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
         .bind(&claims.tenant_id)
         .bind(&model_id)
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool"))
         .await
         .expect("Failed to set model tenant");
     state
@@ -748,7 +748,7 @@ async fn test_training_job_adapter_infer_wiring() {
     .bind("{}")
     .bind("ready")
     .bind(&claims.sub)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("Failed to register repo");
 
@@ -820,7 +820,7 @@ async fn test_training_job_adapter_infer_wiring() {
     .bind(&claims.tenant_id)
     .bind(manifest_hash)
     .bind("{}")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("seed manifest");
 
@@ -830,7 +830,7 @@ async fn test_training_job_adapter_infer_wiring() {
     .bind("node-wiring")
     .bind("node-wiring.local")
     .bind("http://localhost:0")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("seed node");
 
@@ -842,7 +842,7 @@ async fn test_training_job_adapter_infer_wiring() {
     .bind("plan-b3-wiring")
     .bind(manifest_hash)
     .bind("layout-hash-wiring")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("seed plan");
 
@@ -1019,20 +1019,20 @@ async fn test_training_job_adapter_infer_wiring() {
     .await;
     match cross_result {
         Err(err) => {
-            assert_eq!(err.status, StatusCode::FORBIDDEN);
+            assert_eq!(err.status, StatusCode::NOT_FOUND);
             assert_eq!(err.code, "ADAPTER_TENANT_MISMATCH");
             let details = err.details.expect("details");
             assert_eq!(
                 details.get("adapter_id").and_then(|v| v.as_str()),
                 Some("tenant-2-wiring-adapter")
             );
-            assert_eq!(
-                details.get("tenant_id").and_then(|v| v.as_str()),
-                Some(claims.tenant_id.as_str())
+            assert!(
+                details.get("tenant_id").is_none(),
+                "tenant_id should not be exposed in cross-tenant errors"
             );
-            assert_eq!(
-                details.get("adapter_tenant_id").and_then(|v| v.as_str()),
-                Some("tenant-2")
+            assert!(
+                details.get("adapter_tenant_id").is_none(),
+                "adapter_tenant_id should not be exposed in cross-tenant errors"
             );
         }
         Ok(_) => panic!("Cross-tenant adapter use should fail"),
@@ -1134,7 +1134,6 @@ async fn test_e2e_inference_tenant_isolation() {
         .expect("Failed to create tenant-2");
 
     let claims = test_admin_claims(); // tenant-1 user
-    let tenant_id = claims.tenant_id.clone();
     let identity = IdentityEnvelope::new(
         claims.tenant_id.clone(),
         "api".to_string(),
@@ -1207,20 +1206,20 @@ async fn test_e2e_inference_tenant_isolation() {
                 "✓ Cross-tenant access blocked: {} - {}",
                 err.status, err.message
             );
-            assert_eq!(err.status, StatusCode::FORBIDDEN);
+            assert_eq!(err.status, StatusCode::NOT_FOUND);
             assert_eq!(err.code, "ADAPTER_TENANT_MISMATCH");
             let details = err.details.expect("details");
             assert_eq!(
                 details.get("adapter_id").and_then(|v| v.as_str()),
                 Some("tenant-2-adapter")
             );
-            assert_eq!(
-                details.get("tenant_id").and_then(|v| v.as_str()),
-                Some(tenant_id.as_str())
+            assert!(
+                details.get("tenant_id").is_none(),
+                "tenant_id should not be exposed in cross-tenant errors"
             );
-            assert_eq!(
-                details.get("adapter_tenant_id").and_then(|v| v.as_str()),
-                Some("tenant-2")
+            assert!(
+                details.get("adapter_tenant_id").is_none(),
+                "adapter_tenant_id should not be exposed in cross-tenant errors"
             );
         }
         Ok(_) => {
@@ -1265,7 +1264,7 @@ async fn test_e2e_inference_rejects_adapter_base_model_mismatch() {
     adapteros_db::sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
         .bind(&claims.tenant_id)
         .bind(&model_id)
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool"))
         .await
         .expect("Failed to set model tenant");
 
@@ -1291,7 +1290,7 @@ async fn test_e2e_inference_rejects_adapter_base_model_mismatch() {
     adapteros_db::sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
         .bind(&claims.tenant_id)
         .bind(&other_model_id)
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool"))
         .await
         .expect("Failed to set mismatch model tenant");
 

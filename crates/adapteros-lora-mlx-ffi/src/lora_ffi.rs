@@ -26,6 +26,8 @@ impl FFILoraAdapter {
     /// * `scale` - Global LoRA scale factor (alpha / rank)
     pub fn new(adapter_id: i32, num_layers: usize, scale: f32) -> Result<Self> {
         crate::ffi_error::clear_ffi_error();
+        // SAFETY: FFI constructor takes plain values; no borrowed pointers are passed.
+        // Null is handled immediately below and converted into a typed error.
         let ptr = unsafe { crate::mlx_lora_adapter_new(adapter_id, num_layers as i32, scale) };
         if ptr.is_null() {
             let error = crate::ffi_error::get_ffi_error_or("Failed to create LoRA adapter");
@@ -89,6 +91,8 @@ impl FFILoraAdapter {
         crate::ffi_error::clear_ffi_error();
 
         // Create MLX arrays from flat data
+        // SAFETY: `lora_a.as_ptr()` is valid for `lora_a.len()` contiguous `f32` values
+        // for the duration of this call; MLX copies/retains data internally.
         let a_ptr = unsafe { crate::mlx_array_from_data(lora_a.as_ptr(), lora_a.len() as i32) };
         if a_ptr.is_null() {
             return Err(AosError::Mlx("Failed to create LoRA A array".to_string()));
@@ -96,31 +100,42 @@ impl FFILoraAdapter {
 
         // Reshape A to [a_shape[0], a_shape[1]]
         let a_shape_i32 = [a_shape[0] as i32, a_shape[1] as i32];
+        // SAFETY: `a_ptr` is validated non-null above; `a_shape_i32` points to 2 valid dims.
         let a_reshaped = unsafe { crate::mlx_array_reshape(a_ptr, a_shape_i32.as_ptr(), 2) };
         if a_reshaped.is_null() {
+            // SAFETY: `a_ptr` came from `mlx_array_from_data` and is still owned here.
             unsafe { crate::mlx_array_free(a_ptr) };
             return Err(AosError::Mlx("Failed to reshape LoRA A".to_string()));
         }
         // Free the original flat array (reshape creates a new view/copy)
+        // SAFETY: `a_ptr` ownership is local and has not been freed yet.
         unsafe { crate::mlx_array_free(a_ptr) };
 
+        // SAFETY: `lora_b.as_ptr()` is valid for `lora_b.len()` contiguous `f32` values
+        // for the duration of this call; MLX copies/retains data internally.
         let b_ptr = unsafe { crate::mlx_array_from_data(lora_b.as_ptr(), lora_b.len() as i32) };
         if b_ptr.is_null() {
+            // SAFETY: `a_reshaped` is owned by this function until passed to set_module.
             unsafe { crate::mlx_array_free(a_reshaped) };
             return Err(AosError::Mlx("Failed to create LoRA B array".to_string()));
         }
 
         let b_shape_i32 = [b_shape[0] as i32, b_shape[1] as i32];
+        // SAFETY: `b_ptr` is validated non-null above; `b_shape_i32` points to 2 valid dims.
         let b_reshaped = unsafe { crate::mlx_array_reshape(b_ptr, b_shape_i32.as_ptr(), 2) };
         if b_reshaped.is_null() {
+            // SAFETY: both pointers were allocated in this function and are still owned here.
             unsafe {
                 crate::mlx_array_free(a_reshaped);
                 crate::mlx_array_free(b_ptr);
             }
             return Err(AosError::Mlx("Failed to reshape LoRA B".to_string()));
         }
+        // SAFETY: `b_ptr` ownership is local and has not been freed yet.
         unsafe { crate::mlx_array_free(b_ptr) };
 
+        // SAFETY: `self.ptr` is a live adapter handle owned by `self`; module name is a valid
+        // NUL-terminated C string; reshaped arrays are valid MLX handles at call time.
         let result = unsafe {
             crate::mlx_lora_adapter_set_module(
                 self.ptr,
@@ -162,6 +177,7 @@ impl FFILoraAdapter {
 impl Drop for FFILoraAdapter {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
+            // SAFETY: `self.ptr` is owned by this RAII wrapper and freed exactly once in drop.
             unsafe { crate::mlx_lora_adapter_free(self.ptr) };
             self.ptr = std::ptr::null_mut();
         }

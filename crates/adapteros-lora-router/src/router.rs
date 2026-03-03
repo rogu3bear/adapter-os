@@ -263,6 +263,53 @@ pub fn sort_scores_deterministic(
     tie_events
 }
 
+/// Sort adapter scores for adaptive routing with seeded tie-breakers.
+///
+/// Uses composite key `(-score, tie_breaker, stable_id)` for total ordering:
+/// - Primary: score descending
+/// - Secondary: per-adapter seeded tie-breaker ascending
+/// - Tertiary: stable_id ascending (deterministic fallback on breaker collisions)
+fn sort_scores_adaptive(
+    scores: &mut [(usize, f32)],
+    adapter_info: &[AdapterInfo],
+    tie_breakers: &[u64],
+    collect_ties: bool,
+) -> Vec<TieEvent> {
+    debug_assert!(
+        tie_breakers.len() >= adapter_info.len(),
+        "adaptive tie_breakers must cover adapter_info indices"
+    );
+
+    let mut tie_events = Vec::new();
+
+    scores.sort_by(|a, b| {
+        let score_cmp = b.1.total_cmp(&a.1);
+
+        if score_cmp == std::cmp::Ordering::Equal {
+            if collect_ties {
+                tie_events.push(TieEvent {
+                    idx_a: a.0,
+                    idx_b: b.0,
+                    score: a.1,
+                });
+            }
+
+            let breaker_cmp = tie_breakers[a.0].cmp(&tie_breakers[b.0]);
+            if breaker_cmp == std::cmp::Ordering::Equal {
+                adapter_info[a.0]
+                    .stable_id
+                    .cmp(&adapter_info[b.0].stable_id)
+            } else {
+                breaker_cmp
+            }
+        } else {
+            score_cmp
+        }
+    });
+
+    tie_events
+}
+
 /// Router for selecting K adapters with quantized gates
 pub struct Router {
     /// Feature weights for scoring
@@ -1477,7 +1524,7 @@ impl Router {
         self.route_with_adapter_info_with_ctx(features, priors, adapter_info, policy_mask, None)
     }
 
-    /// Route with an explicit determinism context for deterministic tie-breaking.
+    /// Route with an explicit determinism context for deterministic/adaptive tie-breaking.
     pub fn route_with_adapter_info_with_ctx(
         &mut self,
         features: &[f32],
@@ -1699,10 +1746,15 @@ impl Router {
                 );
             }
         }
-        // Sort by score descending with stable_id tie-breaking (Issue D-2 Fix)
-        // See sort_scores_deterministic() for full determinism guarantees.
+        // Sort scores with deterministic tie-break behavior:
+        // - deterministic mode: score DESC, stable_id ASC
+        // - adaptive mode: score DESC, seeded_tie_breaker ASC, stable_id ASC fallback
         let collect_ties = log_ties || emit_diag_ties;
-        let tie_events = sort_scores_deterministic(&mut scores, adapter_info, collect_ties);
+        let tie_events = if self.adaptive_routing {
+            sort_scores_adaptive(&mut scores, adapter_info, &tie_breakers, collect_ties)
+        } else {
+            sort_scores_deterministic(&mut scores, adapter_info, collect_ties)
+        };
 
         // Log tie events if debug enabled
         if log_ties && !tie_events.is_empty() {
@@ -1727,13 +1779,26 @@ impl Router {
         // Emit TieBreakApplied diagnostic events
         if let Some(ref diag) = self.router_diag {
             for event in tie_events.iter() {
-                // Determine winner and loser based on stable_id ordering
-                let (winner_idx, loser_idx) =
-                    if adapter_info[event.idx_a].stable_id < adapter_info[event.idx_b].stable_id {
+                // Determine winner/loser using the active tie-breaker strategy.
+                let (winner_idx, loser_idx) = if self.adaptive_routing {
+                    let a_break = tie_breakers[event.idx_a];
+                    let b_break = tie_breakers[event.idx_b];
+
+                    if a_break < b_break
+                        || (a_break == b_break
+                            && adapter_info[event.idx_a].stable_id
+                                < adapter_info[event.idx_b].stable_id)
+                    {
                         (event.idx_a, event.idx_b)
                     } else {
                         (event.idx_b, event.idx_a)
-                    };
+                    }
+                } else if adapter_info[event.idx_a].stable_id < adapter_info[event.idx_b].stable_id
+                {
+                    (event.idx_a, event.idx_b)
+                } else {
+                    (event.idx_b, event.idx_a)
+                };
                 diag.emit_tie_break_applied(
                     step_idx,
                     &adapter_info[winner_idx],

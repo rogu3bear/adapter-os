@@ -163,7 +163,7 @@ fn test_tensor_allocation_latency_baseline() {
 fn test_adapter_load_latency_baseline() {
     println!("\n=== Adapter Load Latency Baseline ===");
 
-    let backend = {
+    let mut backend = {
         let config = create_mock_config();
         let model = MLXFFIModel::new_null(config);
         MLXFFIBackend::new(model)
@@ -196,7 +196,7 @@ fn test_adapter_load_latency_baseline() {
 fn test_memory_pool_baseline() {
     println!("\n=== Memory Pool Baseline ===");
 
-    let backend = {
+    let mut backend = {
         let config = create_mock_config();
         let model = MLXFFIModel::new_null(config);
         MLXFFIBackend::new(model)
@@ -354,7 +354,7 @@ fn test_backend_health_baseline() {
 fn test_adapter_registration_baseline() {
     println!("\n=== Adapter Registration Baseline ===");
 
-    let backend = {
+    let mut backend = {
         let config = create_mock_config();
         let model = MLXFFIModel::new_null(config);
         MLXFFIBackend::new(model)
@@ -415,7 +415,7 @@ fn test_stress_rapid_allocation() {
 fn test_stress_many_adapters() {
     println!("\n=== Stress Test: Many Adapters ===");
 
-    let backend = {
+    let mut backend = {
         let config = create_mock_config();
         let model = MLXFFIModel::new_null(config);
         MLXFFIBackend::new(model)

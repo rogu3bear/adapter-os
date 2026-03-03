@@ -91,16 +91,6 @@ impl TuiConfig {
         tracing::info!("Saved TUI config to {}", path.display());
         Ok(())
     }
-
-    /// Update a single field and save
-    #[allow(dead_code)]
-    pub fn update_and_save<F>(&mut self, f: F) -> Result<()>
-    where
-        F: FnOnce(&mut Self),
-    {
-        f(self);
-        self.save()
-    }
 }
 
 #[cfg(test)]
@@ -110,7 +100,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = TuiConfig::default();
-        assert_eq!(config.server_url, "http://localhost:8080");
+        assert_eq!(config.server_url, "http://localhost:18080");
         assert_eq!(config.refresh_interval_ms, 1000);
         assert_eq!(config.theme, "default");
     }

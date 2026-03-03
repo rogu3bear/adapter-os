@@ -25,6 +25,10 @@
 //!     .nest("/", admin_routes::<MyAppState>());
 //! ```
 
+// Axum handlers return (StatusCode, Json<ErrorResponse>) tuples which are large
+// but this is the idiomatic axum pattern -- boxing would change all call sites.
+#![allow(clippy::result_large_err)]
+
 pub mod auth;
 pub mod boot_state_impl;
 pub mod db_impl;

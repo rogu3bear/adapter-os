@@ -7,19 +7,19 @@ use tempfile::TempDir;
 async fn promote_adapter_to_active(db: &Db, adapter_id: &str) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE adapters SET lifecycle_state = 'training' WHERE adapter_id = ?")
         .bind(adapter_id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await?;
 
     sqlx::query("UPDATE adapters SET lifecycle_state = 'ready' WHERE adapter_id = ?")
         .bind(adapter_id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await?;
 
     sqlx::query(
         "UPDATE adapters SET lifecycle_state = 'active', aos_file_path = 'path/to.aos', aos_file_hash = 'hash123', content_hash_b3 = 'content123' WHERE adapter_id = ?",
     )
     .bind(adapter_id)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await?;
 
     Ok(())

@@ -5,6 +5,7 @@ use clap::Subcommand;
 use std::path::PathBuf;
 
 use crate::commands::check_tokenizer::CheckTokenizerArgs;
+use crate::commands::quantize_qwen::{self, GateMetrics, QuantizeQwen35Request};
 use crate::output::OutputWriter;
 use adapteros_db::{Db, SetupSeedOptions, SetupSeedStatus};
 use tracing::info;
@@ -59,6 +60,136 @@ pub enum ModelsCommand {
   aosctl models check-tokenizer ./tokenizer.json --json
 "#)]
     CheckTokenizer(CheckTokenizerArgs),
+
+    /// Deterministic Qwen3.5-27B quantization pipeline (int4, MLX-oriented)
+    #[command(after_help = r#"Examples:
+  # Quantize Qwen3.5-27B with auto-resolved HF revision SHA
+  aosctl models quantize-qwen35 \
+    --input var/models/Qwen3.5-27B \
+    --output . \
+    --revision auto
+
+  # Quantize with enforced gates and provided metrics
+  aosctl models quantize-qwen35 \
+    --input var/models/Qwen3.5-27B \
+    --output . \
+    --enforce-gates \
+    --enable-native-probes \
+    --probe-max-samples 8 \
+    --guided \
+    --metrics-from-flags \
+    --golden-prompts data/golden_prompts.jsonl \
+    --calibration data/calibration.jsonl \
+    --baseline-fp16 artifacts/fp16/qwen3.5-27b \
+    --logit-cosine-mean 0.989 \
+    --ppl-delta-pct 5.4 \
+    --task-proxy-delta-abs 1.2 \
+    --tok-s-1k 28.1 \
+    --tok-s-8k 13.7 \
+    --rss-mb-peak 39000 \
+    --human-critical-regressions 0
+"#)]
+    QuantizeQwen35 {
+        /// Input model directory containing safetensors shards
+        #[arg(long)]
+        input: PathBuf,
+
+        /// Output root where artifacts/models/... is created
+        #[arg(long, default_value = ".")]
+        output: PathBuf,
+
+        /// Hugging Face repository (must resolve to Qwen3.5-27B lineage)
+        #[arg(long, default_value = "Qwen/Qwen3.5-27B")]
+        hf_repo: String,
+
+        /// Revision SHA or "auto" (default)
+        #[arg(long)]
+        revision: Option<String>,
+
+        /// Primary group size profile (default 64; fallback to 128 when enforcing gates)
+        #[arg(long, default_value_t = 64)]
+        group_size: usize,
+
+        /// Default runtime context length
+        #[arg(long, default_value_t = 8192)]
+        context_default: usize,
+
+        /// Max runtime context length
+        #[arg(long, default_value_t = 16384)]
+        context_max: usize,
+
+        /// Determinism seed used for manifest/eval metadata
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+
+        /// JSONL golden prompt set (expected 100 entries when enforced)
+        #[arg(long)]
+        golden_prompts: Option<PathBuf>,
+
+        /// JSONL calibration set (expected 2k-5k entries when enforced)
+        #[arg(long)]
+        calibration: Option<PathBuf>,
+
+        /// Baseline FP16 artifact directory
+        #[arg(long)]
+        baseline_fp16: Option<PathBuf>,
+
+        /// Enforce acceptance gates and fallback ladder
+        #[arg(long, default_value_t = false)]
+        enforce_gates: bool,
+
+        /// Interactive guided setup for missing inputs and beginner UX
+        #[arg(long, default_value_t = false)]
+        guided: bool,
+
+        /// Preflight only: validate and resolve revision without quantizing
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+
+        /// Print beginner-friendly failure explanations on gate failure
+        #[arg(long, default_value_t = true)]
+        beginner_explain: bool,
+
+        /// Compatibility mode: read gate metrics from CLI flags instead of computing in command
+        #[arg(long, default_value_t = false)]
+        metrics_from_flags: bool,
+
+        /// Enable best-effort native MLX runtime probes (informational only in this phase)
+        #[arg(long, default_value_t = false)]
+        enable_native_probes: bool,
+
+        /// Maximum deterministic probe samples when native probes are enabled
+        #[arg(long)]
+        probe_max_samples: Option<u32>,
+
+        /// Measured mean logit cosine versus FP16 baseline
+        #[arg(long)]
+        logit_cosine_mean: Option<f64>,
+
+        /// Measured perplexity delta percentage versus FP16 baseline
+        #[arg(long)]
+        ppl_delta_pct: Option<f64>,
+
+        /// Measured task proxy absolute delta
+        #[arg(long)]
+        task_proxy_delta_abs: Option<f64>,
+
+        /// Measured tokens/sec at 1k context
+        #[arg(long)]
+        tok_s_1k: Option<f64>,
+
+        /// Measured tokens/sec at 8k context
+        #[arg(long)]
+        tok_s_8k: Option<f64>,
+
+        /// Measured peak RSS in MB
+        #[arg(long)]
+        rss_mb_peak: Option<f64>,
+
+        /// Human spot-check critical regression count
+        #[arg(long)]
+        human_critical_regressions: Option<u32>,
+    },
 }
 
 /// Handle models commands
@@ -79,6 +210,75 @@ pub async fn handle_models_command(
         }
         ModelsCommand::List { db_path, json } => run_list(db_path, json, output).await,
         ModelsCommand::CheckTokenizer(args) => args.execute(output).await,
+        ModelsCommand::QuantizeQwen35 {
+            input,
+            output: output_root,
+            hf_repo,
+            revision,
+            group_size,
+            context_default,
+            context_max,
+            seed,
+            golden_prompts,
+            calibration,
+            baseline_fp16,
+            enforce_gates,
+            guided,
+            dry_run,
+            beginner_explain,
+            metrics_from_flags,
+            enable_native_probes,
+            probe_max_samples,
+            logit_cosine_mean,
+            ppl_delta_pct,
+            task_proxy_delta_abs,
+            tok_s_1k,
+            tok_s_8k,
+            rss_mb_peak,
+            human_critical_regressions,
+        } => {
+            let req = QuantizeQwen35Request {
+                input,
+                output_root,
+                hf_repo,
+                revision,
+                group_size,
+                context_default,
+                context_max,
+                seed,
+                golden_prompts,
+                calibration,
+                baseline_fp16,
+                enforce_gates,
+                metrics_from_flags,
+                enable_native_probes,
+                probe_max_samples,
+                guided,
+                dry_run,
+                beginner_explain,
+                metrics: GateMetrics {
+                    logit_cosine_mean,
+                    ppl_delta_pct,
+                    task_proxy_delta_abs,
+                    tok_s_1k,
+                    tok_s_8k,
+                    rss_mb_peak,
+                    human_critical_regressions,
+                },
+                output_json: output.mode().is_json(),
+            };
+            let outcome = match quantize_qwen::run_qwen35_pipeline(req, output).await {
+                Ok(v) => v,
+                Err(e) => {
+                    output.error(format!("quantize-qwen35 infrastructure/input failure: {e}"));
+                    std::process::exit(3);
+                }
+            };
+            if outcome.exit_code != 0 {
+                std::process::exit(outcome.exit_code);
+            }
+            Ok(())
+        }
     }
 }
 
@@ -87,6 +287,7 @@ fn get_models_command_name(cmd: &ModelsCommand) -> String {
         ModelsCommand::Seed { .. } => "models_seed".to_string(),
         ModelsCommand::List { .. } => "models_list".to_string(),
         ModelsCommand::CheckTokenizer(..) => "models_check_tokenizer".to_string(),
+        ModelsCommand::QuantizeQwen35 { .. } => "models_quantize_qwen35".to_string(),
     }
 }
 

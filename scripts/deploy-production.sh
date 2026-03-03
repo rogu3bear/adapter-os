@@ -6,6 +6,10 @@
 
 set -euo pipefail
 
+# Keep release builds on the canonical cache root unless explicitly overridden.
+: "${CARGO_TARGET_DIR:=target}"
+export CARGO_TARGET_DIR
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -274,7 +278,7 @@ echo "Next steps:"
 if [ "$SKIP_SYSTEMCTL" = "1" ]; then
     echo "  1. Export signing key: export AOS_SIGNING_KEY=<64+ char signing key>"
     echo "  2. Start service with root for PF checks: sudo ./target/release/aos-server --config $CONFIG_FILE"
-    echo "  3. Validate readiness: curl http://127.0.0.1:8080/readyz"
+    echo "  3. Validate readiness: curl http://127.0.0.1:18080/readyz"
     echo "  4. Integrate with your host supervisor using: $SERVICE_FILE"
 else
     echo "  1. Create adapteros user: sudo useradd -r -s /bin/false adapteros"

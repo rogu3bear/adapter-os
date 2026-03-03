@@ -1,0 +1,142 @@
+{
+  "name": "token_sampling_v1",
+  "description": "Deterministic token sampling pipeline for adapterOS inference. Covers temperature scaling, top-K filtering, top-P nucleus sampling, combined multi-stage pipelines, and the HKDF-seeded ChaCha20Rng determinism guarantee. 2000 examples with worked numerical computations and codebase-accurate implementation details.",
+  "version": "1.0.0",
+  "category": "inference",
+  "scope": "system",
+  "tier": "critical",
+  "rank": 5,
+  "alpha": 12.0,
+  "target_modules": [
+    "gate_proj",
+    "q_proj",
+    "k_proj",
+    "o_proj"
+  ],
+  "entries": [
+    {
+      "path": "token-sampling.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "positive",
+      "notes": "2000 token sampling examples across five subcategories: temperature effects (400), top-K filtering (400), top-P nucleus (400), combined strategies (400), determinism guarantee (400)"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "crates/adapteros-lora-mlx-ffi/src/generation.rs",
+      "crates/adapteros-core/src/seed.rs",
+      "crates/adapteros-core/src/receipt_digest.rs",
+      "docs/DETERMINISM.md"
+    ],
+    "created_by": "token-sampling-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Synthetic dataset with realistic logit distributions and worked softmax/filtering computations. All numerical examples derived from first principles matching the adapterOS generation.rs implementation. Pipeline order matches codebase: logits -> temperature -> softmax -> top-K -> top-P -> ChaCha20Rng sample."
+  },
+  "evaluation_gates": [
+    "Temperature tau=0 selects argmax without RNG draw (SamplingStrategy::Greedy)",
+    "Temperature scaling divides logits by tau before softmax, clamped to max(0.01)",
+    "Top-K filtering zeroes probabilities outside top K and renormalizes",
+    "Top-P nucleus keeps smallest token set with cumulative probability >= P",
+    "Pipeline order is temperature -> softmax -> top-K -> top-P -> sample",
+    "Per-step RNG re-seeding via derive_step_seed(step) using HKDF",
+    "Same seed + same logits + same params = same token (determinism invariant)",
+    "Q15 quantization uses denominator 32767 (not 32768) with i16::MIN sentinel for None",
+    "Receipt binds temperature_q15, top_p_q15, and seed digest for auditable determinism",
+    "Repetition penalty divides logit by penalty^count before temperature scaling"
+  ],
+  "intent": "Train the adapter to reason about the complete adapterOS deterministic token sampling pipeline: how temperature reshapes logit distributions, how top-K and top-P filter candidate tokens, how the pipeline stages compose in sequence, and how HKDF-seeded ChaCha20Rng guarantees reproducible generation across replays. The dataset emphasizes numerical precision, codebase-accurate implementation details, and the relationship between sampling parameters and the receipt-based determinism audit system.",
+  "subcategory_breakdown": {
+    "temperature_effects": {
+      "count": 400,
+      "subcategories": [
+        "temperature_tau_zero",
+        "temperature_tau_low",
+        "temperature_tau_moderate",
+        "temperature_tau_standard",
+        "temperature_tau_high"
+      ],
+      "tau_values": [0.0, 0.3, 0.7, 1.0, 1.5],
+      "description": "Temperature scaling effects on softmax distribution: greedy/argmax at tau=0, sharpening at tau<1, identity at tau=1, flattening at tau>1"
+    },
+    "topk_filtering": {
+      "count": 400,
+      "subcategories": [
+        "topk_greedy_k1",
+        "topk_conservative_k10",
+        "topk_moderate_k50",
+        "topk_permissive_k100"
+      ],
+      "k_values": [1, 10, 50, 100],
+      "description": "Top-K filtering: zero out probabilities outside top K tokens and renormalize. Shows filtering mechanics, probability redistribution, and interaction with vocabulary size"
+    },
+    "topp_nucleus": {
+      "count": 400,
+      "subcategories": [
+        "topp_very_focused",
+        "topp_moderate",
+        "topp_broad",
+        "topp_near_full"
+      ],
+      "p_values": [0.1, 0.5, 0.9, 0.95],
+      "description": "Top-P nucleus sampling: keep smallest set of tokens with cumulative probability >= P. Shows distribution-adaptive filtering, nucleus size computation, and renormalization"
+    },
+    "combined_strategies": {
+      "count": 400,
+      "subcategories": [
+        "combined_standard_combined",
+        "combined_focused_with_penalty",
+        "combined_permissive_standard",
+        "combined_moderate_with_heavy_penalty",
+        "combined_creative_with_mild_penalty"
+      ],
+      "configurations": [
+        {"temperature": 0.7, "top_k": 40, "top_p": 0.9, "repetition_penalty": 1.0},
+        {"temperature": 0.3, "top_k": 10, "top_p": 0.5, "repetition_penalty": 1.2},
+        {"temperature": 1.0, "top_k": 100, "top_p": 0.95, "repetition_penalty": 1.0},
+        {"temperature": 0.5, "top_k": 20, "top_p": 0.8, "repetition_penalty": 1.5},
+        {"temperature": 1.2, "top_k": 50, "top_p": 0.9, "repetition_penalty": 1.1}
+      ],
+      "description": "Full pipeline walkthroughs combining temperature, top-K, top-P, and repetition penalty. Shows vocabulary funnel, stage interactions, and parameter composition"
+    },
+    "determinism_guarantee": {
+      "count": 400,
+      "subcategories": [
+        "determinism_seed_chain",
+        "determinism_replay_guarantee",
+        "determinism_determinism_violations",
+        "determinism_platform_sensitivity",
+        "determinism_receipt_binding"
+      ],
+      "description": "HKDF seed chain, replay determinism proofs, violation diagnosis, platform float sensitivity, and receipt Q15 binding for auditable determinism"
+    }
+  },
+  "sampling_pipeline": {
+    "order": [
+      "raw_logits",
+      "repetition_penalty",
+      "temperature_scaling",
+      "softmax",
+      "top_k_filtering",
+      "top_p_filtering",
+      "chacha20_rng_sample"
+    ],
+    "source_file": "crates/adapteros-lora-mlx-ffi/src/generation.rs",
+    "rng_type": "StdRng (ChaCha20Rng) via rand::rngs::StdRng",
+    "seed_derivation": "HKDF-SHA256 with domain label",
+    "step_seeding": "derive_seed(&base_seed, \"mlx-gen-step:{step}\")",
+    "greedy_threshold": "temperature < 1e-6"
+  },
+  "statistics": {
+    "total_examples": 2000,
+    "temperature_values_covered": [0.0, 0.3, 0.5, 0.7, 1.0, 1.2, 1.5, 2.0],
+    "top_k_values_covered": [1, 10, 20, 40, 50, 100],
+    "top_p_values_covered": [0.1, 0.5, 0.8, 0.9, 0.95],
+    "repetition_penalty_values_covered": [1.0, 1.1, 1.2, 1.5],
+    "vocab_sizes_covered": [5, 8, 10, 15, 20, 30, 50, 80],
+    "logit_spreads_covered": ["normal", "peaked", "flat", "bimodal", "heavy_tail"],
+    "avg_quality_score": 0.95,
+    "avg_target_words": 109
+  }
+}

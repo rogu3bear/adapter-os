@@ -1,0 +1,75 @@
+{
+  "name": "chacha20_rng_sequences_v1",
+  "description": "ChaCha20Rng state tracking and deterministic sequence generation patterns",
+  "version": "1.0.0",
+  "category": "determinism",
+  "tier": "critical",
+  "scope": "global",
+  "rank": 2,
+  "alpha": 8.0,
+  "target_modules": [
+    "gate_proj",
+    "o_proj"
+  ],
+  "entries": [
+    {
+      "path": "chacha20-rng-sequences.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "primary",
+      "notes": "ChaCha20Rng state transitions: seed initialization, sequence generation, state comparison, state divergence, and snapshot/restore replay patterns"
+    }
+  ],
+  "subcategories": {
+    "seed_initialization": {
+      "count": 60,
+      "description": "Initial RNG state from 256-bit seed bytes via ChaCha20Rng::from_seed"
+    },
+    "sequence_generation": {
+      "count": 60,
+      "description": "RNG state advancement after generating N values; word_pos and step_count tracking"
+    },
+    "state_comparison": {
+      "count": 60,
+      "description": "Two identically-seeded RNGs performing identical call sequences produce identical state"
+    },
+    "state_divergence": {
+      "count": 60,
+      "description": "Same seed, different call type ordering causes state divergence"
+    },
+    "snapshot_restore": {
+      "count": 60,
+      "description": "Snapshot-restore replay: outputs after restore match outputs from original position"
+    }
+  },
+  "provenance": {
+    "masterplan_sections": [
+      "crates/adapteros-deterministic-exec/src/seed.rs",
+      "crates/adapteros-deterministic-exec/src/lib.rs",
+      "docs/DETERMINISM.md"
+    ],
+    "created_by": "chacha20-rng-sequences-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Technical training data for ChaCha20Rng state tracking in adapterOS deterministic execution engine. Seeds derived from HKDF; word_pos advances by 1 per u32 (4 bytes), by 2 per u64 (8 bytes)."
+  },
+  "evaluation_gates": [
+    "Identical seed + identical call sequence => identical RNG state 100% of the time",
+    "word_pos advances by 1 for each u32 generated (4 bytes = 1 ChaCha20 word)",
+    "word_pos advances by 2 for each u64 generated (8 bytes = 2 ChaCha20 words)",
+    "step_count increments by 1 for each next_u32() call, by 1 for each next_u64() call",
+    "Snapshot restore returns word_pos and step_count to snapshotted values",
+    "Different call type ordering with same seed produces divergent word_pos"
+  ],
+  "chacha20_internals": {
+    "block_size_bytes": 64,
+    "block_size_words": 16,
+    "word_size_bytes": 4,
+    "seed_bytes": 32,
+    "nonce_bytes": 12,
+    "word_pos_per_u32": 1,
+    "word_pos_per_u64": 2,
+    "word_pos_per_u128": 4,
+    "word_pos_per_fill_bytes_n": "ceil(n / 4)"
+  }
+}

@@ -321,6 +321,9 @@ pub const MIGRATION_CHECKSUM_MISMATCH: &str = "MIGRATION_CHECKSUM_MISMATCH";
 /// Schema version mismatch between app and database
 pub const SCHEMA_VERSION_MISMATCH: &str = "SCHEMA_VERSION_MISMATCH";
 
+/// Runtime schema contract violation (required table/column missing)
+pub const SCHEMA_CONTRACT_VIOLATION: &str = "SCHEMA_CONTRACT_VIOLATION";
+
 /// Rate limiter not configured for a resource
 pub const RATE_LIMITER_NOT_CONFIGURED: &str = "RATE_LIMITER_NOT_CONFIGURED";
 

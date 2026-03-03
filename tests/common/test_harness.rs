@@ -13,7 +13,7 @@ use adapteros_core::{BackendKind, SeedMode};
 use adapteros_db::Db;
 use adapteros_server_api::routes;
 use adapteros_server_api::AppState;
-use axum::Router;
+use axum::{routing::get, Router};
 use std::sync::Arc;
 
 /// Complete integration test harness for API testing
@@ -51,7 +51,7 @@ impl ApiTestHarness {
             .bind("default")
             .bind("Default Test Tenant")
             .bind(0)
-            .execute(db.pool())
+            .execute(db.pool_result().unwrap())
             .await?;
 
         // Create default test user with admin role
@@ -132,8 +132,36 @@ impl ApiTestHarness {
             std::env::var("AOS_MODEL_BACKEND").unwrap_or_else(|_| "mlx".to_string()),
         );
 
-        // Build router
-        let app = routes::build(state.clone());
+        // Build router.
+        // Keep health probes mounted in the harness even when spoke-route
+        // feature splits omit them from adapteros_server_api::routes::build().
+        let health_state = state.clone();
+        let ready_state = state.clone();
+        let app = routes::build(state.clone())
+            .route(
+                "/healthz",
+                get(move || {
+                    let state = health_state.clone();
+                    async move {
+                        adapteros_server_api::handlers::health(axum::extract::State(state)).await
+                    }
+                }),
+            )
+            .route(
+                "/readyz",
+                get(move || {
+                    let state = ready_state.clone();
+                    async move {
+                        adapteros_server_api::handlers::ready(
+                            axum::extract::State(state),
+                            axum::extract::Query(
+                                adapteros_server_api::handlers::health::ReadyzQuery { deep: false },
+                            ),
+                        )
+                        .await
+                    }
+                }),
+            );
 
         Ok(ApiTestHarness {
             app,

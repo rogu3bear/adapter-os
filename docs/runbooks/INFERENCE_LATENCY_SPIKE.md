@@ -19,7 +19,7 @@ P99 latency elevated. SEV-2.
 grep -i "stub\|fallback" var/logs/*.log | tail -5
 
 # Metrics
-curl -s http://localhost:8080/v1/metrics | jq .
+curl -s http://localhost:18080/v1/metrics | jq .
 
 # Memory pressure
 ./aosctl metrics show 2>/dev/null | grep -E "memory|pressure"

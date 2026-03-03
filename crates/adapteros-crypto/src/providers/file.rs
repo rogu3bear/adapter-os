@@ -10,15 +10,16 @@
 //! - Logs warnings when used
 //!
 //! ## Usage
-//! ```no_run
 //! use adapteros_crypto::providers::file::FileProvider;
 //! use std::path::PathBuf;
 //!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let provider = FileProvider::new(
 //!     PathBuf::from("/path/to/keyfile"),
 //!     true  // allow_insecure
-//! ).expect("Failed to create file provider");
-//! ```
+//! )?;
+//! # Ok(())
+//! # }
 
 use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, ProviderAttestation, RotationReceipt,

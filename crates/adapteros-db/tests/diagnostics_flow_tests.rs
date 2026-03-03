@@ -18,7 +18,7 @@ async fn diagnostics_end_to_end_flow_persists_events() -> adapteros_core::Result
     let trace_id = Uuid::new_v4().simple().to_string();
     let run_id = DiagRunId::from_trace_id(&trace_id);
     insert_diag_run(
-        db.pool(),
+        db.pool_result()?,
         run_id.as_str(),
         &tenant_id,
         &trace_id,
@@ -39,11 +39,13 @@ async fn diagnostics_end_to_end_flow_persists_events() -> adapteros_core::Result
     let (service, receiver) = DiagnosticsService::new(config.clone());
     let service = Arc::new(service);
 
-    let persister = SqliteDiagPersister::new_arc(db.pool().clone());
+    let persister = SqliteDiagPersister::new_arc(db.pool_result()?.clone());
     let writer_config = WriterConfig {
         batch_size: config.batch_size,
         batch_timeout: Duration::from_millis(config.batch_timeout_ms),
         max_events_per_run: config.max_events_per_run,
+        stale_batch_max_attempts: 5,
+        stale_batch_max_age_secs: 300,
     };
     let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
     let writer_handle = spawn_diagnostics_writer(
@@ -93,13 +95,14 @@ async fn diagnostics_end_to_end_flow_persists_events() -> adapteros_core::Result
     let _ = shutdown_tx.send(());
     writer_handle.await.expect("diagnostics writer");
 
-    let records = get_all_diag_events_for_run(db.pool(), &tenant_id, run_id.as_str(), 100).await?;
+    let records =
+        get_all_diag_events_for_run(db.pool_result()?, &tenant_id, run_id.as_str(), 100).await?;
     assert_eq!(records.len(), 3);
     assert_eq!(records[0].event_type, "run_started");
     assert_eq!(records[1].event_type, "stage_enter");
     assert_eq!(records[2].event_type, "stage_exit");
 
-    let run = get_diag_run_by_id(db.pool(), &tenant_id, run_id.as_str())
+    let run = get_diag_run_by_id(db.pool_result()?, &tenant_id, run_id.as_str())
         .await?
         .expect("diagnostic run");
     assert_eq!(run.total_events_count, 3);

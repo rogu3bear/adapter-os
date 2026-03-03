@@ -651,8 +651,8 @@ mod tests {
         // Verify the threshold comparison used in run_cycle
         let threshold = 50usize;
         assert!(60 > threshold, "60 in-flight should skip");
-        assert!(!(50 > threshold), "50 in-flight should not skip");
-        assert!(!(10 > threshold), "10 in-flight should not skip");
+        assert!(50 <= threshold, "50 in-flight should not skip");
+        assert!(10 <= threshold, "10 in-flight should not skip");
     }
 
     #[test]

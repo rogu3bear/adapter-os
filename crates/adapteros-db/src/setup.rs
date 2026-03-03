@@ -136,7 +136,7 @@ impl Db {
             if !options.force {
                 let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models WHERE name = ?")
                     .bind(&name)
-                    .fetch_one(self.pool())
+                    .fetch_one(self.pool_result()?)
                     .await?;
                 if exists > 0 {
                     summary.skipped += 1;

@@ -8,7 +8,7 @@ REST API. Canonical source: `docs/api/openapi.json`, `adapteros-server-api/src/r
 
 | Item | Value |
 |------|-------|
-| Base URL | `http://127.0.0.1:8080` |
+| Base URL | `http://127.0.0.1:18080` |
 | Prefix | `/v1/` |
 | Auth | JWT (Cookie/Authorization) or X-API-Key |
 
@@ -67,6 +67,11 @@ flowchart TB
 | /v1/models | GET | handlers::models::list_models_with_stats | List models |
 | /v1/adapters | GET | handlers::adapters::list_adapters | List adapters |
 | /v1/workers | GET | handlers::workers::list_workers | Worker status |
+| /v1/workers/spawn | POST | handlers::workers::worker_spawn | Spawn a worker on a node |
+| /v1/workers/{worker_id}/drain | POST | handlers::workers::worker_drain | Drain worker (stop accepting work) |
+| /v1/workers/{worker_id}/stop | POST | handlers::workers::worker_stop | Stop worker process |
+| /v1/workers/{worker_id}/restart | POST | handlers::workers::worker_restart | Restart worker process |
+| /v1/workers/{worker_id} | DELETE | handlers::workers::worker_delete | Delete worker record |
 | /v1/adapteros/replay | POST | handlers::adapteros_receipts::adapteros_replay | Replay |
 | /v1/chat/completions | POST | openai_compat::chat_completions | OpenAI-compat chat |
 
@@ -84,6 +89,24 @@ flowchart TB
 ```
 
 **Type:** `adapteros_api_types::InferRequest`. Response: `InferResponse` with `text`, `tokens`, `unavailable_pinned_adapters`.
+
+---
+
+## Workers & Nodes
+
+Worker lifecycle endpoints:
+
+- `POST /v1/workers/{worker_id}/drain`
+- `POST /v1/workers/{worker_id}/stop`
+- `POST /v1/workers/{worker_id}/restart`
+- `DELETE /v1/workers/{worker_id}`
+
+`POST /v1/workers/spawn` requires these request fields:
+
+- `tenant_id` -
+- `node_id` -
+- `plan_id` -
+- `uds_path` -
 
 ---
 

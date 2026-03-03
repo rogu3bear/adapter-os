@@ -100,7 +100,7 @@ fn test_metal_kernels_has_real_load_adapter() -> Result<()> {
     ];
 
     let metadata: Option<HashMap<String, String>> = None;
-    let weights = serialize(tensors, &metadata).expect("Failed to serialize");
+    let weights = serialize(tensors, metadata).expect("Failed to serialize");
 
     // Should succeed with real implementation (not return "Hot-swap not supported")
     let result = kernels.load_adapter(1, &weights);

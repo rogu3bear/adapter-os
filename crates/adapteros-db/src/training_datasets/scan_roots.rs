@@ -349,7 +349,7 @@ impl Db {
         .bind(&params.tenant_id)
         .bind(&params.created_by)
         .bind(&params.metadata_json)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(db_err("insert dataset scan root"))?;
 
@@ -366,7 +366,7 @@ impl Db {
         }
 
         let mut tx = self
-            .pool()
+            .pool_result()?
             .begin()
             .await
             .map_err(db_err("begin scan_roots transaction"))?;
@@ -427,7 +427,7 @@ impl Db {
 
         let roots = sqlx::query_as::<_, DatasetScanRoot>(&query)
             .bind(dataset_id)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(db_err("list dataset scan roots"))?;
 
@@ -446,7 +446,7 @@ impl Db {
 
         let roots = sqlx::query_as::<_, DatasetScanRoot>(&query)
             .bind(dataset_version_id)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(db_err("list dataset scan roots for version"))?;
 
@@ -465,7 +465,7 @@ impl Db {
 
         let roots = sqlx::query_as::<_, DatasetScanRoot>(&query)
             .bind(session_id)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(db_err("list dataset scan roots by session"))?;
 
@@ -483,7 +483,7 @@ impl Db {
         )
         .bind(dataset_version_id)
         .bind(session_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(db_err("update scan root session version"))?;
 
@@ -494,7 +494,7 @@ impl Db {
     pub async fn delete_dataset_scan_roots_by_session(&self, session_id: &str) -> Result<u64> {
         let result = sqlx::query("DELETE FROM dataset_scan_roots WHERE session_id = ?")
             .bind(session_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("delete scan roots by session"))?;
 
@@ -514,7 +514,7 @@ impl Db {
              WHERE dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .map_err(db_err("get dataset scan root stats"))?;
 

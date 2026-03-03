@@ -146,7 +146,7 @@ Configure Prometheus to scrape the endpoint:
 scrape_configs:
   - job_name: 'adapteros-advanced-metrics'
     static_configs:
-      - targets: ['localhost:8080']
+      - targets: ['localhost:18080']
     metrics_path: '/v1/plugins/advanced-metrics/metrics'
     scrape_interval: 15s
 ```

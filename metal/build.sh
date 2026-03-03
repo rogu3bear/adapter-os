@@ -16,6 +16,10 @@ set -e
 # Source shared toolchain detection logic
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
+cd "$SCRIPT_DIR"
+
+BASELINE_DIR="${SCRIPT_DIR}/baselines"
+BASELINE_HASH_FILE="${BASELINE_DIR}/kernel_hash.txt"
 
 # Set deterministic timestamp for reproducible builds
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1704067200}
@@ -110,10 +114,10 @@ echo "📝 Updating kernel registry..."
 python3 update_registry.py "$HASH" "$METAL_SDK_VERSION" "$COMPILER_VERSION"
 
 # Verify against baseline if it exists (Per Determinism Ruleset #2)
-if [ -f baselines/kernel_hash.txt ]; then
+if [ -f "$BASELINE_HASH_FILE" ]; then
     echo ""
     echo "🔍 Verifying against baseline hash..."
-    BASELINE_HASH=$(cat baselines/kernel_hash.txt)
+    BASELINE_HASH=$(cat "$BASELINE_HASH_FILE")
     
     if [ "$HASH" != "$BASELINE_HASH" ]; then
         echo "❌ KERNEL HASH MISMATCH!"
@@ -128,9 +132,9 @@ if [ -f baselines/kernel_hash.txt ]; then
     fi
 else
     echo "⚠️  No baseline hash found. Creating baseline..."
-    mkdir -p baselines
-    echo "$HASH" > baselines/kernel_hash.txt
-    echo "   Baseline saved to: baselines/kernel_hash.txt"
+    mkdir -p "$BASELINE_DIR"
+    echo "$HASH" > "$BASELINE_HASH_FILE"
+    echo "   Baseline saved to: $BASELINE_HASH_FILE"
 fi
 
 # Copy to Rust crate

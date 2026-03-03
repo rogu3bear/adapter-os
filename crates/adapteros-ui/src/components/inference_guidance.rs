@@ -57,7 +57,7 @@ pub fn guidance_for(
         let reason = match readiness {
             InferenceReadyState::Unknown => "Readiness is still being checked",
             InferenceReadyState::False => "The system needs attention",
-            InferenceReadyState::True => "Prompt Studio is ready",
+            InferenceReadyState::True => "Chat is ready",
         };
         InferenceGuidance {
             reason,
@@ -92,7 +92,7 @@ fn blocker_action(blocker: &InferenceBlocker) -> InferenceAction {
             href: "/models",
         },
         InferenceBlocker::WorkerMissing => InferenceAction {
-            label: "Open Inference Engines",
+            label: "Open Workers",
             href: "/workers",
         },
         InferenceBlocker::ActiveModelMismatch => InferenceAction {
@@ -100,12 +100,12 @@ fn blocker_action(blocker: &InferenceBlocker) -> InferenceAction {
             href: "/models",
         },
         InferenceBlocker::TelemetryDegraded => InferenceAction {
-            label: "Open live monitoring",
-            href: "/monitoring",
+            label: "Open system status",
+            href: "/system",
         },
         InferenceBlocker::BootFailed => InferenceAction {
-            label: "Review startup events",
-            href: "/errors",
+            label: "Review execution records",
+            href: "/runs",
         },
         InferenceBlocker::DatabaseUnavailable | InferenceBlocker::SystemBooting => {
             fallback_action()

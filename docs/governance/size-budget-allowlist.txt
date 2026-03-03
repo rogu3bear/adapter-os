@@ -1,0 +1,2 @@
+# One tracked path per line that is allowed to exceed MAX_TRACKED_FILE_MB.
+# Keep this list intentionally small.

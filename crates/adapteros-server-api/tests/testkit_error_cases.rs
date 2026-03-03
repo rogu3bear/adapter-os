@@ -472,7 +472,7 @@ async fn reset_clears_all_tenants_data() {
 
     // Verify data exists
     let count: i64 = adapteros_db::sqlx::query_scalar("SELECT COUNT(*) FROM tenants")
-        .fetch_one(state.db.pool())
+        .fetch_one(state.db.pool_result().expect("db pool"))
         .await
         .expect("query succeeded");
     assert!(count > 0, "Should have seeded tenants");
@@ -491,19 +491,19 @@ async fn reset_clears_all_tenants_data() {
 
     // Verify all data is cleared (except reference data)
     let tenant_count: i64 = adapteros_db::sqlx::query_scalar("SELECT COUNT(*) FROM tenants")
-        .fetch_one(state.db.pool())
+        .fetch_one(state.db.pool_result().expect("db pool"))
         .await
         .expect("query succeeded");
     assert_eq!(tenant_count, 0, "All tenants should be cleared");
 
     let user_count: i64 = adapteros_db::sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(state.db.pool())
+        .fetch_one(state.db.pool_result().expect("db pool"))
         .await
         .expect("query succeeded");
     assert_eq!(user_count, 0, "All users should be cleared");
 
     let model_count: i64 = adapteros_db::sqlx::query_scalar("SELECT COUNT(*) FROM models")
-        .fetch_one(state.db.pool())
+        .fetch_one(state.db.pool_result().expect("db pool"))
         .await
         .expect("query succeeded");
     assert_eq!(model_count, 0, "All models should be cleared");
@@ -565,14 +565,14 @@ async fn seed_minimal_is_idempotent() {
     let tenant_count: i64 = adapteros_db::sqlx::query_scalar(
         "SELECT COUNT(*) FROM tenants WHERE id = 'tenant-test' OR id = 'tenant-test-2'",
     )
-    .fetch_one(state.db.pool())
+    .fetch_one(state.db.pool_result().expect("db pool"))
     .await
     .expect("query succeeded");
     assert_eq!(tenant_count, 2, "Should have exactly 2 tenants");
 
     let user_count: i64 =
         adapteros_db::sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE id = 'user-e2e'")
-            .fetch_one(state.db.pool())
+            .fetch_one(state.db.pool_result().expect("db pool"))
             .await
             .expect("query succeeded");
     assert_eq!(user_count, 1, "Should have exactly 1 user");
@@ -635,7 +635,7 @@ async fn trace_fixture_is_idempotent() {
     let trace_count: i64 = adapteros_db::sqlx::query_scalar(
         "SELECT COUNT(*) FROM inference_traces WHERE trace_id = 'trace-fixture'",
     )
-    .fetch_one(state.db.pool())
+    .fetch_one(state.db.pool_result().expect("db pool"))
     .await
     .expect("query succeeded");
     assert_eq!(trace_count, 1, "Should have exactly 1 trace");
@@ -643,7 +643,7 @@ async fn trace_fixture_is_idempotent() {
     let token_count: i64 = adapteros_db::sqlx::query_scalar(
         "SELECT COUNT(*) FROM inference_trace_tokens WHERE trace_id = 'trace-fixture'",
     )
-    .fetch_one(state.db.pool())
+    .fetch_one(state.db.pool_result().expect("db pool"))
     .await
     .expect("query succeeded");
     assert_eq!(token_count, 25, "Should have exactly 25 tokens");
@@ -848,7 +848,7 @@ async fn training_job_stub_with_invalid_status() {
     let stored_status: String = adapteros_db::sqlx::query_scalar(
         "SELECT status FROM repository_training_jobs WHERE id = 'job-stub'",
     )
-    .fetch_one(state.db.pool())
+    .fetch_one(state.db.pool_result().expect("db pool"))
     .await
     .expect("query succeeded");
     assert_eq!(stored_status, "custom_weird_status");

@@ -44,7 +44,7 @@ fn check_metallib_hash(args: &VerifyAgentsArgs) -> Check {
     }
 
     // Read METALLIB_HASH from kernel-mtl/src/lib.rs
-    let kernel_src = match fs::read_to_string("crates/mplora-kernel-mtl/src/lib.rs") {
+    let kernel_src = match fs::read_to_string("crates/adapteros-lora-kernel-mtl/src/lib.rs") {
         Ok(content) => content,
         Err(e) => {
             return Check::fail(
@@ -179,17 +179,17 @@ fn check_performance_regression(args: &VerifyAgentsArgs) -> Check {
 
 fn check_profiling_events(args: &VerifyAgentsArgs) -> Check {
     // Check for kernel profiling code
-    let kernel_prof = Path::new("crates/mplora-kernel-prof");
+    let kernel_prof = Path::new("crates/adapteros-lora-kernel-prof");
     if !kernel_prof.exists() {
         return Check::fail(
             "Profiling events",
             vec![],
-            "crates/mplora-kernel-prof not found",
+            "crates/adapteros-lora-kernel-prof not found",
         );
     }
 
     // Check for AOS_KERNEL_PROFILE environment variable handling
-    let lib_rs = match fs::read_to_string("crates/mplora-kernel-prof/src/lib.rs") {
+    let lib_rs = match fs::read_to_string("crates/adapteros-lora-kernel-prof/src/lib.rs") {
         Ok(content) => content,
         Err(_) => return Check::skip("Profiling events", "Could not read kernel-prof source"),
     };
@@ -197,7 +197,7 @@ fn check_profiling_events(args: &VerifyAgentsArgs) -> Check {
     let has_env_check = lib_rs.contains("AOS_KERNEL_PROFILE");
     let has_available_field = lib_rs.contains("available") || lib_rs.contains("\"available\"");
 
-    let mut evidence = vec!["crates/mplora-kernel-prof exists".to_string()];
+    let mut evidence = vec!["crates/adapteros-lora-kernel-prof exists".to_string()];
 
     if has_env_check {
         evidence.push("Found AOS_KERNEL_PROFILE env handling".to_string());
@@ -218,12 +218,12 @@ fn check_profiling_events(args: &VerifyAgentsArgs) -> Check {
 
 fn check_vram_attribution() -> Check {
     // Check for VramTracker in kernel-mtl
-    let vram_file = Path::new("crates/mplora-kernel-mtl/src/vram.rs");
+    let vram_file = Path::new("crates/adapteros-lora-kernel-mtl/src/vram.rs");
     if !vram_file.exists() {
         return Check::fail(
             "VRAM attribution",
             vec![],
-            "crates/mplora-kernel-mtl/src/vram.rs not found",
+            "crates/adapteros-lora-kernel-mtl/src/vram.rs not found",
         );
     }
 
@@ -245,7 +245,7 @@ fn check_vram_attribution() -> Check {
         Check::pass(
             "VRAM attribution",
             vec![
-                "crates/mplora-kernel-mtl/src/vram.rs exists".to_string(),
+                "crates/adapteros-lora-kernel-mtl/src/vram.rs exists".to_string(),
                 "VramTracker implementation found".to_string(),
                 "Byte tracking implemented".to_string(),
             ],
@@ -261,7 +261,7 @@ fn check_vram_attribution() -> Check {
 
 fn check_multi_gpu_selector() -> Check {
     // Check for AOS_GPU_INDEX parsing in kernel-mtl
-    let lib_rs = match fs::read_to_string("crates/mplora-kernel-mtl/src/lib.rs") {
+    let lib_rs = match fs::read_to_string("crates/adapteros-lora-kernel-mtl/src/lib.rs") {
         Ok(content) => content,
         Err(e) => {
             return Check::fail(
@@ -283,7 +283,7 @@ fn check_multi_gpu_selector() -> Check {
         let evidence = vec![
             "Found AOS_GPU_INDEX parsing".to_string(),
             format!(
-                "Location: crates/mplora-kernel-mtl/src/lib.rs:{}",
+                "Location: crates/adapteros-lora-kernel-mtl/src/lib.rs:{}",
                 line_num.unwrap_or(0)
             ),
         ];
@@ -299,12 +299,12 @@ fn check_multi_gpu_selector() -> Check {
 
 fn check_panic_recovery() -> Check {
     // Check for catch_unwind in recovery module
-    let recovery_file = Path::new("crates/mplora-kernel-mtl/src/recovery.rs");
+    let recovery_file = Path::new("crates/adapteros-lora-kernel-mtl/src/recovery.rs");
     if !recovery_file.exists() {
         return Check::fail(
             "Panic recovery boundary",
             vec![],
-            "crates/mplora-kernel-mtl/src/recovery.rs not found",
+            "crates/adapteros-lora-kernel-mtl/src/recovery.rs not found",
         );
     }
 
@@ -323,7 +323,7 @@ fn check_panic_recovery() -> Check {
         Check::pass(
             "Panic recovery boundary",
             vec![
-                "crates/mplora-kernel-mtl/src/recovery.rs exists".to_string(),
+                "crates/adapteros-lora-kernel-mtl/src/recovery.rs exists".to_string(),
                 "catch_unwind boundary implemented".to_string(),
             ],
         )

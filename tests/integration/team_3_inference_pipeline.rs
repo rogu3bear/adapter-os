@@ -38,7 +38,7 @@ mod tests {
         // Verify adapter is available for inference
         let result = sqlx::query("SELECT id FROM adapters WHERE id = ?")
             .bind("inference-adapter-1")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -60,7 +60,7 @@ mod tests {
 
         // Verify all adapters exist
         let result = sqlx::query("SELECT COUNT(*) as count FROM adapters")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -117,7 +117,7 @@ mod tests {
             .bind("adapter-a")
             .bind("adapter-b")
             .bind("adapter-c")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -148,7 +148,7 @@ mod tests {
         // Query activation percentage
         let result = sqlx::query("SELECT activation_pct FROM adapters WHERE id = ?")
             .bind("activation-tracked")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -179,7 +179,7 @@ mod tests {
         let result = sqlx::query("SELECT id FROM adapters WHERE id IN (?, ?)")
             .bind("primary-adapter")
             .bind("secondary-adapter")
-            .fetch_all(harness.db().pool())
+            .fetch_all(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -194,7 +194,7 @@ mod tests {
 
         // Verify routing decisions table exists
         let result = sqlx::query("SELECT 1 FROM routing_decisions LIMIT 1")
-            .fetch_optional(harness.db().pool())
+            .fetch_optional(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -208,7 +208,7 @@ mod tests {
             .await
             .expect("Failed to initialize harness");
 
-        assert!(harness.db().pool().acquire().await.is_ok());
+        assert!(harness.db().pool_result().unwrap().acquire().await.is_ok());
     }
 
     #[tokio::test]
@@ -219,7 +219,7 @@ mod tests {
 
         // Verify backend information can be queried
         let result = sqlx::query("SELECT 1 FROM adapters LIMIT 1")
-            .fetch_optional(harness.db().pool())
+            .fetch_optional(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -233,7 +233,7 @@ mod tests {
 
         // Verify metrics infrastructure for latency tracking
         let state = harness.state_ref();
-        assert!(state.db().pool().acquire().await.is_ok());
+        assert!(state.db().pool_result().unwrap().acquire().await.is_ok());
     }
 
     #[tokio::test]
@@ -251,7 +251,7 @@ mod tests {
         // Verify quantization metadata can be stored
         let result = sqlx::query("SELECT id FROM adapters WHERE id = ?")
             .bind("q15-quantized")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());

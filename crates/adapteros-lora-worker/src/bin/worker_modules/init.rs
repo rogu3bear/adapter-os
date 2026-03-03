@@ -1132,6 +1132,14 @@ pub async fn run_worker() -> Result<()> {
         u32::from_le_bytes(bytes)
     };
 
+    let mut limits = adapteros_lora_worker::limiter::ResourceLimits::from_env();
+    if let Some(pool_size) = args.thread_pool_size {
+        limits.thread_pool_size = pool_size;
+    }
+    if let Some(mem_mb) = args.max_total_memory_mb {
+        limits.max_total_memory = mem_mb * 1024 * 1024;
+    }
+
     let worker = Worker::new(
         manifest.clone(),
         &args.tenant_id,
@@ -1147,6 +1155,8 @@ pub async fn run_worker() -> Result<()> {
         registration_result.kv_residency_policy_id.clone(),
         Some(adapter_cache_bytes),
         worker_id_u32,
+        args.max_tokens_limit,
+        limits,
     )
     .await
     .inspect_err(|_| notify_cp_error("worker-init-failed"))?;
@@ -1277,6 +1287,30 @@ pub async fn run_worker() -> Result<()> {
 
     info!(uds_path = %uds_path.display(), "Starting UDS server");
     log_boot_phase("uds-bind");
+
+    let mut thundering_config = adapteros_lora_worker::limiter::ThunderingHerdConfig::from_env();
+    if let Some(jitter) = args.jitter_factor {
+        thundering_config.jitter_factor = jitter;
+    }
+    if let Some(base) = args.base_retry_hint_ms {
+        thundering_config.base_retry_hint_ms = base;
+    }
+    if let Some(max_hint) = args.max_retry_hint_ms {
+        thundering_config.max_retry_hint_ms = max_hint;
+    }
+
+    let max_concurrent = std::env::var("AOS_WORKER_MAX_CONCURRENT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(adapteros_lora_worker::backpressure::DEFAULT_MAX_CONCURRENT);
+
+    let backpressure = Arc::new(
+        adapteros_lora_worker::backpressure::BackpressureGate::new_with_config(
+            max_concurrent,
+            thundering_config,
+        ),
+    );
+
     let server = if let Some(verifying_key) = worker_verifying_key {
         let jti_cache = jti_cache.expect("JTI cache should be initialized when auth is enabled");
         UdsServer::new_with_worker_auth(
@@ -1285,6 +1319,7 @@ pub async fn run_worker() -> Result<()> {
             inference_cancellations.clone(),
             None,
             drain_flag.clone(),
+            backpressure,
             verifying_key,
             worker_id.clone(),
             jti_cache,
@@ -1297,6 +1332,7 @@ pub async fn run_worker() -> Result<()> {
             inference_cancellations.clone(),
             None,
             drain_flag.clone(),
+            backpressure,
         )
     };
     let listener = match server.bind().await {
@@ -1446,16 +1482,12 @@ pub async fn run_worker() -> Result<()> {
     let serve_fut = server.serve_with_listener(listener);
     tokio::pin!(serve_fut);
     let mut shutdown_signal_received = false;
+    let mut draining_announced = false;
     let serve_result = tokio::select! {
         res = &mut serve_fut => res,
         _ = &mut shutdown_signal => {
             shutdown_signal_received = true;
             info!(worker_id = %worker_id, "Drain signal received, initiating worker drain");
-
-            // Persist JTI cache before shutdown to maintain replay defense across restarts
-            if let Err(e) = server.persist_jti_cache().await {
-                warn!(error = %e, "Failed to persist JTI cache during shutdown");
-            }
 
             // Cleanup model cache during drain to free pinned entries
             if let Ok(cache) = get_model_cache() {
@@ -1466,6 +1498,7 @@ pub async fn run_worker() -> Result<()> {
             drain_flag.store(true, Ordering::Relaxed);
             lifecycle = lifecycle.transition_to(WorkerStatus::Draining)
                 .map_err(|e| AosError::Lifecycle(e.to_string()))?;
+            draining_announced = true;
             if cp_enabled {
                 // Notify CP of drain so it can stop routing new requests before shutdown.
                 notify_cp_status(
@@ -1484,7 +1517,36 @@ pub async fn run_worker() -> Result<()> {
         }
     };
 
-    let final_status = if health_monitor.is_shutdown_requested() {
+    let drain_requested = drain_flag.load(Ordering::Relaxed);
+    let health_shutdown_requested = health_monitor.is_shutdown_requested();
+
+    // Persist JTI cache for all drain-driven exits to maintain replay defense across restarts.
+    if drain_requested {
+        if let Err(e) = server.persist_jti_cache().await {
+            warn!(error = %e, "Failed to persist JTI cache during shutdown");
+        }
+    }
+
+    if should_transition_to_draining(lifecycle, drain_requested, health_shutdown_requested) {
+        lifecycle = lifecycle
+            .transition_to(WorkerStatus::Draining)
+            .map_err(|e| AosError::Lifecycle(e.to_string()))?;
+        if cp_enabled && !draining_announced {
+            notify_cp_status(
+                &args.cp_url,
+                &worker_id,
+                WorkerStatus::Draining.as_str(),
+                "drain-signal",
+                &args.backend,
+                &model_hash_hex,
+                &manifest_hash_hex,
+                &tokenizer_hash_hex,
+                manifest.base.vocab_size,
+            );
+        }
+    }
+
+    let final_status = if health_shutdown_requested {
         WorkerStatus::Error
     } else {
         WorkerStatus::Stopped
@@ -1505,7 +1567,7 @@ pub async fn run_worker() -> Result<()> {
     .await;
 
     if let Err(e) = serve_result {
-        if shutdown_signal_received {
+        if shutdown_signal_received || drain_requested {
             warn!(error = %e, "UDS server returned an error during shutdown");
         } else {
             notify_cp_error("uds-serve-failed");
@@ -1561,5 +1623,46 @@ async fn join_task_with_timeout(
                 warn!(task = name, error = %e, "Shutdown task abort failed");
             }
         }
+    }
+}
+
+fn should_transition_to_draining(
+    lifecycle: WorkerStatus,
+    drain_requested: bool,
+    health_shutdown_requested: bool,
+) -> bool {
+    !health_shutdown_requested && drain_requested && lifecycle == WorkerStatus::Healthy
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_transition_to_draining;
+    use adapteros_core::WorkerStatus;
+
+    #[test]
+    fn transition_to_draining_for_non_health_shutdown_with_drain_flag() {
+        assert!(should_transition_to_draining(
+            WorkerStatus::Healthy,
+            true,
+            false
+        ));
+    }
+
+    #[test]
+    fn do_not_force_draining_for_health_shutdown() {
+        assert!(!should_transition_to_draining(
+            WorkerStatus::Healthy,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn do_not_force_draining_when_already_not_healthy() {
+        assert!(!should_transition_to_draining(
+            WorkerStatus::Draining,
+            true,
+            false
+        ));
     }
 }

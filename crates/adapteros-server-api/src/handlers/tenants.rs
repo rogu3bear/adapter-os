@@ -14,6 +14,7 @@ use crate::middleware::require_role;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
+use crate::tenant_visibility::is_workspace_tenant_id;
 use crate::types::*; // Re-exports adapteros_api_types::*
 use adapteros_core::tenant_snapshot::TenantStateSnapshot;
 use adapteros_core::AosError;
@@ -32,7 +33,7 @@ use serde_json::Value;
         PaginationParams
     ),
     responses(
-        (status = 200, description = "Tenants list", body = PaginatedResponse<TenantResponse>),
+        (status = 200, description = "Workspace tenants list (internal tenants excluded)", body = PaginatedResponse<TenantResponse>),
         (status = 403, description = "Forbidden", body = ErrorResponse)
     ),
     tag = "tenants"
@@ -46,28 +47,39 @@ pub async fn list_tenants(
     // This prevents any authenticated user from seeing all tenant information
     require_role(&claims, Role::Admin)?;
 
-    let offset = (pagination.page.saturating_sub(1)) * pagination.limit;
-    let (tenants, total) = state
-        .db
-        .list_tenants_paginated(pagination.limit as i64, offset as i64)
-        .await
-        .map_err(ApiError::db_error)?;
-
-    let data: Vec<TenantResponse> = tenants
+    // UX: `/v1/tenants` is user-facing and should only expose workspace tenants.
+    // Internal platform tenants (`system`, `default`) are intentionally hidden.
+    let tenants = state.db.list_tenants().await.map_err(ApiError::db_error)?;
+    let workspace_tenants: Vec<_> = tenants
         .into_iter()
+        .filter(|t| is_workspace_tenant_id(&t.id))
+        .collect();
+
+    let limit = pagination.limit.max(1);
+    let offset = (pagination.page.saturating_sub(1) * limit) as usize;
+    let total = workspace_tenants.len() as u64;
+
+    let data: Vec<TenantResponse> = workspace_tenants
+        .into_iter()
+        .skip(offset)
+        .take(limit as usize)
         .map(|t| TenantResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             tenant: t,
         })
         .collect();
 
-    let pages = ((total as f64) / (pagination.limit as f64)).ceil() as u32;
+    let pages = if total == 0 {
+        0
+    } else {
+        total.div_ceil(limit as u64) as u32
+    };
     let response = PaginatedResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         data,
-        total: total as u64,
+        total,
         page: pagination.page,
-        limit: pagination.limit,
+        limit,
         pages,
     };
 

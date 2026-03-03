@@ -15,7 +15,7 @@ async fn check_training_capacity_counts_running_jobs() {
     // Ensure FK to git_repositories passes for inserted training jobs.
     // Ensure repo_id satisfies FK expectations by adding a unique index for the test DB.
     sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_git_repositories_repo_unique ON git_repositories(repo_id)")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool"))
         .await
         .expect("create repo_id unique index");
 
@@ -32,7 +32,7 @@ async fn check_training_capacity_counts_running_jobs() {
     .bind("{}")
     .bind("analyzed")
     .bind("tester")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert repo");
 

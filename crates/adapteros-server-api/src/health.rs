@@ -243,7 +243,14 @@ pub async fn check_router_health(State(state): State<AppState>) -> impl IntoResp
 /// - Lifecycle manager operational (if available)
 pub async fn check_loader_health(State(state): State<AppState>) -> impl IntoResponse {
     // Query adapter states from database
-    match state.db.pool().acquire().await {
+    let Some(pool) = state.db.pool_opt() else {
+        return ComponentHealth::new(
+            "loader",
+            ComponentStatus::Unhealthy,
+            "SQL pool not available",
+        );
+    };
+    match pool.acquire().await {
         Ok(mut conn) => {
             // Check for adapters stuck in loading state
             let stuck_count: Result<i64, _> =
@@ -350,24 +357,49 @@ pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResp
         "critical"
     };
 
+    let skip_worker_check = {
+        if let Ok(cfg) = state.config.read() {
+            cfg.server.skip_worker_check
+        } else {
+            false
+        }
+    };
+    let dev_mode = crate::auth::is_dev_bypass_enabled();
+
     if !worker_available {
-        ComponentHealth::new(
-            "kernel",
-            ComponentStatus::Degraded,
-            if total_workers == 0 && !in_process_worker {
-                "No workers registered"
-            } else {
-                "No healthy workers available"
-            },
-        )
-        .with_details(serde_json::json!({
-            "worker_available": false,
-            "in_process_worker": in_process_worker,
-            "workers_total": total_workers,
-            "workers_healthy": healthy_workers,
-            "memory_headroom_pct": uma_stats.headroom_pct,
-            "memory_status": memory_status
-        }))
+        if total_workers == 0 && !in_process_worker && (skip_worker_check || dev_mode) {
+            ComponentHealth::new(
+                "kernel",
+                ComponentStatus::Healthy,
+                "No workers registered (Optional)",
+            )
+            .with_details(serde_json::json!({
+                "worker_available": false,
+                "in_process_worker": in_process_worker,
+                "workers_total": total_workers,
+                "workers_healthy": healthy_workers,
+                "memory_headroom_pct": uma_stats.headroom_pct,
+                "memory_status": memory_status
+            }))
+        } else {
+            ComponentHealth::new(
+                "kernel",
+                ComponentStatus::Degraded,
+                if total_workers == 0 && !in_process_worker {
+                    "No workers registered"
+                } else {
+                    "No healthy workers available"
+                },
+            )
+            .with_details(serde_json::json!({
+                "worker_available": false,
+                "in_process_worker": in_process_worker,
+                "workers_total": total_workers,
+                "workers_healthy": healthy_workers,
+                "memory_headroom_pct": uma_stats.headroom_pct,
+                "memory_status": memory_status
+            }))
+        }
     } else if !memory_ok {
         ComponentHealth::new(
             "kernel",
@@ -417,7 +449,10 @@ pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResp
 /// - KV backend health (if attached)
 pub async fn check_db_health(State(state): State<AppState>) -> impl IntoResponse {
     // Test database connectivity
-    match state.db.pool().acquire().await {
+    let Some(pool) = state.db.pool_opt() else {
+        return ComponentHealth::new("db", ComponentStatus::Unhealthy, "SQL pool not available");
+    };
+    match pool.acquire().await {
         Ok(mut conn) => {
             // Check if we can perform a simple query
             let result: Result<i64, _> = sqlx::query_scalar("SELECT 1").fetch_one(&mut *conn).await;
@@ -551,8 +586,10 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
     // - Allows quick detection and remediation in production environments
     const IDLE_WARNING_THRESHOLD_SECS: u64 = 30;
 
+    let dev_mode = crate::auth::is_dev_bypass_enabled();
+
     if !has_activity {
-        if uptime_secs > IDLE_WARNING_THRESHOLD_SECS {
+        if uptime_secs > IDLE_WARNING_THRESHOLD_SECS && !dev_mode {
             // System has been running for a while with no telemetry activity
             // This may indicate a broken telemetry pipeline
             ComponentHealth::new(
@@ -619,15 +656,19 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
 pub async fn check_kv_health(State(state): State<AppState>) -> impl IntoResponse {
     match state.db.kv_health_check().await {
         Ok(kv_health) => {
-            let status = match kv_health.status {
-                adapteros_db::HealthStatus::Healthy => ComponentStatus::Healthy,
-                adapteros_db::HealthStatus::Degraded => ComponentStatus::Degraded,
-                adapteros_db::HealthStatus::Unhealthy => ComponentStatus::Unhealthy,
-                adapteros_db::HealthStatus::Unknown => ComponentStatus::Degraded,
+            let status = if !kv_health.attached {
+                ComponentStatus::Healthy
+            } else {
+                match kv_health.status {
+                    adapteros_db::HealthStatus::Healthy => ComponentStatus::Healthy,
+                    adapteros_db::HealthStatus::Degraded => ComponentStatus::Degraded,
+                    adapteros_db::HealthStatus::Unhealthy => ComponentStatus::Unhealthy,
+                    adapteros_db::HealthStatus::Unknown => ComponentStatus::Degraded,
+                }
             };
 
             let message = if !kv_health.attached {
-                "KV backend not attached".to_string()
+                "KV backend not attached (Optional)".to_string()
             } else if kv_health.connectivity_ok {
                 let latency_info = match (kv_health.read_latency_ms, kv_health.write_latency_ms) {
                     (Some(read), Some(write)) => {
@@ -1204,11 +1245,26 @@ async fn worker_component_health(state: &AppState) -> ComponentHealth {
         let serving = has_healthy_worker(state, &summary).await;
 
         if summary.is_empty() {
+            let skip_worker_check = {
+                if let Ok(cfg) = state.config.read() {
+                    cfg.server.skip_worker_check
+                } else {
+                    false
+                }
+            };
+            let dev_mode = crate::auth::is_dev_bypass_enabled();
+
             return if serving {
                 ComponentHealth::new(
                     "workers",
                     ComponentStatus::Healthy,
                     "workers registered (health metrics pending)",
+                )
+            } else if skip_worker_check || dev_mode {
+                ComponentHealth::new(
+                    "workers",
+                    ComponentStatus::Healthy,
+                    "no workers registered (Optional)",
                 )
             } else {
                 ComponentHealth::new(
@@ -1312,7 +1368,10 @@ async fn has_healthy_worker(state: &AppState, summary: &[WorkerHealthSummary]) -
 
     // Fallback: query database for workers with 'healthy' status
     // This handles cases where monitor hasn't polled yet or worker just registered
-    match state.db.pool().acquire().await {
+    let Some(pool) = state.db.pool_opt() else {
+        return false;
+    };
+    match pool.acquire().await {
         Ok(mut conn) => query("SELECT 1 FROM workers WHERE status = 'healthy' LIMIT 1")
             .fetch_optional(&mut *conn)
             .await

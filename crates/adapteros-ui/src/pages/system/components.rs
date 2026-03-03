@@ -25,7 +25,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::utils::{format_timestamp, format_uptime, NODES_PAGE_SIZE, TENANTS_PAGE_SIZE};
-use crate::components::{IconCheckCircle, IconWarning};
+use crate::components::{IconCheckCircle, IconWarning, IconX};
+use crate::utils::status_display_label;
 
 // ============================================================================
 // SSE Indicator
@@ -167,10 +168,10 @@ pub fn SystemContent(
         } else {
             model.model_name.clone()
         };
-        let status_label = format!("{:?}", model.status).to_lowercase();
+        let status_label = status_display_label(&format!("{:?}", model.status).to_lowercase());
         format!("Active: {} ({})", short_id, status_label)
     } else if let Some(summary) = status.kernel.as_ref().and_then(|k| k.model.as_ref()) {
-        let status_label = summary.status.clone();
+        let status_label = status_display_label(&summary.status);
         if let Some(model_id) = summary.model_id.clone() {
             let short_id = adapteros_id::short_id(&model_id);
             format!("Active: {} ({})", short_id, status_label)
@@ -421,7 +422,12 @@ fn NodesSection(nodes: Vec<NodeResponse>) -> impl IntoView {
         Column::custom("Status", |node: &NodeResponse| {
             let variant = StatusVariant::from_worker_status(&node.node.status).to_badge_variant();
             let status = node.node.status.clone();
-            view! { <Badge variant=variant>{status}</Badge> }
+            let status_label = status_display_label(&status);
+            view! {
+                <span title=status.clone()>
+                    <Badge variant=variant>{status_label}</Badge>
+                </span>
+            }
         }),
         Column::custom("Endpoint", |node: &NodeResponse| {
             let endpoint = node.node.agent_endpoint.clone();
@@ -636,7 +642,12 @@ fn TenantsSection(tenants: Vec<TenantState>) -> impl IntoView {
                 _ => BadgeVariant::Secondary,
             };
             let status = tenant.status.clone();
-            view! { <Badge variant=variant>{status}</Badge> }
+            let status_label = status_display_label(&status);
+            view! {
+                <span title=status.clone()>
+                    <Badge variant=variant>{status_label}</Badge>
+                </span>
+            }
         }),
         Column::custom("Active Stack", |tenant: &TenantState| {
             let active_stack = tenant
@@ -836,7 +847,7 @@ fn ModelRuntimeSection(models_status: LoadingState<AllModelsStatusResponse>) -> 
                     }
                 }
                 LoadingState::Error(e) => {
-                    if matches!(&e, ApiError::Forbidden(_)) {
+                    if matches!(e.as_ref(), ApiError::Forbidden(_)) {
                         view! {
                             <div class="rounded-lg border p-4">
                                 <p class="text-sm text-muted-foreground">
@@ -1084,6 +1095,8 @@ fn HealthEndpointsSection(
                         }.into_any(),
                         LoadingState::Loaded((status_code, data)) => {
                             let variant = health_status_variant(status_code, &data.status);
+                            let status_raw = data.status.clone();
+                            let status_label = status_display_label(&status_raw);
                             let details = match &data.build_id {
                                 Some(build) => format!("HTTP {} | v{} | {}", status_code, data.version, build),
                                 None => format!("HTTP {} | v{}", status_code, data.version),
@@ -1092,7 +1105,9 @@ fn HealthEndpointsSection(
                                 <TableRow>
                                     <TableCell><span class="font-mono text-sm">"/healthz"</span></TableCell>
                                     <TableCell>
-                                        <Badge variant=variant>{data.status}</Badge>
+                                        <span title=status_raw.clone()>
+                                            <Badge variant=variant>{status_label}</Badge>
+                                        </span>
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">{details}</span>
@@ -1557,9 +1572,7 @@ pub fn BootStatusSection(boot: adapteros_api_types::BootStatus) -> impl IntoView
                                     aria-label="Dismiss boot status panel"
                                     on:click=move |_| dismissed.set(true)
                                 >
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
+                                    <IconX class="w-4 h-4"/>
                                 </button>
                             </div>
                         </div>

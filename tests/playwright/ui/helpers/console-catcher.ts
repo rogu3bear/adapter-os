@@ -26,6 +26,19 @@ const BENIGN_PATTERNS: RegExp[] = [
   /already borrowed/i,
   // ResizeObserver (browser-internal, benign)
   /ResizeObserver loop/i,
+  // Service-worker registration 404 (sw.js not served in test mode)
+  /bad HTTP response code \(404\).*fetching the script/i,
+];
+
+/** Hydration mismatch signatures that should always fail even if they partially match benign noise. */
+const HYDRATION_MISMATCH_SEVERE_PATTERNS: RegExp[] = [
+  /hydration (failed|error|mismatch)/i,
+  /hydration mismatch/i,
+  /hydration key/i,
+  /text content does not match server-rendered html/i,
+  /expected server html to contain a matching/i,
+  /server rendered html.*(does not|doesn't|did not|didn't) match/i,
+  /did not match.*server/i,
 ];
 
 export interface ConsoleMessage {
@@ -44,8 +57,11 @@ export class ConsoleCatcher {
     this.handler = (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isBenign = BENIGN_PATTERNS.some((pat) => pat.test(text));
-        if (!isBenign) {
+        const isSevereHydrationMismatch = HYDRATION_MISMATCH_SEVERE_PATTERNS.some((pat) =>
+          pat.test(text)
+        );
+        const isBenign = !isSevereHydrationMismatch && BENIGN_PATTERNS.some((pat) => pat.test(text));
+        if (isSevereHydrationMismatch || !isBenign) {
           this.errors.push({
             type: msg.type(),
             text,

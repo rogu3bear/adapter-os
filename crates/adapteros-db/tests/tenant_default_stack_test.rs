@@ -240,7 +240,7 @@ async fn test_activate_stack_sets_lifecycle_active() {
     // Force lifecycle_state to draft to verify activation flips it back
     sqlx::query("UPDATE adapter_stacks SET lifecycle_state = 'draft' WHERE id = ?")
         .bind(&stack_id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 

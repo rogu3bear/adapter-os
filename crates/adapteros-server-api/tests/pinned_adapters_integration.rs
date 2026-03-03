@@ -191,6 +191,9 @@ fn test_inference_result_with_unavailable_pinned_adapters() {
         router_decision_chain: None,
         rag_evidence: None,
         citations: vec![],
+        document_links: vec![],
+        adapter_attachments: vec![],
+        degraded_notices: vec![],
         latency_ms: 100,
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: Some(unavailable.clone()),
@@ -232,6 +235,9 @@ fn test_inference_result_without_unavailable_pinned_adapters() {
         router_decision_chain: None,
         rag_evidence: None,
         citations: vec![],
+        document_links: vec![],
+        adapter_attachments: vec![],
+        degraded_notices: vec![],
         latency_ms: 100,
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: None,
@@ -280,6 +286,9 @@ fn test_inference_result_all_pins_unavailable_stack_only_fallback() {
         router_decision_chain: None,
         rag_evidence: None,
         citations: vec![],
+        document_links: vec![],
+        adapter_attachments: vec![],
+        degraded_notices: vec![],
         latency_ms: 100,
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: Some(unavailable.clone()),
@@ -327,6 +336,9 @@ fn test_inference_result_partial_pins_unavailable() {
         router_decision_chain: None,
         rag_evidence: None,
         citations: vec![],
+        document_links: vec![],
+        adapter_attachments: vec![],
+        degraded_notices: vec![],
         latency_ms: 100,
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: Some(unavailable.clone()),
@@ -668,6 +680,11 @@ fn test_inference_event_done_serializes_pinned_fields() {
         unavailable_pinned_adapters: Some(vec!["missing-1".to_string(), "missing-2".to_string()]),
         pinned_routing_fallback: Some("partial".to_string()),
         citations: None,
+        document_links: None,
+        adapter_attachments: None,
+        degraded_notices: None,
+        fallback_triggered: false,
+        fallback_backend: None,
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
@@ -704,6 +721,11 @@ fn test_inference_event_done_skips_none_fields() {
         unavailable_pinned_adapters: None,
         pinned_routing_fallback: None,
         citations: None,
+        document_links: None,
+        adapter_attachments: None,
+        degraded_notices: None,
+        fallback_triggered: false,
+        fallback_backend: None,
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
@@ -740,7 +762,7 @@ async fn test_pin_adapter_rejects_past_ttl() {
         .hash_b3("b3:somehash")
         .rank(16)
         .tier("ephemeral")
-        .category("general")
+        .category("code")
         .build()
         .expect("adapter params");
     db.register_adapter(params)
@@ -781,7 +803,7 @@ async fn test_pin_adapter_accepts_future_ttl() {
         .hash_b3("b3:somehash")
         .rank(16)
         .tier("ephemeral")
-        .category("general")
+        .category("code")
         .build()
         .expect("adapter params");
     db.register_adapter(params)
@@ -816,7 +838,7 @@ async fn test_pin_adapter_accepts_no_ttl() {
         .hash_b3("b3:somehash")
         .rank(16)
         .tier("ephemeral")
-        .category("general")
+        .category("code")
         .build()
         .expect("adapter params");
     db.register_adapter(params)
@@ -850,7 +872,7 @@ async fn test_pin_adapter_rejects_invalid_ttl_format() {
         .hash_b3("b3:somehash")
         .rank(16)
         .tier("ephemeral")
-        .category("general")
+        .category("code")
         .build()
         .expect("adapter params");
     db.register_adapter(params)

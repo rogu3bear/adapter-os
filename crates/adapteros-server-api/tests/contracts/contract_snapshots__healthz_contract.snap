@@ -20,7 +20,7 @@ expression: "json!({ \"status\": health_status.as_u16(), \"body\": health_body }
       "adapteros-telemetry": "0.14.1"
     },
     "crate_manifest_digest": "<redacted>",
-    "schema_version": "1.0.0",
+    "schema_version": "2.0.0",
     "status": "healthy",
     "version": "0.5.0"
   },

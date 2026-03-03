@@ -24,6 +24,10 @@ JSON_OUTPUT="${4:-false}"
 WORKSPACE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$WORKSPACE_ROOT"
 
+# Keep legacy bootstrap builds on the canonical cache root unless explicitly overridden.
+: "${CARGO_TARGET_DIR:=target}"
+export CARGO_TARGET_DIR
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -189,10 +193,10 @@ download_qwen() {
     
     echo "Downloading Qwen 2.5 7B model..."
     
-    if [[ -f "scripts/download_model.sh" ]]; then
-        bash scripts/download_model.sh
+    if [[ -f "scripts/download-model.sh" ]]; then
+        bash scripts/download-model.sh
     else
-        echo "Warning: scripts/download_model.sh not found"
+        echo "Warning: scripts/download-model.sh not found"
         echo "You'll need to manually download and import models"
     fi
 }

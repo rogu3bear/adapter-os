@@ -16,22 +16,27 @@
 //! - Click close button or press Escape to close
 //! - Mobile: Full-screen overlay with back button
 
+use crate::api::use_api_client;
 use crate::api::{report_error_with_toast, ApiClient};
+use crate::components::layout::nav_group_label_for_route;
 use crate::components::{
     AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button,
-    ButtonSize, ButtonVariant, Card, CopyableId, EmptyStateVariant, ErrorDisplay, Link,
-    ListEmptyCard, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    ButtonSize, ButtonType, ButtonVariant, Card, CopyableId, EmptyState, EmptyStateVariant,
+    ErrorDisplay, Input, Link, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
     PageScaffoldPrimaryAction, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead,
     TableHeader, TableRow,
 };
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api_resource, use_cached_api_resource, CacheTtl, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
-use crate::signals::{try_use_route_context, SelectedEntity};
+use crate::signals::{try_use_route_context, use_ui_profile, SelectedEntity};
 use crate::utils::{chat_path_with_adapter, format_datetime, humanize};
-use adapteros_api_types::{AdapterResponse, LifecycleState};
+use adapteros_api_types::{
+    AdapterResponse, LifecycleState, TrainingJobResponse, TrainingListParams,
+};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Path to open the training wizard for new adapter creation
@@ -40,6 +45,8 @@ const NEW_ADAPTER_PATH: &str = "/training?open_wizard=1";
 /// Adapters list page with split-panel detail drawer
 #[component]
 pub fn Adapters() -> impl IntoView {
+    let nav_label =
+        nav_group_label_for_route(use_ui_profile().get_untracked(), "/adapters").unwrap_or("Build");
     // State: selected adapter ID (None = detail panel closed)
     let selected_id = RwSignal::new(None::<String>);
 
@@ -129,11 +136,12 @@ pub fn Adapters() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Skill Library"
+            title="Adapters"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Deploy", "/adapters"),
-                PageBreadcrumbItem::current("Skill Library"),
+                PageBreadcrumbItem::new(nav_label, "/adapters"),
+                PageBreadcrumbItem::current("Adapters"),
             ]
+            full_width=true
         >
             <PageScaffoldPrimaryAction slot>
                 {
@@ -213,19 +221,36 @@ fn AdaptersListInteractive(
     let total = adapters.len();
     let in_flight = use_in_flight();
     let navigate = use_navigate();
+    let (recent_training_jobs, _) = use_cached_api_resource(
+        "adapters_recent_training_jobs",
+        CacheTtl::LIST,
+        |client: Arc<ApiClient>| async move {
+            let params = TrainingListParams {
+                page: Some(1),
+                page_size: Some(100),
+                ..Default::default()
+            };
+            client
+                .list_training_jobs(Some(&params))
+                .await
+                .map(|resp| resp.jobs)
+        },
+    );
 
     if adapters.is_empty() {
         let navigate = navigate.clone();
         return view! {
-            <ListEmptyCard
-                variant=EmptyStateVariant::Empty
-                title="No skills yet"
-                description="Create your first adapter to add a new capability, then start a conversation right away."
-                action_label="Create Adapter"
-                on_action=Callback::new(move |_| {
-                    navigate(NEW_ADAPTER_PATH, Default::default());
-                })
-            />
+            <Card class="mt-4".to_string()>
+                <EmptyState
+                    variant=EmptyStateVariant::Empty
+                    title="No adapters yet".to_string()
+                    description="Create your first adapter to add a new capability, then start a conversation right away.".to_string()
+                    action_label="Create Adapter".to_string()
+                    on_action=Callback::new(move |_| {
+                        navigate(NEW_ADAPTER_PATH, Default::default());
+                    })
+                />
+            </Card>
         }
         .into_any();
     }
@@ -249,9 +274,10 @@ fn AdaptersListInteractive(
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead>"Name"</TableHead>
-                        <TableHead>"Stage"</TableHead>
-                        <TableHead>"Tier"</TableHead>
+                        <TableHead>"Adapter"</TableHead>
+                        <TableHead>"Glance"</TableHead>
+                        <TableHead>"Last Training Source"</TableHead>
+                        <TableHead>"Provenance"</TableHead>
                         <TableHead>""</TableHead>
                     </TableRow>
                 </TableHeader>
@@ -260,32 +286,121 @@ fn AdaptersListInteractive(
                         let count = visible_count.try_get().unwrap_or(PAGE_SIZE);
                         let current_selected = selected_id.try_get().flatten();
                         let current_in_flight = in_flight_ids.try_get().unwrap_or_default();
+                        let mut jobs_by_adapter_id = HashMap::<String, TrainingJobResponse>::new();
+                        let mut jobs_by_name = HashMap::<String, TrainingJobResponse>::new();
+                        if let LoadingState::Loaded(jobs) =
+                            recent_training_jobs.try_get().unwrap_or(LoadingState::Idle)
+                        {
+                            for job in jobs {
+                                if let Some(adapter_id) =
+                                    job.adapter_id.clone().filter(|value| !value.trim().is_empty())
+                                {
+                                    record_latest_training_job(&mut jobs_by_adapter_id, adapter_id, &job);
+                                }
+                                if !job.adapter_name.trim().is_empty() {
+                                    record_latest_training_job(
+                                        &mut jobs_by_name,
+                                        job.adapter_name.clone(),
+                                        &job,
+                                    );
+                                }
+                            }
+                        }
                         adapters_for_rows.iter().take(count).map(|adapter| {
                             let id = adapter.id.clone();
                             let id_for_click = id.clone();
                             let name = adapter.name.clone();
                             let lifecycle = adapter.lifecycle_state;
                             let tier = adapter.tier.clone();
+                            let adapter_id = adapter.adapter_id.clone();
+                            let current_version = adapter.version.clone();
+                            let runtime_label = runtime_state_label(adapter.runtime_state.as_deref());
                             let is_selected = current_selected.as_ref() == Some(&id);
                             let is_in_flight = current_in_flight.contains(&id);
 
                             // Lifecycle badge variant
                             let lifecycle_variant = lifecycle_badge_variant(lifecycle);
                             let lifecycle_label = lifecycle_stage_label(lifecycle);
+                            let latest_job = jobs_by_adapter_id
+                                .get(&adapter_id)
+                                .or_else(|| jobs_by_name.get(&name));
+
+                            let base_model = latest_job
+                                .and_then(|job| job.base_model_id.clone())
+                                .unwrap_or_else(|| "Not captured in recent training jobs".to_string());
+
+                            let (training_source_summary, training_source_status) =
+                                if let Some(job) = latest_job {
+                                    let summary = job
+                                        .dataset_version_trust
+                                        .as_ref()
+                                        .and_then(|entries| entries.first())
+                                        .map(|entry| {
+                                            if let Some(dataset_name) = entry.dataset_name.clone() {
+                                                format!("{} ({})", dataset_name, entry.dataset_version_id)
+                                            } else {
+                                                format!(
+                                                    "Dataset version {}",
+                                                    entry.dataset_version_id
+                                                )
+                                            }
+                                        })
+                                        .or_else(|| {
+                                            job.dataset_version_ids.as_ref().and_then(|versions| {
+                                                versions.first().map(|selection| {
+                                                    format!(
+                                                        "Dataset version {}",
+                                                        selection.dataset_version_id
+                                                    )
+                                                })
+                                            })
+                                        })
+                                        .or_else(|| {
+                                            job.dataset_id
+                                                .as_ref()
+                                                .map(|dataset_id| format!("Dataset {}", dataset_id))
+                                        })
+                                        .unwrap_or_else(|| {
+                                            "Training source is not attached to this job".to_string()
+                                        });
+
+                                    (
+                                        summary,
+                                        format!(
+                                            "Latest job: {}",
+                                            humanize(job.status.as_str())
+                                        ),
+                                    )
+                                } else {
+                                    (
+                                        "No recent training job found in this list view".to_string(),
+                                        "Open adapter details for deeper lineage".to_string(),
+                                    )
+                                };
+
+                            let provenance_count = latest_job
+                                .and_then(|job| {
+                                    job.dataset_version_ids.as_ref().map(|versions| versions.len())
+                                })
+                                .unwrap_or(0);
+                            let provenance_label = if provenance_count == 0 {
+                                "No linked dataset versions".to_string()
+                            } else if provenance_count == 1 {
+                                "1 linked dataset version".to_string()
+                            } else {
+                                format!("{} linked dataset versions", provenance_count)
+                            };
 
                             let id_for_keydown = id_for_click.clone();
                             let row_label = format!("Select adapter {}", name);
                             view! {
                                 <tr
-                                    class=if is_selected {
-                                        "table-row cursor-pointer bg-accent/50 hover:bg-accent"
-                                    } else {
-                                        "table-row cursor-pointer hover:bg-accent/30"
-                                    }
+                                    class="table-row table-row-interactive cursor-pointer"
                                     data-state=if is_selected { "selected" } else { "" }
                                     role="button"
                                     tabindex=0
                                     aria-label=row_label
+                                    aria-pressed=is_selected
                                     on:click=move |_| {
                                         on_select.run(id_for_click.clone());
                                     }
@@ -299,20 +414,41 @@ fn AdaptersListInteractive(
                                     }
                                 >
                                     <TableCell>
-                                        <span class="font-medium">{name}</span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <div class="flex items-center gap-2">
-                                            <Badge variant=lifecycle_variant>
-                                                {lifecycle_label}
-                                            </Badge>
-                                            {is_in_flight.then(|| view! {
-                                                <Badge variant=BadgeVariant::Warning>"In Use"</Badge>
-                                            })}
+                                        <div class="space-y-1">
+                                            <p class="font-medium">{name}</p>
+                                            <p class="text-xs text-muted-foreground">
+                                                {format!("Tier: {}", humanize(&tier))}
+                                            </p>
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <span class="text-sm text-muted-foreground">{humanize(&tier)}</span>
+                                        <div class="space-y-1">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <Badge variant=lifecycle_variant>
+                                                    {lifecycle_label}
+                                                </Badge>
+                                                <Badge variant=BadgeVariant::Secondary>
+                                                    {runtime_label}
+                                                </Badge>
+                                                {is_in_flight.then(|| view! {
+                                                    <Badge variant=BadgeVariant::Warning>"In Use"</Badge>
+                                                })}
+                                            </div>
+                                            <p class="text-xs text-muted-foreground">{format!("Adapter version: {}", current_version)}</p>
+                                            <p class="text-xs text-muted-foreground">{format!("Base model: {}", base_model)}</p>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div class="space-y-1">
+                                            <p class="text-sm">{training_source_summary}</p>
+                                            <p class="text-xs text-muted-foreground">{training_source_status}</p>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <p class="text-sm">{provenance_label}</p>
+                                        <p class="text-xs text-muted-foreground">
+                                            "Counts dataset version links from the latest visible training job."
+                                        </p>
                                     </TableCell>
                                     <TableCell>
                                         {
@@ -392,6 +528,8 @@ fn validate_adapter_id(id: &str) -> Result<(), &'static str> {
 /// Adapter detail page
 #[component]
 pub fn AdapterDetail() -> impl IntoView {
+    let nav_label =
+        nav_group_label_for_route(use_ui_profile().get_untracked(), "/adapters").unwrap_or("Build");
     let params = use_params_map();
 
     // Extract adapter ID from URL - must be called unconditionally
@@ -430,10 +568,11 @@ pub fn AdapterDetail() -> impl IntoView {
         <PageScaffold
             title="Adapter Details"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Deploy", "/adapters"),
+                PageBreadcrumbItem::new(nav_label, "/adapters"),
                 PageBreadcrumbItem::new("Adapters", "/adapters"),
                 PageBreadcrumbItem::current(adapter_name_for_breadcrumb.get()),
             ]
+            full_width=true
         >
             <PageScaffoldActions slot>
                 {
@@ -462,7 +601,12 @@ pub fn AdapterDetail() -> impl IntoView {
             <AsyncBoundaryWithErrorRender
                 state=adapter
                 on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
-                render=move |data| view! { <AdapterDetailContent adapter=data /> }
+                render=move |data| view! {
+                    <AdapterDetailContent
+                        adapter=data
+                        on_refetch=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
+                    />
+                }
                 render_error=move |e, retry| {
                     if let crate::api::ApiError::Validation(msg) = &e {
                         let error_msg = msg.clone();
@@ -510,6 +654,31 @@ fn lifecycle_stage_label(state: LifecycleState) -> &'static str {
     }
 }
 
+fn runtime_state_label(runtime_state: Option<&str>) -> &'static str {
+    match runtime_state {
+        Some("hot") => "Ready",
+        Some("warm") => "Warming",
+        Some("cold") => "Standby",
+        Some("resident") => "Pinned in Memory",
+        Some("unloaded") => "Not Loaded",
+        _ => "Unknown",
+    }
+}
+
+fn record_latest_training_job(
+    index: &mut HashMap<String, TrainingJobResponse>,
+    key: String,
+    candidate: &TrainingJobResponse,
+) {
+    let should_replace = index
+        .get(&key)
+        .map(|existing| candidate.created_at > existing.created_at)
+        .unwrap_or(true);
+    if should_replace {
+        index.insert(key, candidate.clone());
+    }
+}
+
 /// Validate adapter response data before rendering
 /// Returns error message if validation fails
 fn validate_adapter_data(adapter: &AdapterResponse) -> Result<(), String> {
@@ -539,7 +708,7 @@ fn validate_adapter_data(adapter: &AdapterResponse) -> Result<(), String> {
 }
 
 #[component]
-fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
+fn AdapterDetailContent(adapter: AdapterResponse, on_refetch: Callback<()>) -> impl IntoView {
     // Validate adapter data before rendering
     if let Err(validation_error) = validate_adapter_data(&adapter) {
         report_error_with_toast(
@@ -565,6 +734,104 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
     let lifecycle_variant = lifecycle_badge_variant(adapter.lifecycle_state);
     let lifecycle_label = lifecycle_stage_label(adapter.lifecycle_state);
 
+    // Rename state (allowed only for Draft and Training)
+    let can_rename = matches!(
+        adapter.lifecycle_state,
+        LifecycleState::Draft | LifecycleState::Training
+    );
+    let name_editing = RwSignal::new(false);
+    let name_draft = RwSignal::new(String::new());
+    let renaming = RwSignal::new(false);
+    let action_error = RwSignal::new(None::<String>);
+    let action_success = RwSignal::new(None::<String>);
+    let client = use_api_client();
+    let name = adapter.name.clone();
+    let adapter_id = adapter.adapter_id.clone();
+    let name_for_start = name.clone();
+
+    let start_rename = Callback::new(move |_| {
+        name_draft.set(name_for_start.clone());
+        name_editing.set(true);
+    });
+    let cancel_rename = Callback::new(move |_| {
+        name_editing.set(false);
+        name_draft.set(String::new());
+    });
+    let save_rename = Callback::new({
+        let client = client.clone();
+        let adapter_id = adapter_id.clone();
+        move |_| {
+            if renaming.get() {
+                return;
+            }
+            let new_name = name_draft.get().trim().to_string();
+            if new_name.is_empty() {
+                action_error.set(Some("Name cannot be empty.".to_string()));
+                return;
+            }
+            renaming.set(true);
+            action_error.set(None);
+            action_success.set(None);
+            let client = client.clone();
+            let adapter_id = adapter_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client
+                    .patch_adapter(&adapter_id, Some(new_name.trim()))
+                    .await
+                {
+                    Ok(_) => {
+                        name_editing.set(false);
+                        name_draft.set(String::new());
+                        action_success.set(Some("Adapter renamed.".to_string()));
+                        on_refetch.run(());
+                    }
+                    Err(e) => {
+                        action_error.set(Some(format!("Unable to rename: {}", e.user_message())));
+                    }
+                }
+                renaming.set(false);
+            });
+        }
+    });
+    let clear_alias = Callback::new({
+        let client = client.clone();
+        let adapter_id = adapter_id.clone();
+        move |_| {
+            if renaming.get() {
+                return;
+            }
+            renaming.set(true);
+            action_error.set(None);
+            action_success.set(None);
+            let client = client.clone();
+            let adapter_id = adapter_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.patch_adapter(&adapter_id, None).await {
+                    Ok(_) => {
+                        name_editing.set(false);
+                        name_draft.set(String::new());
+                        action_success.set(Some("Custom name cleared; using default.".to_string()));
+                        on_refetch.run(());
+                    }
+                    Err(e) => {
+                        action_error
+                            .set(Some(format!("Unable to clear name: {}", e.user_message())));
+                    }
+                }
+                renaming.set(false);
+            });
+        }
+    });
+
+    let rename_aria_label = if can_rename {
+        "Rename adapter".to_string()
+    } else {
+        format!(
+            "Rename not available for adapters in {} state",
+            lifecycle_label
+        )
+    };
+
     // Extract values needed before moving into closures
     let adapter_name_for_link = adapter.name.clone();
     let intent = adapter.intent.clone();
@@ -575,13 +842,76 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
 
     view! {
         // Row 1: Basic Info + Status (2-column grid)
-        <div class="grid gap-6 md:grid-cols-2">
+        <div class="grid gap-4 md:grid-cols-2">
             // Basic Info
             <Card title="Basic Information".to_string()>
                 <div class="space-y-3">
+                    {move || action_error.get().map(|msg| view! {
+                        <div class="rounded-lg border border-destructive/50 bg-destructive/10 p-2">
+                            <p class="text-sm text-destructive">{msg}</p>
+                        </div>
+                    })}
+                    {move || action_success.get().map(|msg| view! {
+                        <div class="rounded-lg border border-status-success/50 bg-status-success/5 p-2">
+                            <p class="text-sm text-status-success">{msg}</p>
+                        </div>
+                    })}
                     <div>
                         <p class="text-sm text-muted-foreground">"Name"</p>
-                        <p class="font-medium">{adapter.name.clone()}</p>
+                        {move || if name_editing.get() {
+                            view! {
+                                <div class="flex items-center gap-2" role="group" aria-label="Edit adapter name">
+                                    <Input
+                                        value=name_draft
+                                        placeholder="Adapter name".to_string()
+                                        class="flex-1".to_string()
+                                    />
+                                    <Button
+                                        button_type=ButtonType::Button
+                                        variant=ButtonVariant::Primary
+                                        disabled=Signal::derive(move || renaming.get())
+                                        loading=Signal::derive(move || renaming.get())
+                                        on_click=save_rename
+                                        aria_label="Save adapter name"
+                                    >
+                                        "Save"
+                                    </Button>
+                                    <Button
+                                        button_type=ButtonType::Button
+                                        variant=ButtonVariant::Ghost
+                                        disabled=Signal::derive(move || renaming.get())
+                                        on_click=clear_alias
+                                        aria_label="Clear custom name and use default"
+                                    >
+                                        "Use default"
+                                    </Button>
+                                    <Button
+                                        button_type=ButtonType::Button
+                                        variant=ButtonVariant::Ghost
+                                        disabled=Signal::derive(move || renaming.get())
+                                        on_click=cancel_rename
+                                        aria_label="Cancel editing"
+                                    >
+                                        "Cancel"
+                                    </Button>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <div class="flex items-center gap-2">
+                                    <p class="font-medium flex-1">{name.clone()}</p>
+                                    <Button
+                                        button_type=ButtonType::Button
+                                        variant=ButtonVariant::Ghost
+                                        disabled=Signal::derive(move || !can_rename)
+                                        on_click=start_rename
+                                        aria_label=rename_aria_label.clone()
+                                    >
+                                        "Rename"
+                                    </Button>
+                                </div>
+                            }.into_any()
+                        }}
                     </div>
                     {intent.map(|intent_text| view! {
                         <div>
@@ -637,7 +967,7 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
         </div>
 
         // Row 2: Tech Stack + Metadata (2-column grid)
-        <div class="grid gap-6 md:grid-cols-2 mt-6">
+        <div class="grid gap-4 md:grid-cols-2 mt-4">
             // Tech Stack: Languages + Framework combined (mirrors AdapterDetailPanel pattern)
             <Card title="Tech Stack".to_string()>
                 <div class="space-y-3">
@@ -703,7 +1033,7 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
 
         // Row 3: Statistics - full width (content-heavy with large metrics)
         {adapter.stats.clone().map(|stats| view! {
-            <Card title="Statistics".to_string() class="mt-6".to_string()>
+            <Card title="Statistics".to_string() class="mt-4".to_string()>
                 <div class="grid gap-4 md:grid-cols-4">
                     <div>
                         <p class="text-sm text-muted-foreground">"Total Activations"</p>

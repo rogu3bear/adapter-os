@@ -13,17 +13,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 try:
     import blake3  # type: ignore
-except ImportError as exc:
-    print(
-        "Error: python module 'blake3' not found. Install with: python -m pip install blake3",
-        file=sys.stderr,
-    )
-    raise SystemExit(1) from exc
+except ImportError:
+    blake3 = None
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -47,11 +44,22 @@ def list_migrations() -> list[Path]:
 
 
 def blake3_hex(path: Path) -> str:
-    hasher = blake3.blake3()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
+    if blake3 is not None:
+        hasher = blake3.blake3()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+    # Fall back to b3sum when the optional python blake3 module is unavailable.
+    try:
+        output = subprocess.check_output(["b3sum", str(path)], text=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "python module 'blake3' not found and b3sum is unavailable; "
+            "install either `python -m pip install blake3` or `b3sum`."
+        ) from exc
+    return output.split()[0].strip()
 
 
 def sha256_hex(path: Path) -> str:

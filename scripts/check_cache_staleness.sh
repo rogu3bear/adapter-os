@@ -1,12 +1,21 @@
 #!/bin/bash
-# Check if Cargo incremental cache is stale (older than 48 hours)
-# Warns user to clean cache to prevent disk bloat
+# Check and optionally prune Cargo incremental cache paths.
+# Supports both legacy target/ and flow-partitioned target roots.
 
 set -euo pipefail
 
-CACHE_DIR="${CARGO_TARGET_DIR:-target}/debug/incremental"
-MAX_AGE_HOURS="${AOS_CACHE_MAX_AGE_HOURS:-48}"
-MAX_AGE_SECONDS=$((MAX_AGE_HOURS * 3600))
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/build-targets.sh"
+
+# Backward compatibility for existing callers.
+if [ -n "${AOS_CACHE_MAX_AGE_HOURS:-}" ] && [ -z "${AOS_INCREMENTAL_MAX_AGE_HOURS:-}" ]; then
+    export AOS_INCREMENTAL_MAX_AGE_HOURS="$AOS_CACHE_MAX_AGE_HOURS"
+fi
+
+MAX_AGE_HOURS="${AOS_INCREMENTAL_MAX_AGE_HOURS:-72}"
+WARN_GB="${AOS_INCREMENTAL_WARN_GB:-6}"
+PRUNE_GB="${AOS_INCREMENTAL_PRUNE_GB:-10}"
+AUTO_PRUNE="${AOS_AUTO_PRUNE_INCREMENTAL:-1}"
 
 # Colors
 YELLOW='\033[0;33m'
@@ -21,68 +30,70 @@ error() {
     echo -e "${RED}❌ ERROR:${NC} $1" >&2
 }
 
-check_cache_age() {
-    if [[ ! -d "$CACHE_DIR" ]]; then
-        return 0
-    fi
+TARGET_LABELS=()
+TARGET_DIRS=()
 
-    # Find oldest file in incremental cache
-    local oldest_file
-    oldest_file=$(find "$CACHE_DIR" -type f -print0 2>/dev/null | xargs -0 stat -f '%m %N' 2>/dev/null | sort -n | head -1 | cut -d' ' -f2-)
+append_target() {
+    local label="$1"
+    local dir="$2"
 
-    if [[ -z "$oldest_file" ]]; then
-        return 0
-    fi
+    [ -n "$dir" ] || return 0
+    dir="$(aos_abs_path "$dir")"
 
-    local file_age
-    file_age=$(stat -f '%m' "$oldest_file" 2>/dev/null || echo "0")
-    local now
-    now=$(date +%s)
-    local age_seconds=$((now - file_age))
-    local age_hours=$((age_seconds / 3600))
+    local i
+    for i in "${!TARGET_DIRS[@]}"; do
+        if [ "${TARGET_DIRS[$i]}" = "$dir" ]; then
+            return 0
+        fi
+    done
 
-    if [[ $age_seconds -gt $MAX_AGE_SECONDS ]]; then
-        local cache_size
-        cache_size=$(du -sh "$CACHE_DIR" 2>/dev/null | cut -f1)
-
-        warn "Cargo incremental cache is ${age_hours}h old (threshold: ${MAX_AGE_HOURS}h)"
-        warn "Cache size: ${cache_size}"
-        warn "Run 'cargo clean' or 'rm -rf target/debug/incremental' to free space"
-        echo ""
-        return 1
-    fi
-
-    return 0
+    TARGET_LABELS+=("$label")
+    TARGET_DIRS+=("$dir")
 }
 
-check_cache_size() {
-    if [[ ! -d "$CACHE_DIR" ]]; then
-        return 0
+collect_targets() {
+    if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+        append_target "env:CARGO_TARGET_DIR" "$CARGO_TARGET_DIR"
     fi
 
-    # Get size in bytes (macOS du -k gives KB)
-    local size_kb
-    size_kb=$(du -sk "$CACHE_DIR" 2>/dev/null | cut -f1)
-    local size_gb=$((size_kb / 1024 / 1024))
-
-    # Warn if cache exceeds 50GB. This script is informational: callers may
-    # surface the message without failing the overall boot, so keep wording
-    # non-alarming for demo/dev workflows.
-    if [[ $size_gb -gt 50 ]]; then
-        warn "Incremental cache is ${size_gb}GB - consider running 'cargo clean'"
-        return 1
-    elif [[ $size_gb -gt 20 ]]; then
-        warn "Incremental cache is ${size_gb}GB"
-    fi
-
-    return 0
+    append_target "legacy" "$ROOT_DIR/target"
+    append_target "flow-root" "$(aos_build_target_root)"
+    append_target "flow-ui" "$(aos_target_dir_for_flow ui)"
+    append_target "flow-server" "$(aos_target_dir_for_flow server)"
+    append_target "flow-worker" "$(aos_target_dir_for_flow worker)"
+    append_target "flow-test" "$(aos_target_dir_for_flow test)"
 }
 
 main() {
     local exit_code=0
 
-    check_cache_age || exit_code=1
-    check_cache_size || exit_code=1
+    echo "Cache context: target_root=$(aos_build_target_root) sccache=$(aos_sccache_mode)"
+
+    collect_targets
+
+    if [ "${#TARGET_DIRS[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    local i
+    for i in "${!TARGET_DIRS[@]}"; do
+        local label="${TARGET_LABELS[$i]}"
+        local dir="${TARGET_DIRS[$i]}"
+
+        if [ ! -d "$dir" ]; then
+            continue
+        fi
+
+        if ! aos_prune_incremental_for_target_dir "$dir" "$label"; then
+            warn "Incremental cache issue detected under $dir"
+            warn "Thresholds: warn=${WARN_GB}GB prune=${PRUNE_GB}GB max-age=${MAX_AGE_HOURS}h auto-prune=${AUTO_PRUNE}"
+            if ! aos_is_truthy "$AUTO_PRUNE"; then
+                warn "Run: rm -rf '$dir'/debug/incremental '$dir'/*/debug/incremental"
+            fi
+            echo ""
+            exit_code=1
+        fi
+    done
 
     return $exit_code
 }

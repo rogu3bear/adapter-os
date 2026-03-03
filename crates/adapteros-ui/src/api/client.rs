@@ -18,6 +18,7 @@ pub use adapteros_api_types::code_repositories::{
 pub use adapteros_api_types::dataset_domain::CanonicalRow;
 pub use adapteros_api_types::training::{
     DatasetFileResponse, DatasetVersionsResponse, JsonlValidationDiagnostic,
+    ValidateDatasetRequest, ValidateDatasetResponse,
 };
 pub use adapteros_api_types::{DatasetManifest, UploadDatasetResponse};
 // Consolidated types from shared crate
@@ -343,6 +344,18 @@ impl ApiClient {
         self.handle_response(response).await
     }
 
+    /// Perform a PATCH request that returns 204 No Content
+    pub async fn patch_no_content<B: Serialize>(&self, path: &str, body: &B) -> ApiResult<()> {
+        let response = self.request("PATCH", path).json(body)?.send().await?;
+        if response.ok() {
+            Ok(())
+        } else {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            Err(ApiError::from_response(status, &text, None))
+        }
+    }
+
     /// Perform a DELETE request
     pub async fn delete(&self, path: &str) -> ApiResult<()> {
         let response = self.request("DELETE", path).send().await?;
@@ -486,6 +499,20 @@ impl ApiClient {
         self.get(&format!("/v1/adapters/{}", id)).await
     }
 
+    /// Update adapter alias/name
+    pub async fn patch_adapter(&self, id: &str, alias: Option<&str>) -> ApiResult<()> {
+        #[derive(serde::Serialize)]
+        struct PatchAdapterRequest<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            alias: Option<&'a str>,
+        }
+        self.patch_no_content(
+            &format!("/v1/adapters/{}", id),
+            &PatchAdapterRequest { alias },
+        )
+        .await
+    }
+
     /// Get adapter IDs currently in use for inference
     pub async fn get_in_flight_adapters(&self) -> ApiResult<InFlightAdaptersResponse> {
         self.get("/v1/adapters/in-flight").await
@@ -570,7 +597,49 @@ impl ApiClient {
         .await
     }
 
-    /// Rollback a repository branch to a previous adapter version.
+    /// Checkout a repository branch at a specific adapter version.
+    /// Returns `Ok(())` on success (HTTP 204).
+    ///
+    /// Note: server compatibility currently maps this to the existing
+    /// `/versions/rollback` endpoint.
+    pub async fn checkout_adapter_version(
+        &self,
+        repo_id: &str,
+        branch: &str,
+        target_version_id: &str,
+    ) -> ApiResult<()> {
+        let body = serde_json::json!({
+            "branch": branch,
+            "target_version_id": target_version_id,
+        });
+
+        match self
+            .post_no_response(
+                &format!(
+                    "/v1/adapter-repositories/{}/versions/checkout",
+                    encode(repo_id)
+                ),
+                &body,
+            )
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(err) if err.is_not_found() => {
+                // Backward compatibility with servers that only expose rollback path.
+                self.post_no_response(
+                    &format!(
+                        "/v1/adapter-repositories/{}/versions/rollback",
+                        encode(repo_id)
+                    ),
+                    &body,
+                )
+                .await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Backward-compatible alias for checkout semantics.
     /// Returns `Ok(())` on success (HTTP 204).
     pub async fn rollback_adapter_version(
         &self,
@@ -578,17 +647,8 @@ impl ApiClient {
         branch: &str,
         target_version_id: &str,
     ) -> ApiResult<()> {
-        self.post_no_response(
-            &format!(
-                "/v1/adapter-repositories/{}/versions/rollback",
-                encode(repo_id)
-            ),
-            &serde_json::json!({
-                "branch": branch,
-                "target_version_id": target_version_id,
-            }),
-        )
-        .await
+        self.checkout_adapter_version(repo_id, branch, target_version_id)
+            .await
     }
 
     /// Get version history timeline for a repository.
@@ -1026,6 +1086,21 @@ impl ApiClient {
         request: &adapteros_api_types::UpdateSettingsRequest,
     ) -> ApiResult<adapteros_api_types::SettingsUpdateResponse> {
         self.put("/v1/settings", request).await
+    }
+
+    /// Get effective settings with per-key source metadata.
+    pub async fn get_effective_settings(
+        &self,
+    ) -> ApiResult<adapteros_api_types::EffectiveSettingsResponse> {
+        self.get("/v1/settings/effective").await
+    }
+
+    /// Reconcile runtime settings dual-write state (file + DB).
+    pub async fn reconcile_settings(
+        &self,
+    ) -> ApiResult<adapteros_api_types::SettingsReconcileResponse> {
+        self.post::<serde_json::Value, _>("/v1/settings/reconcile", &serde_json::json!({}))
+            .await
     }
 
     // --- Dashboard ---
@@ -1618,6 +1693,15 @@ impl ApiClient {
         self.get(&format!("/v1/datasets/{}", id)).await
     }
 
+    /// List adapters trained on this dataset
+    pub async fn get_dataset_adapters(
+        &self,
+        dataset_id: &str,
+    ) -> ApiResult<crate::api::types::DatasetAdaptersResponse> {
+        self.get(&format!("/v1/datasets/{}/adapters", dataset_id))
+            .await
+    }
+
     /// List dataset versions
     pub async fn list_dataset_versions(
         &self,
@@ -1625,6 +1709,47 @@ impl ApiClient {
     ) -> ApiResult<DatasetVersionsResponse> {
         self.get(&format!("/v1/datasets/{}/versions", dataset_id))
             .await
+    }
+
+    /// Create a new immutable dataset version.
+    pub async fn create_dataset_version(
+        &self,
+        dataset_id: &str,
+        request: &crate::api::types::CreateDatasetVersionRequest,
+    ) -> ApiResult<crate::api::types::CreateDatasetVersionResponse> {
+        self.post(&format!("/v1/datasets/{}/versions", dataset_id), request)
+            .await
+    }
+
+    /// Fetch dataset version detail with optional compare + evaluation regeneration.
+    pub async fn get_dataset_version_detail(
+        &self,
+        dataset_id: &str,
+        revision: &str,
+        compare_to: Option<&str>,
+        regenerate_evaluation: bool,
+    ) -> ApiResult<crate::api::types::DatasetVersionDetailResponse> {
+        let mut params = Vec::new();
+        if let Some(other) = compare_to {
+            if !other.trim().is_empty() {
+                params.push(format!("compare_to={}", encode(other)));
+            }
+        }
+        if regenerate_evaluation {
+            params.push("regenerate_evaluation=true".to_string());
+        }
+
+        let base = format!(
+            "/v1/datasets/{}/versions/{}",
+            encode(dataset_id),
+            encode(revision)
+        );
+        let path = if params.is_empty() {
+            base
+        } else {
+            format!("{}?{}", base, params.join("&"))
+        };
+        self.get(&path).await
     }
 
     /// List dataset files
@@ -1647,6 +1772,25 @@ impl ApiClient {
             dataset_id, file_id
         ))
         .await
+    }
+
+    /// Build an absolute URL for dataset file content (useful for iframe/object embeds).
+    pub fn dataset_file_content_url(
+        &self,
+        dataset_id: &str,
+        file_id: &str,
+        inline: bool,
+    ) -> String {
+        let mut path = format!(
+            "{}/v1/datasets/{}/files/{}/content",
+            self.base_url,
+            encode(dataset_id),
+            encode(file_id)
+        );
+        if inline {
+            path.push_str("?inline=true");
+        }
+        path
     }
 
     /// Validate a single dataset file
@@ -1672,6 +1816,37 @@ impl ApiClient {
         self.post(
             &format!("/v1/datasets/{}/files/validate", dataset_id),
             request,
+        )
+        .await
+    }
+
+    /// Validate dataset-level schema and structure.
+    pub async fn validate_dataset(
+        &self,
+        dataset_id: &str,
+        request: &ValidateDatasetRequest,
+    ) -> ApiResult<ValidateDatasetResponse> {
+        self.post(&format!("/v1/datasets/{}/validate", dataset_id), request)
+            .await
+    }
+
+    /// Update dataset metadata (name, description)
+    pub async fn update_dataset(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        description: Option<&str>,
+    ) -> ApiResult<()> {
+        #[derive(serde::Serialize)]
+        struct UpdateDatasetRequest<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            name: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            description: Option<&'a str>,
+        }
+        self.patch_no_content(
+            &format!("/v1/datasets/{}", id),
+            &UpdateDatasetRequest { name, description },
         )
         .await
     }
@@ -1828,6 +2003,23 @@ impl ApiClient {
     ) -> ApiResult<crate::api::types::DatasetPreprocessStatusResponse> {
         self.get(&format!("/v1/datasets/{}/preprocess/status", dataset_id))
             .await
+    }
+
+    /// Apply a trust override to a specific dataset version.
+    pub async fn apply_dataset_version_trust_override(
+        &self,
+        dataset_id: &str,
+        version_id: &str,
+        request: &crate::api::types::DatasetVersionTrustOverrideRequest,
+    ) -> ApiResult<crate::api::types::DatasetVersionTrustOverrideResponse> {
+        self.post(
+            &format!(
+                "/v1/datasets/{}/versions/{}/trust-override",
+                dataset_id, version_id
+            ),
+            request,
+        )
+        .await
     }
 
     /// Get a receipt by its digest.

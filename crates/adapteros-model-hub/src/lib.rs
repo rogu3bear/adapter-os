@@ -13,7 +13,9 @@ pub use integrity::{extract_hash_from_filename, IntegrityChecker, StreamingHashe
 pub use state::{DownloadState, FileDownloadState, FileStatus, StateManager};
 
 // Re-export core types for convenience
+use adapteros_core::recovery::RecoveryClassifier;
 pub use adapteros_core::{AosError, B3Hash, Result};
+use std::time::Duration;
 
 use thiserror::Error;
 
@@ -43,6 +45,53 @@ pub enum ModelHubError {
 
     #[error("adapterOS error: {0}")]
     AosError(#[from] AosError),
+}
+
+impl RecoveryClassifier for ModelHubError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            // Network/connectivity errors are typically transient
+            ModelHubError::Network(_) => true,
+
+            // Re-use logic for nested AosErrors
+            ModelHubError::AosError(e) => e.is_retryable(),
+
+            // Check for rate limits or server errors in DownloadFailed strings
+            ModelHubError::DownloadFailed(msg) => {
+                let lower = msg.to_lowercase();
+                lower.contains("rate limit")
+                    || lower.contains("server error")
+                    || lower.contains("timeout")
+            }
+
+            _ => false,
+        }
+    }
+
+    fn counts_as_failure(&self) -> bool {
+        match self {
+            ModelHubError::Network(_) => true,
+            ModelHubError::AosError(e) => e.counts_as_failure(),
+            ModelHubError::DownloadFailed(msg) => {
+                let lower = msg.to_lowercase();
+                lower.contains("rate limit")
+                    || lower.contains("server error")
+                    || lower.contains("timeout")
+            }
+            _ => false,
+        }
+    }
+
+    fn recommended_delay(&self) -> Option<Duration> {
+        match self {
+            ModelHubError::AosError(e) => e.recommended_delay(),
+            _ => None,
+        }
+    }
+
+    fn should_fallback(&self) -> bool {
+        self.is_retryable()
+    }
 }
 
 /// Result type alias for model hub operations

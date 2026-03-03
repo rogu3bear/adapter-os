@@ -354,6 +354,8 @@ impl MLXFFIBackend {
             memory_pool_size: self.memory_pool_size.clone(),
             performance_metrics: self.performance_metrics.clone(),
             manifest_hash: self.manifest_hash,
+            #[cfg(test)]
+            ffi_set_module_attempts: self.ffi_set_module_attempts,
         }
     }
 
@@ -616,43 +618,6 @@ impl MLXFFIBackend {
         }
     }
 
-    /// Apply LoRA adapters based on router decisions
-    #[allow(dead_code)]
-    fn apply_loras(
-        &self,
-        ring: &RouterRing,
-        base_output: &[f32],
-        input: &[f32],
-        module_name: &str,
-    ) -> Result<Vec<f32>> {
-        let adapters = self.adapters.load();
-
-        // Collect active adapters
-        let mut active_adapters = Vec::new();
-        let mut gates = Vec::new();
-
-        for (idx, &adapter_id) in ring.indices.iter().enumerate() {
-            if let Some(adapter) = adapters.get(&adapter_id) {
-                active_adapters.push(adapter.clone());
-                // Convert i16 Q15 to u16 for routing module
-                gates.push(ring.gates_q15[idx].max(0) as u16);
-            }
-        }
-
-        if active_adapters.is_empty() {
-            tracing::info!(
-                reason = "no_adapters_qualify",
-                "Router decision: K=0, using base model only"
-            );
-            return Ok(base_output.to_vec());
-        }
-
-        // Apply multi-LoRA routing
-        let adapter_refs: Vec<&LoRAAdapter> = active_adapters.iter().map(|a| a.as_ref()).collect();
-
-        crate::routing::apply_multi_lora(&adapter_refs, &gates, module_name, input, base_output)
-    }
-
     /// Get current memory pool statistics
     pub fn get_memory_pool_stats(&self) -> crate::MemoryPoolStats {
         self.memory_pool.get_stats()
@@ -781,9 +746,14 @@ impl FusedKernels for MLXFFIBackend {
 
         // Check circuit breaker state for stub fallback
         const STUB_FALLBACK_THRESHOLD: u32 = 3;
+        // Null models are test-only handles (no real weights loaded).
+        // In real-MLX builds, route them through stub inference so integration
+        // tests using `MLXFFIModel::new_null(...)` remain executable.
+        let null_model = self.model.model_path().as_os_str().is_empty();
         let use_stub_fallback = {
             let health = self.health_status.read();
-            health.stub_fallback_active && self.resilience_config.enable_stub_fallback
+            null_model
+                || (health.stub_fallback_active && self.resilience_config.enable_stub_fallback)
         };
 
         let result = if use_stub_fallback {
@@ -1073,9 +1043,10 @@ impl MLXFFIBackend {
         let mut config = if discovered_modules.is_empty() {
             crate::lora::LoRAConfig::default()
         } else {
-            let mut cfg = crate::lora::LoRAConfig::default();
-            cfg.target_modules = discovered_modules;
-            cfg
+            crate::lora::LoRAConfig {
+                target_modules: discovered_modules,
+                ..Default::default()
+            }
         };
 
         // Metadata overrides inferred/default values when present and valid.
@@ -1520,10 +1491,12 @@ mod tests {
         rank: usize,
         hidden_size: usize,
     ) -> LoRAAdapter {
-        let mut config = LoRAConfig::default();
-        config.rank = rank;
-        config.alpha = (rank as f32) * 2.0;
-        config.target_modules = module_names.iter().map(|m| (*m).to_string()).collect();
+        let config = LoRAConfig {
+            rank,
+            alpha: (rank as f32) * 2.0,
+            target_modules: module_names.iter().map(|m| (*m).to_string()).collect(),
+            ..Default::default()
+        };
 
         let mut adapter = LoRAAdapter::new(id.to_string(), config);
         let lora_a = vec![vec![1.0; hidden_size]; rank];
@@ -1564,7 +1537,7 @@ mod tests {
             tensors.insert(name.clone(), view);
         }
 
-        safetensors::serialize(&tensors, &None).expect("serialize test safetensors")
+        safetensors::serialize(&tensors, None).expect("serialize test safetensors")
     }
 
     #[test]

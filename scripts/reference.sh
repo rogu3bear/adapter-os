@@ -14,7 +14,7 @@
 #   ./scripts/reference.sh --help       Show this help
 #
 # Environment:
-#   AOS_SERVER_PORT     API port (default: 8080)
+#   AOS_SERVER_PORT     API port (default: 18080)
 #   AOS_REFERENCE_TIMEOUT    Max wait for /readyz (default: 90s)
 #   AOS_HEALTH_TIMEOUT  Max wait for /healthz (default: 30s)
 #
@@ -37,7 +37,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
 # Defaults (can be overridden by reference.env or environment)
-: "${AOS_SERVER_PORT:=8080}"
+: "${AOS_SERVER_PORT:=18080}"
 : "${AOS_REFERENCE_TIMEOUT:=90}"
 : "${AOS_HEALTH_TIMEOUT:=30}"
 : "${AOS_VAR_DIR:=var}"
@@ -97,7 +97,7 @@ Options:
   --help, -h               Show this help
 
 Environment:
-  AOS_SERVER_PORT     API port (default: 8080)
+  AOS_SERVER_PORT     API port (default: 18080)
   AOS_REFERENCE_TIMEOUT    Max wait for /readyz (default: 90s)
   AOS_HEALTH_TIMEOUT  Max wait for /healthz (default: 30s)
   AOS_DEV_NO_AUTH     Set to 1 to disable auth (for dev testing)
@@ -109,7 +109,7 @@ Examples:
   ./scripts/reference.sh --verbose          # Start with verbose output
 
 Smoke test after starting:
-  ./scripts/smoke_reference.sh              # Verify endpoints
+  ./scripts/foundation-smoke.sh --no-start --server-url "http://localhost:${AOS_SERVER_PORT}"  # Verify endpoints
 EOF
     exit 0
 fi
@@ -134,7 +134,7 @@ if [[ -z "${AOS_CONFIG_PATH:-}" && -f "$ROOT_DIR/configs/reference.toml" ]]; the
 fi
 
 # Re-apply defaults after sourcing (in case reference.env didn't set them)
-: "${AOS_SERVER_PORT:=8080}"
+: "${AOS_SERVER_PORT:=18080}"
 : "${AOS_REFERENCE_TIMEOUT:=90}"
 
 # =============================================================================
@@ -354,7 +354,7 @@ main() {
     echo ""
 
     echo "Smoke test:"
-    echo "  ./scripts/smoke_reference.sh   # Verify endpoints"
+    echo "  ./scripts/foundation-smoke.sh --no-start --server-url http://localhost:${AOS_SERVER_PORT}   # Verify endpoints"
     echo ""
 
     ok "Reference boot complete!"

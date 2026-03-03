@@ -47,7 +47,7 @@ async fn create_test_db_with_kv() -> (Db, TempDir, TempDir) {
 
     // Create default tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 
@@ -376,7 +376,7 @@ async fn test_migrate_tenant_adapters() {
 
     // Create second tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-2', 'Second Tenant')")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 
@@ -748,7 +748,7 @@ async fn test_migration_error_without_kv_backend() {
 
     // Create tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 

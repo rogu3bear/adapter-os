@@ -1,0 +1,61 @@
+name: Governance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  layout_contract:
+    name: governance/layout-contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Layout contract
+        run: bash scripts/contracts/check_repo_layout_contract.sh
+      - name: Docs claims contract
+        run: bash scripts/contracts/check_docs_claims.sh
+
+  generated_policy:
+    name: governance/generated-policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: OpenAPI drift check
+        run: bash scripts/ci/check_openapi_drift.sh
+      - name: Tracked generated artifact policy
+        run: bash scripts/ci/check_tracked_generated_policy.sh --strict --format text
+
+  tooling_policy:
+    name: governance/tooling-policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tooling state policy
+        run: bash scripts/ci/check_tooling_state_policy.sh --strict --format text
+
+  size_budget:
+    name: governance/size-budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repository size/binary budget
+        run: bash scripts/ci/check_repo_size_budget.sh --strict --format text
+
+  transient_observer:
+    name: governance/transient-size-observer
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Transient artifact size snapshot
+        run: |
+          set -euo pipefail
+          echo "Top transient directories (non-blocking):"
+          for p in .playwright-cli .playwright-mcp var/reports var/playwright/runs target-pr303 target-pr303b; do
+            if [ -e "$p" ]; then
+              du -sh "$p" || true
+            fi
+          done

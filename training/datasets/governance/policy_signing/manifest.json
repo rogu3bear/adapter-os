@@ -1,0 +1,82 @@
+{
+  "name": "policy_signing_v1",
+  "description": "Training examples for Ed25519 policy pack signing, BLAKE3 integrity verification, key management, tamper detection, and policy versioning in adapterOS governance. Covers the full lifecycle of SignedPolicyPack creation, PolicyIntegrityVerifier usage, PolicyPackRegistry trust chain, and multi-signature production deployment gates.",
+  "version": "1.0.0",
+  "category": "governance",
+  "tier": "critical",
+  "scope": "global",
+  "rank": 1,
+  "alpha": 8.0,
+  "target_modules": [
+    "gate_proj",
+    "o_proj"
+  ],
+  "entries": [
+    {
+      "path": "policy-signing.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "primary",
+      "notes": "Policy pack signing lifecycle: Ed25519 key generation, BLAKE3 manifest hashing, signature generation and verification, tamper detection with RecoveryAction, key rotation, multi-sig quorum, and semver-compatible versioning for the 25 canonical adapterOS policy packs"
+    }
+  ],
+  "subcategories": {
+    "signing_workflow": {
+      "count": 300,
+      "description": "Step-by-step policy pack creation and signing: Keypair::generate, BTreeMap assembly, BLAKE3 hash computation, Ed25519 signing via SignedPolicyPack::sign, hex-encoded signature and public key embedding"
+    },
+    "verification": {
+      "count": 300,
+      "description": "Node-side verification of received policy packs: PolicyPackRegistry trust chain, verify_signature against trusted PublicKey list, BLAKE3 hash recomputation, PolicyVerificationResult diagnostics, schema_version compatibility checks"
+    },
+    "key_management": {
+      "count": 300,
+      "description": "Ed25519 key lifecycle: Keypair::generate, public key distribution, add_trusted_key registry enrollment, key rotation with old-key grace period, multi-signature 2-of-3 quorum for production policy changes, key backup and HSM considerations"
+    },
+    "tamper_detection": {
+      "count": 300,
+      "description": "Negative examples: policy file modification after signing, BLAKE3 hash mismatch detection, detect_tampering flow, RecoveryAction dispatch (Quarantine, LoadBackup, Retry, Manual), signature forgery attempts, truncated signature handling"
+    },
+    "policy_versioning": {
+      "count": 300,
+      "description": "Semver versioning of policy packs: schema_version compatibility gates, version field bumps, compatibility ranges, rollback to previous signed version, upgrade path validation, cross-version coexistence during rolling deployments"
+    }
+  },
+  "provenance": {
+    "masterplan_sections": [
+      "crates/adapteros-policy/src/policy_pack.rs",
+      "crates/adapteros-policy/src/policy_integrity.rs",
+      "crates/adapteros-policy/src/policy_packs.rs",
+      "crates/adapteros-policy/src/packs/mod.rs"
+    ],
+    "created_by": "policy-signing-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Technical training data for Ed25519 policy pack signing in adapterOS governance. Grounded in SignedPolicyPack, PolicyIntegrityVerifier, PolicyPackRegistry, and the 25 canonical policy packs. BLAKE3 for content hashing, Ed25519 for signature. Covers signing, verification, key management, tamper detection, and versioning."
+  },
+  "evaluation_gates": [
+    "SignedPolicyPack::sign produces 64-byte Ed25519 signature hex-encoded to 128 characters",
+    "BLAKE3 hash of identical policy content is deterministic and produces 64-character hex string",
+    "PolicyPackRegistry rejects packs when no trusted keys are configured",
+    "Signature verification iterates all trusted_keys and succeeds if any one matches",
+    "Tampered policy file produces BLAKE3 hash mismatch detected by PolicyIntegrityVerifier::detect_tampering",
+    "RecoveryAction::Quarantine chosen when no hash_history backup exists",
+    "RecoveryAction::LoadBackup chosen when hash_history contains previous known-good hashes",
+    "schema_version > 1 triggers version_compatible = false in PolicyVerificationResult",
+    "Multi-signature requires 2 of 3 Admin Ed25519 signatures for production policy changes",
+    "Key rotation preserves old public key in trusted_keys for verifying previously-signed packs"
+  ],
+  "crypto_internals": {
+    "signing_algorithm": "Ed25519",
+    "hashing_algorithm": "BLAKE3",
+    "signature_bytes": 64,
+    "signature_hex_chars": 128,
+    "public_key_bytes": 32,
+    "public_key_hex_chars": 64,
+    "private_key_bytes": 32,
+    "blake3_output_bytes": 32,
+    "blake3_output_hex_chars": 64,
+    "schema_version_current": 1,
+    "multi_sig_quorum": "2-of-3"
+  }
+}

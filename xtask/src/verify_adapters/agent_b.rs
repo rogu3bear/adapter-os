@@ -154,7 +154,7 @@ fn start_server(port: u16, pid_file: &Path) -> Result<(Child, String)> {
         .args([
             "run",
             "--bin",
-            "mplora-server",
+            "adapteros-server",
             "--",
             "--config",
             "configs/cp.toml",
@@ -333,7 +333,7 @@ fn check_pid_lock(port: u16, pid_file: &Path) -> Check {
         .args([
             "run",
             "--bin",
-            "mplora-server",
+            "adapteros-server",
             "--",
             "--config",
             "configs/cp.toml",

@@ -167,7 +167,7 @@ async fn test_simultaneous_training_jobs() {
             .bind("running")
             .bind("{\"progress_pct\": 0}")
             .bind("test-user")
-            .execute(db.pool())
+            .execute(db.pool_result().unwrap())
             .await;
 
             (i, result)
@@ -333,7 +333,7 @@ async fn test_database_connection_pool_stress() {
         let task = tokio::spawn(async move {
             // Perform a simple query
             let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) as count FROM adapters")
-                .fetch_one(db.pool())
+                .fetch_one(db.pool_result().unwrap())
                 .await;
 
             (i, result)
@@ -411,7 +411,7 @@ async fn test_memory_pressure_simulation() {
         .bind(8)
         .bind(1.0)
         .bind("[]")
-        .execute(harness.db().pool())
+        .execute(harness.db().pool_result().unwrap())
         .await;
 
         if result.is_err() {
@@ -423,7 +423,7 @@ async fn test_memory_pressure_simulation() {
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) as count FROM adapters WHERE id LIKE 'memory-pressure-adapter-%'",
     )
-    .fetch_one(harness.db().pool())
+    .fetch_one(harness.db().pool_result().unwrap())
     .await
     .expect("Should be able to count adapters");
 
@@ -438,7 +438,7 @@ async fn test_memory_pressure_simulation() {
          ORDER BY rank ASC
          LIMIT 10",
     )
-    .fetch_all(harness.db().pool())
+    .fetch_all(harness.db().pool_result().unwrap())
     .await
     .expect("Should be able to query adapters by rank");
 
@@ -581,7 +581,7 @@ async fn test_consistent_results_under_load() {
     let expected: (String, String, String, i64) =
         sqlx::query_as("SELECT id, tenant_id, tier, rank FROM adapters WHERE id = ?")
             .bind("consistency-test-adapter")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await
             .expect("Adapter should exist");
 
@@ -595,7 +595,7 @@ async fn test_consistent_results_under_load() {
             let result: Result<(String, String, String, i64), _> =
                 sqlx::query_as("SELECT id, tenant_id, tier, rank FROM adapters WHERE id = ?")
                     .bind("consistency-test-adapter")
-                    .fetch_one(db.pool())
+                    .fetch_one(db.pool_result().unwrap())
                     .await;
 
             (i, result)

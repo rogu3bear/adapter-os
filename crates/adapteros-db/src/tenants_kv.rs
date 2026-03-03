@@ -203,26 +203,6 @@ impl TenantKvRepository {
         Ok(())
     }
 
-    /// Remove from indexes (used when deleting tenants)
-    #[allow(dead_code)]
-    async fn remove_from_indexes(&self, tenant: &TenantKv) -> Result<()> {
-        // Remove name index
-        let name_key = Self::name_index_key(&tenant.name);
-        self.backend
-            .delete(&name_key)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to delete name index: {}", e)))?;
-
-        // Remove status index
-        let status_key = Self::status_index_key(&tenant.status, &tenant.id);
-        self.backend
-            .delete(&status_key)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to delete status index: {}", e)))?;
-
-        Ok(())
-    }
-
     /// Load multiple tenants by scanning prefix
     async fn load_all_tenants(&self) -> Result<Vec<TenantKv>> {
         let keys = self
@@ -484,7 +464,7 @@ impl TenantKvOps for TenantKvRepository {
 // ============================================================================
 
 /// Helper function to create TenantKv from CreateTenantParams (used in tests)
-#[allow(dead_code)]
+#[cfg(test)]
 fn tenant_kv_from_params(params: &CreateTenantParams, id: &str) -> TenantKv {
     let now = Utc::now();
     TenantKv {

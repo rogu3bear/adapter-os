@@ -6,7 +6,11 @@ use crate::api::use_api_client;
 use crate::components::{Card, DetailRow, Spinner};
 use crate::constants::ui_language;
 use crate::hooks::use_polling;
-use adapteros_api_types::{TrainingJobResponse, TrainingMetricEntry};
+use adapteros_api_types::{
+    TrainingJobResponse, TrainingMetricEntry, TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS,
+    TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED, TRAINING_QUANTIZATION_PROBE_STATUS_FAILED,
+    TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS, TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE,
+};
 use leptos::prelude::*;
 
 use crate::pages::training::components::CoremlBadges;
@@ -20,8 +24,10 @@ use crate::pages::training::utils::{
 pub fn OverviewTabContent(
     job: TrainingJobResponse,
     job_id: String,
-    adapter_id: Option<String>,
+    #[prop(optional)] adapter_id: Option<String>,
 ) -> impl IntoView {
+    // adapter_id accepted for call-site compat; artifact display removed.
+    let _ = adapter_id;
     view! {
         <Card title="Job Details".to_string()>
             <div class="grid gap-3 text-sm md:grid-cols-2">
@@ -54,24 +60,6 @@ pub fn OverviewTabContent(
                 })}
             </div>
         </Card>
-
-        // Artifacts section (for completed jobs with outputs)
-        {job.aos_path.clone().map(|path| view! {
-            <Card title="Artifacts".to_string() class="mt-4".to_string()>
-                <div class="grid gap-3 text-sm">
-                    <DetailRow label="Adapter Path" value=path mono=true/>
-                    {adapter_id.clone().map(|id| view! {
-                        <DetailRow label="Adapter ID" value=id mono=true/>
-                    })}
-                    {job.package_hash_b3.clone().map(|hash| view! {
-                        <div class="flex flex-col gap-1">
-                            <span class="text-muted-foreground">"Package Hash"</span>
-                            <span class="font-mono text-xs break-all bg-muted/50 p-2 rounded">{hash}</span>
-                        </div>
-                    })}
-                </div>
-            </Card>
-        })}
     }
 }
 
@@ -154,21 +142,15 @@ pub fn BackendTabContent(job: TrainingJobResponse, coreml_state: CoremlState) ->
     }
 }
 
-/// Export tab - CoreML export status and artifacts
+/// Export tab - CoreML export status
 #[component]
 pub fn ExportTabContent(
     job: TrainingJobResponse,
     coreml_state: CoremlState,
     coreml_export_requested: bool,
 ) -> impl IntoView {
-    // Clone for use in different sections
-    let coreml_state_for_artifacts = coreml_state.clone();
-    let has_artifacts =
-        coreml_state.package_path.is_some() || coreml_state.fused_package_hash.is_some();
-    let has_verification = job.coreml_base_manifest_hash.is_some()
-        || job.coreml_adapter_hash_b3.is_some()
-        || job.coreml_fusion_verified.is_some();
-
+    // job accepted for call-site compat; artifact/verification display removed.
+    let _ = job;
     view! {
         <Card title="CoreML Export Status".to_string()>
             <div class="space-y-4">
@@ -190,49 +172,6 @@ pub fn ExportTabContent(
                 </div>
             </div>
         </Card>
-
-        // Export artifacts (when available)
-        {has_artifacts.then(|| {
-            let state = coreml_state_for_artifacts.clone();
-            view! {
-                <Card title="Export Artifacts".to_string() class="mt-4".to_string()>
-                    <div class="space-y-3 text-sm">
-                        {state.package_path.clone().map(|path| view! {
-                            <DetailRow label="Package Path" value=path mono=true/>
-                        })}
-                        {state.metadata_path.clone().map(|path| view! {
-                            <DetailRow label="Metadata Path" value=path mono=true/>
-                        })}
-                        {state.fused_package_hash.clone().map(|hash| view! {
-                            <div class="flex flex-col gap-1">
-                                <span class="text-muted-foreground">"Fused Package Hash"</span>
-                                <span class="font-mono text-xs break-all bg-muted/50 p-2 rounded">{hash}</span>
-                            </div>
-                        })}
-                    </div>
-                </Card>
-            }
-        })}
-
-        // Verification hashes
-        {has_verification.then(|| view! {
-            <Card title="Verification".to_string() class="mt-4".to_string()>
-                <div class="grid gap-3 text-sm md:grid-cols-2">
-                    {job.coreml_base_manifest_hash.clone().map(|hash| view! {
-                        <DetailRow label="Base Manifest Hash" value=hash mono=true/>
-                    })}
-                    {job.coreml_adapter_hash_b3.clone().map(|hash| view! {
-                        <DetailRow label="Adapter Hash (B3)" value=hash mono=true/>
-                    })}
-                    {job.coreml_fusion_verified.map(|verified| view! {
-                        <DetailRow
-                            label="Fusion Verified"
-                            value=if verified { "Yes".to_string() } else { "No".to_string() }
-                        />
-                    })}
-                </div>
-            </Card>
-        })}
     }
 }
 
@@ -298,12 +237,12 @@ fn DualCurveChart(
     let secondary_path = build_svg_path(&secondary, min_val, range);
 
     // Best-epoch marker X position (percentage)
-    let marker_x = best_epoch.and_then(|be| {
+    let marker_x = best_epoch.map(|be| {
         let total = total_epochs.unwrap_or(1).max(1);
         if total > 1 {
-            Some((be as f64 / (total - 1) as f64) * 100.0)
+            (be as f64 / (total - 1) as f64) * 100.0
         } else {
-            Some(50.0)
+            50.0
         }
     });
 
@@ -380,6 +319,71 @@ fn DualCurveChart(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProvenanceChipTone {
+    Standard,
+    Muted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProvenanceChip {
+    label: String,
+    tone: ProvenanceChipTone,
+}
+
+fn normalize_status_token(value: &str) -> String {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', " ")
+        .replace('-', " ")
+}
+
+fn gate_source_label(gate_source: &str) -> String {
+    if gate_source.eq_ignore_ascii_case(TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS) {
+        "Policy-computed (gate source)".to_string()
+    } else {
+        let readable = normalize_status_token(gate_source);
+        format!("Gate source: {readable}")
+    }
+}
+
+fn quantization_provenance_chips(
+    gate_source: Option<&str>,
+    probe_status: Option<&str>,
+) -> Vec<ProvenanceChip> {
+    let (Some(gate_source), Some(probe_status)) = (gate_source, probe_status) else {
+        return vec![ProvenanceChip {
+            label: "Provenance unavailable (legacy report)".to_string(),
+            tone: ProvenanceChipTone::Muted,
+        }];
+    };
+
+    let mut chips = vec![ProvenanceChip {
+        label: gate_source_label(gate_source),
+        tone: ProvenanceChipTone::Standard,
+    }];
+
+    match probe_status.trim().to_ascii_lowercase().as_str() {
+        TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS => chips.push(ProvenanceChip {
+            label: "Native probe (informational)".to_string(),
+            tone: ProvenanceChipTone::Standard,
+        }),
+        TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE
+        | TRAINING_QUANTIZATION_PROBE_STATUS_FAILED => chips.push(ProvenanceChip {
+            label: "Probe unavailable".to_string(),
+            tone: ProvenanceChipTone::Muted,
+        }),
+        TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED => {}
+        _ => chips.push(ProvenanceChip {
+            label: format!("Probe status: {}", normalize_status_token(probe_status)),
+            tone: ProvenanceChipTone::Muted,
+        }),
+    }
+
+    chips
+}
+
 /// Metrics tab - live or final metrics display
 #[component]
 pub fn MetricsTabContent(
@@ -420,6 +424,37 @@ pub fn MetricsTabContent(
     }
 
     view! {
+        {move || {
+            if !is_completed || report_loading.try_get().unwrap_or(false) {
+                return ().into_any();
+            }
+
+            let maybe_report = report_signal.try_get().flatten();
+            let Some(report) = maybe_report else {
+                return ().into_any();
+            };
+
+            let quantization_report = report.report.quantization_report.as_ref();
+            let chips = quantization_provenance_chips(
+                quantization_report.map(|report| report.gate_source.as_str()),
+                quantization_report.map(|report| report.probe_status.as_str()),
+            );
+
+            view! {
+                <div class="mb-3 flex flex-wrap items-center gap-2 text-2xs">
+                    {chips.into_iter().map(|chip| {
+                        let class = match chip.tone {
+                            ProvenanceChipTone::Standard => "inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-muted-foreground".to_string(),
+                            ProvenanceChipTone::Muted => "inline-flex items-center rounded-full border border-border/60 bg-muted/20 px-2 py-0.5 text-muted-foreground".to_string(),
+                        };
+                        view! {
+                            <span class=class>{chip.label}</span>
+                        }
+                    }).collect::<Vec<_>>()}
+                </div>
+            }.into_any()
+        }}
+
         // Final metrics (for completed jobs)
         {is_completed.then(|| view! {
             <Card title="Final Metrics".to_string()>
@@ -589,6 +624,42 @@ pub fn MetricsTabContent(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quantization_chips_success_show_native_probe_without_unavailable() {
+        let chips = quantization_provenance_chips(
+            Some(TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS),
+            Some(TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS),
+        );
+        let labels: Vec<String> = chips.into_iter().map(|chip| chip.label).collect();
+        assert!(labels.contains(&"Policy-computed (gate source)".to_string()));
+        assert!(labels.contains(&"Native probe (informational)".to_string()));
+        assert!(!labels.contains(&"Probe unavailable".to_string()));
+    }
+
+    #[test]
+    fn quantization_chips_unavailable_show_probe_unavailable_without_native_probe() {
+        let chips = quantization_provenance_chips(
+            Some(TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS),
+            Some(TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE),
+        );
+        let labels: Vec<String> = chips.into_iter().map(|chip| chip.label).collect();
+        assert!(labels.contains(&"Policy-computed (gate source)".to_string()));
+        assert!(labels.contains(&"Probe unavailable".to_string()));
+        assert!(!labels.contains(&"Native probe (informational)".to_string()));
+    }
+
+    #[test]
+    fn quantization_chips_legacy_report_show_fallback_chip() {
+        let chips = quantization_provenance_chips(None, None);
+        assert_eq!(chips.len(), 1);
+        assert_eq!(chips[0].label, "Provenance unavailable (legacy report)");
+    }
+}
+
 /// Log viewer component - fetches real training logs from API
 #[component]
 pub fn LogViewer(job_id: String) -> impl IntoView {
@@ -669,7 +740,7 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
     }
 }
 
-/// Metrics chart component - displays training loss curve
+/// Metrics chart component - displays training loss curve with summary stats
 #[component]
 pub fn MetricsChart(job_id: String) -> impl IntoView {
     let client = use_api_client();
@@ -742,42 +813,18 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
                 } else {
                     let data = metrics.try_get().unwrap_or_default();
                     let latest = data.last();
-
-                    // Calculate min/max loss for scaling
-                    let losses: Vec<f64> = data.iter().map(|m| m.loss).collect();
-                    let min_loss = losses.iter().cloned().fold(f64::INFINITY, f64::min);
-                    let max_loss = losses.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                    let range = (max_loss - min_loss).max(0.001); // Prevent division by zero
-
-                    // Build SVG path for loss curve
-                    let points: Vec<String> = data.iter().enumerate().map(|(i, m)| {
-                        let x = if data.len() > 1 {
-                            (i as f64 / (data.len() - 1) as f64) * 100.0
-                        } else {
-                            50.0
-                        };
-                        let y = 100.0 - ((m.loss - min_loss) / range * 80.0 + 10.0); // 10% padding
-                        format!("{:.1},{:.1}", x, y)
-                    }).collect();
-
-                    let path_data = if points.len() > 1 {
-                        format!("M {} L {}", points[0], points[1..].join(" L "))
-                    } else if !points.is_empty() {
-                        format!("M {} L {}", points[0], points[0])
-                    } else {
-                        String::new()
-                    };
+                    let losses: Vec<f32> = data.iter().map(|m| m.loss as f32).collect();
+                    let (min_val, _max_val, _range) = curve_bounds(&losses, &[]);
 
                     view! {
                         <div>
-                            // Summary stats
                             <div class="grid grid-cols-4 gap-4 mb-4">
                                 <div class="text-center">
                                     <p class="text-xs text-muted-foreground">"Steps"</p>
                                     <p class="text-lg font-semibold">{data.len()}</p>
                                 </div>
                                 <div class="text-center">
-                                    <p class="text-xs text-muted-foreground">"Current Epoch"</p>
+                                    <p class="text-xs text-muted-foreground">"Epoch"</p>
                                     <p class="text-lg font-semibold">{latest.map(|m| m.epoch).unwrap_or(0)}</p>
                                 </div>
                                 <div class="text-center">
@@ -786,37 +833,15 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
                                 </div>
                                 <div class="text-center">
                                     <p class="text-xs text-muted-foreground">"Min Loss"</p>
-                                    <p class="text-lg font-semibold text-status-success">{format!("{:.4}", min_loss)}</p>
+                                    <p class="text-lg font-semibold text-status-success">{format!("{:.4}", min_val)}</p>
                                 </div>
                             </div>
-
-                            // Loss curve visualization
-                            <div class="relative h-32 bg-muted/30 rounded-md p-2">
-                                <svg class="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-                                    // Grid lines
-                                    <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5"/>
-                                    <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5"/>
-                                    <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5"/>
-
-                                    // Loss curve
-                                    <path
-                                        d=path_data
-                                        fill="none"
-                                        stroke="var(--color-primary)"
-                                        stroke-width="2"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        vector-effect="non-scaling-stroke"
-                                    />
-                                </svg>
-
-                                // Y-axis labels
-                                <div class="absolute left-0 top-0 h-full flex flex-col justify-between text-2xs text-muted-foreground py-1">
-                                    <span>{format!("{:.2}", max_loss)}</span>
-                                    <span>{format!("{:.2}", min_loss)}</span>
-                                </div>
-                            </div>
-
+                            <DualCurveChart
+                                primary=losses
+                                secondary=vec![]
+                                primary_label="Loss"
+                                secondary_label=""
+                            />
                             <p class="text-xs text-muted-foreground text-center mt-2">
                                 "Loss over training steps"
                             </p>

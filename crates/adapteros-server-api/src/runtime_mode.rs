@@ -9,7 +9,7 @@
 //!
 //! Mode is resolved with this precedence:
 //! 1. Environment variable (`AOS_RUNTIME_MODE`)
-//! 2. Database setting (`settings.runtime_mode`)
+//! 2. Database setting (`system_settings.runtime_mode`)
 //! 3. Config file (`server.production_mode`)
 //! 4. Default (dev)
 //!
@@ -44,6 +44,7 @@
 //! 【2025-11-25†feat(runtime)†mode-resolution】
 
 use crate::config::Config;
+use adapteros_config::try_effective_config;
 use adapteros_db::Db;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -159,10 +160,10 @@ impl RuntimeModeResolver {
                 .map_err(|e| format!("Failed to parse AOS_RUNTIME_MODE: {}", e));
         }
 
-        // 2. Check database setting
+        // 2. Check system_settings entry
         match Self::get_mode_from_db(db).await {
             Ok(Some(mode)) => {
-                info!(mode = %mode, "Runtime mode from database settings");
+                info!(mode = %mode, "Runtime mode from system_settings");
                 return Ok(mode);
             }
             Ok(None) => {
@@ -184,18 +185,13 @@ impl RuntimeModeResolver {
         Ok(RuntimeMode::Dev)
     }
 
-    /// Get runtime mode from database settings table
+    /// Get runtime mode from system_settings table
     async fn get_mode_from_db(db: &Db) -> Result<Option<RuntimeMode>, String> {
-        let query = "SELECT value FROM settings WHERE key = 'runtime_mode' LIMIT 1";
-
-        match sqlx::query_scalar::<_, String>(query)
-            .fetch_optional(db.pool())
+        let value = db
+            .get_system_setting("runtime_mode")
             .await
-        {
-            Ok(Some(value)) => value.parse().map(Some),
-            Ok(None) => Ok(None),
-            Err(e) => Err(format!("Database query failed: {}", e)),
-        }
+            .map_err(|e| format!("system_settings query failed: {}", e))?;
+        value.map_or(Ok(None), |mode| mode.parse().map(Some))
     }
 
     /// Validate runtime mode configuration
@@ -222,14 +218,14 @@ impl RuntimeModeResolver {
                 Ok(Some(jwt_mode)) if jwt_mode.to_lowercase() != "eddsa" => {
                     return Err(format!(
                         "Production mode requires EdDSA JWT mode (current: {}). \
-                         Set AOS_SECURITY_JWT_MODE=eddsa or update settings.jwt_mode in database.",
+                         Set AOS_SECURITY_JWT_MODE=eddsa or update system_settings.jwt_mode in database.",
                         jwt_mode
                     ));
                 }
                 Ok(None) => {
                     return Err(
                         "Production mode requires EdDSA JWT mode but jwt_mode is not configured. \
-                         Set AOS_SECURITY_JWT_MODE=eddsa or update settings.jwt_mode in database."
+                         Set AOS_SECURITY_JWT_MODE=eddsa or update system_settings.jwt_mode in database."
                             .to_string(),
                     );
                 }
@@ -248,22 +244,29 @@ impl RuntimeModeResolver {
                         .to_string(),
                 );
             }
+
+            // Production mode with model-server enabled must use UDS endpoint configuration.
+            if let Some(effective_config) = try_effective_config() {
+                if effective_config.model_server.enabled
+                    && effective_config.model_server.socket_path.is_none()
+                {
+                    return Err(
+                        "Production mode with model_server.enabled requires model_server.socket_path \
+                         (UDS). TCP-only model_server.server_addr is not allowed in production."
+                            .to_string(),
+                    );
+                }
+            }
         }
 
         Ok(())
     }
 
-    /// Get JWT mode from database settings table
+    /// Get JWT mode from system_settings table
     async fn get_jwt_mode_from_db(db: &Db) -> Result<Option<String>, String> {
-        let query = "SELECT value FROM settings WHERE key = 'jwt_mode' LIMIT 1";
-
-        match sqlx::query_scalar::<_, String>(query)
-            .fetch_optional(db.pool())
+        db.get_system_setting("jwt_mode")
             .await
-        {
-            Ok(value) => Ok(value),
-            Err(e) => Err(format!("Database query failed: {}", e)),
-        }
+            .map_err(|e| format!("system_settings query failed: {}", e))
     }
 }
 

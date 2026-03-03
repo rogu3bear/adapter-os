@@ -1,0 +1,11 @@
+[package]
+name = "adapteros-inference-contract"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Shared UDS inference transport contract for adapterOS"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+adapteros-transport-types = { path = "../adapteros-transport-types" }

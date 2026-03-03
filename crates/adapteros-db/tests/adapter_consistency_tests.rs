@@ -10,7 +10,7 @@ async fn insert_default_tenant(db: &Db) {
         ON CONFLICT(id) DO NOTHING
         "#,
     )
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .unwrap();
 }

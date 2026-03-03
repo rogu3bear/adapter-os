@@ -39,7 +39,7 @@ pub struct WorkerDetailResponse {
     pub memory_headroom_pct: Option<f32>,
     pub k_current: Option<i32>,
     pub started_at: String,
-    pub last_heartbeat_at: Option<String>,
+    pub last_seen_at: Option<String>,
     pub coreml_failure_stage: Option<String>,
     pub coreml_failure_reason: Option<String>,
 }
@@ -182,7 +182,7 @@ pub async fn get_worker_detail(
         memory_headroom_pct: worker.memory_headroom_pct,
         k_current: worker.k_current,
         started_at: worker.started_at,
-        last_heartbeat_at: worker.last_heartbeat_at,
+        last_seen_at: worker.last_seen_at,
         coreml_failure_stage,
         coreml_failure_reason,
     }))

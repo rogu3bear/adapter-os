@@ -3,7 +3,7 @@
 
 set -e
 
-BASE_URL="${AOS_BASE_URL:-http://localhost:8080}"
+BASE_URL="${AOS_BASE_URL:-http://localhost:18080}"
 PAGES=(
     "/"
     "/dashboard"

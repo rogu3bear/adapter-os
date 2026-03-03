@@ -72,7 +72,7 @@ impl Db {
             .bind(&params.name)
             .bind(&params.description)
             .bind(&params.metadata_json)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("create collection"))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -133,7 +133,7 @@ impl Db {
             )
             .bind(id)
             .bind(tenant_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(self.pool_result()?)
             .await
             .map_err(db_err("get collection"))?;
             return Ok(collection);
@@ -166,7 +166,7 @@ impl Db {
              ORDER BY created_at DESC",
             )
             .bind(tenant_id)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(db_err("list collections"))?;
             return Ok(collections);
@@ -198,7 +198,7 @@ impl Db {
             let total =
                 sqlx::query("SELECT COUNT(*) as cnt FROM document_collections WHERE tenant_id = ?")
                     .bind(tenant_id)
-                    .fetch_one(self.pool())
+                    .fetch_one(self.pool_result()?)
                     .await
                     .map_err(db_err("count collections"))?
                     .get::<i64, _>(0);
@@ -212,7 +212,7 @@ impl Db {
             .bind(tenant_id)
             .bind(limit)
             .bind(offset)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(db_err("list collections"))?;
 
@@ -319,7 +319,7 @@ impl Db {
             .bind(collection_id)
             .bind(document_id)
             .bind(&added_at)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("add document to collection"))?;
             return Ok(());
@@ -388,7 +388,7 @@ impl Db {
             )
             .bind(collection_id)
             .bind(document_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to remove document from collection: {}", e))
@@ -441,7 +441,7 @@ impl Db {
             )
             .bind(collection_id)
             .bind(tenant_id)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(db_err("get collection documents"))?;
             return Ok(documents);
@@ -488,7 +488,7 @@ impl Db {
             let count: (i64,) =
                 sqlx::query_as("SELECT COUNT(*) FROM collection_documents WHERE collection_id = ?")
                     .bind(collection_id)
-                    .fetch_one(self.pool())
+                    .fetch_one(self.pool_result()?)
                     .await
                     .map_err(|e| {
                         AosError::Database(format!("Failed to count collection documents: {}", e))
@@ -540,7 +540,7 @@ impl Db {
                 "SELECT document_id FROM collection_documents WHERE collection_id = ?",
             )
             .bind(collection_id)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to list collection document IDs: {}", e))
@@ -585,7 +585,7 @@ impl Db {
             )
             .bind(document_id)
             .bind(tenant_id)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to get document collections: {}", e))
@@ -652,7 +652,7 @@ impl Db {
             .bind(description)
             .bind(metadata_json)
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("update collection metadata"))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -709,7 +709,7 @@ impl Db {
             )
             .bind(collection_id)
             .bind(document_id)
-            .fetch_one(self.pool())
+            .fetch_one(self.pool_result()?)
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to check document in collection: {}", e))
@@ -746,7 +746,7 @@ impl Db {
             )
             .bind(tenant_id)
             .bind(name)
-            .fetch_optional(self.pool())
+            .fetch_optional(self.pool_result()?)
             .await
             .map_err(db_err("get collection by name"))?;
             return Ok(collection);
@@ -770,7 +770,7 @@ impl Db {
             let count: (i64,) =
                 sqlx::query_as("SELECT COUNT(*) FROM document_collections WHERE tenant_id = ?")
                     .bind(tenant_id)
-                    .fetch_one(self.pool())
+                    .fetch_one(self.pool_result()?)
                     .await
                     .map_err(db_err("count collections"))?;
             return Ok(count.0);

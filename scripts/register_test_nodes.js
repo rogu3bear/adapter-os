@@ -3,8 +3,12 @@
 // Script to register test nodes for development/testing
 const axios = require('axios');
 
-// Port configuration - respects environment variables for multi-developer setups
-const BACKEND_PORT = process.env.AOS_SERVER_PORT || '8080';
+// Port configuration - respects canonical pane defaults for multi-developer setups
+const rawPaneBase = Number.parseInt(process.env.AOS_PORT_PANE_BASE || '18080', 10);
+const paneBase = Number.isInteger(rawPaneBase) && rawPaneBase > 0 && rawPaneBase <= 65523
+  ? rawPaneBase
+  : 18080;
+const BACKEND_PORT = process.env.AOS_SERVER_PORT || String(paneBase);
 const API_BASE = `http://localhost:${BACKEND_PORT}`;
 
 async function registerNode(hostname, metalFamily, memoryGb, agentEndpoint) {

@@ -32,7 +32,7 @@ async fn init_test_db() -> anyhow::Result<Arc<Db>> {
 
     // Create test tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-test', 'Test Tenant')")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await?;
 
     Ok(db)

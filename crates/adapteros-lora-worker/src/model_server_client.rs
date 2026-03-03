@@ -8,8 +8,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use hyper_util::rt::TokioIo;
+use tokio::net::UnixStream;
 use tokio::sync::RwLock;
-use tonic::transport::Channel;
+use tonic::transport::{Channel, Endpoint};
+use tower::service_fn;
 use tracing::{debug, error, info, warn};
 
 use adapteros_core::{AosError, Result};
@@ -23,8 +26,10 @@ use adapteros_model_server::proto::{
 /// Configuration for the model server client
 #[derive(Debug, Clone)]
 pub struct ModelServerClientConfig {
-    /// Server address (e.g., "http://127.0.0.1:50051")
+    /// Server address (e.g., "http://127.0.0.1:18085")
     pub server_addr: String,
+    /// Unix socket path for UDS transport (preferred in hardened mode)
+    pub socket_path: Option<PathBuf>,
 
     /// Connection timeout
     pub connect_timeout: Duration,
@@ -42,7 +47,8 @@ pub struct ModelServerClientConfig {
 impl Default for ModelServerClientConfig {
     fn default() -> Self {
         Self {
-            server_addr: "http://127.0.0.1:50051".to_string(),
+            server_addr: "http://127.0.0.1:18085".to_string(),
+            socket_path: None,
             connect_timeout: Duration::from_secs(10),
             request_timeout: Duration::from_secs(30),
             max_retries: 3,
@@ -53,11 +59,11 @@ impl Default for ModelServerClientConfig {
 
 impl ModelServerClientConfig {
     /// Create config from socket path (UDS)
-    pub fn from_socket_path(_socket_path: PathBuf) -> Self {
+    pub fn from_socket_path(socket_path: PathBuf) -> Self {
         Self {
-            // For UDS, we'd need to use a different transport
-            // For now, fallback to TCP with localhost
-            server_addr: "http://127.0.0.1:50051".to_string(),
+            // Endpoint host is ignored for UDS, but tonic requires a URI.
+            server_addr: "http://[::]:50051".to_string(),
+            socket_path: Some(socket_path),
             ..Default::default()
         }
     }
@@ -66,6 +72,7 @@ impl ModelServerClientConfig {
     pub fn with_addr(server_addr: impl Into<String>) -> Self {
         Self {
             server_addr: server_addr.into(),
+            socket_path: None,
             ..Default::default()
         }
     }
@@ -109,18 +116,47 @@ impl ModelServerClient {
             return Ok(());
         }
 
-        info!(
-            server_addr = %self.config.server_addr,
-            "Connecting to Model Server"
-        );
+        if let Some(socket_path) = &self.config.socket_path {
+            info!(
+                socket_path = %socket_path.display(),
+                "Connecting to Model Server over UDS"
+            );
+        } else {
+            info!(
+                server_addr = %self.config.server_addr,
+                "Connecting to Model Server over TCP"
+            );
+        }
 
-        let channel = Channel::from_shared(self.config.server_addr.clone())
-            .map_err(|e| AosError::Config(format!("Invalid server address: {}", e)))?
-            .connect_timeout(self.config.connect_timeout)
-            .timeout(self.config.request_timeout)
-            .connect()
-            .await
-            .map_err(|e| AosError::Internal(format!("Failed to connect to Model Server: {}", e)))?;
+        let channel = if let Some(socket_path) = &self.config.socket_path {
+            let socket_path = socket_path.clone();
+            let endpoint = Endpoint::from_shared(self.config.server_addr.clone())
+                .map_err(|e| AosError::Config(format!("Invalid model server endpoint: {}", e)))?
+                .connect_timeout(self.config.connect_timeout)
+                .timeout(self.config.request_timeout);
+            endpoint
+                .connect_with_connector(service_fn(move |_| {
+                    let path = socket_path.clone();
+                    async move {
+                        let stream = UnixStream::connect(path).await?;
+                        Ok::<_, std::io::Error>(TokioIo::new(stream))
+                    }
+                }))
+                .await
+                .map_err(|e| {
+                    AosError::Internal(format!("Failed to connect to Model Server over UDS: {}", e))
+                })?
+        } else {
+            Endpoint::from_shared(self.config.server_addr.clone())
+                .map_err(|e| AosError::Config(format!("Invalid server address: {}", e)))?
+                .connect_timeout(self.config.connect_timeout)
+                .timeout(self.config.request_timeout)
+                .connect()
+                .await
+                .map_err(|e| {
+                    AosError::Internal(format!("Failed to connect to Model Server: {}", e))
+                })?
+        };
 
         let client = ProtoClient::new(channel);
         *state = ConnectionState::Connected(client);
@@ -366,7 +402,8 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = ModelServerClientConfig::default();
-        assert_eq!(config.server_addr, "http://127.0.0.1:50051");
+        assert_eq!(config.server_addr, "http://127.0.0.1:18085");
+        assert!(config.socket_path.is_none());
         assert_eq!(config.max_retries, 3);
     }
 
@@ -374,5 +411,16 @@ mod tests {
     fn test_config_with_addr() {
         let config = ModelServerClientConfig::with_addr("http://localhost:9000");
         assert_eq!(config.server_addr, "http://localhost:9000");
+        assert!(config.socket_path.is_none());
+    }
+
+    #[test]
+    fn test_config_from_socket_path() {
+        let config = ModelServerClientConfig::from_socket_path(PathBuf::from("var/run/model.sock"));
+        assert_eq!(config.server_addr, "http://[::]:50051");
+        assert_eq!(
+            config.socket_path,
+            Some(PathBuf::from("var/run/model.sock"))
+        );
     }
 }

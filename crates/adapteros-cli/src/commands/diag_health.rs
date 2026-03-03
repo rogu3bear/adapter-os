@@ -104,7 +104,7 @@ pub enum HealthSubcommand {
         #[arg(long)]
         version_id: Option<String>,
         /// Server URL
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
         server_url: String,
         /// JSON output
         #[arg(long)]
@@ -807,7 +807,7 @@ async fn list_storage_issues(limit: i64, json: bool, output: &OutputWriter) -> R
         "#,
     )
     .bind(limit)
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await?;
 
     if json {
@@ -999,7 +999,7 @@ async fn resolve_adapter_id(
         "SELECT adapter_id FROM adapters WHERE repo_id = ? ORDER BY created_at DESC LIMIT 1",
     )
     .bind(repo)
-    .fetch_optional(db.pool())
+    .fetch_optional(db.pool_result()?)
     .await?;
     row.ok_or_else(|| AosError::Validation("no adapter found for repo".into()))
 }

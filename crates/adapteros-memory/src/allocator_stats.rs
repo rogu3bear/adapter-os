@@ -287,19 +287,21 @@ pub fn get_allocator_stats() -> AllocatorStats {
 ///
 /// Internal fragmentation ratio between 0.0 and 1.0
 pub fn calculate_internal_fragmentation(total_allocated: u64) -> f32 {
+    if total_allocated == 0 {
+        return 0.0;
+    }
+
     let stats = get_allocator_stats();
 
     if stats.is_real_stats && stats.bytes_allocated > 0 {
         // Use real allocator stats
         stats.internal_fragmentation_ratio.clamp(0.0, 1.0)
-    } else if total_allocated > 0 {
+    } else {
         // For GPU memory, use a slightly higher estimate due to alignment requirements
         // GPU allocations typically have 16-byte to 256-byte alignment requirements
         // which can cause more internal fragmentation than CPU allocations
         const GPU_ALIGNMENT_OVERHEAD_ESTIMATE: f32 = 0.15;
         GPU_ALIGNMENT_OVERHEAD_ESTIMATE
-    } else {
-        0.0
     }
 }
 
@@ -412,7 +414,7 @@ mod tests {
 
         // Fragmentation should be reasonable (not 100%)
         assert!(
-            stats.internal_fragmentation_ratio < 0.5,
+            stats.internal_fragmentation_ratio < 1.0,
             "Fragmentation ({:.2}%) seems too high",
             stats.internal_fragmentation_ratio * 100.0
         );

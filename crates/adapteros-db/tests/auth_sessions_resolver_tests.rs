@@ -27,7 +27,7 @@ async fn resolve_user_sessions_view_created() -> Result<(), Box<dyn std::error::
         )
         "#,
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
@@ -42,14 +42,14 @@ async fn resolve_user_sessions_view_created() -> Result<(), Box<dyn std::error::
         )
         "#,
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     let table = db.resolve_session_table().await?;
     assert_eq!(table, "auth_sessions");
 
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM auth_sessions")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await?;
     assert_eq!(count, 1);
     Ok(())
@@ -81,7 +81,7 @@ async fn resolve_auth_sessions_preferred() -> Result<(), Box<dyn std::error::Err
         )
         "#,
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
@@ -96,14 +96,14 @@ async fn resolve_auth_sessions_preferred() -> Result<(), Box<dyn std::error::Err
         )
         "#,
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     let table = db.resolve_session_table().await?;
     assert_eq!(table, "auth_sessions");
 
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM auth_sessions")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await?;
     assert_eq!(count, 1);
     Ok(())

@@ -23,8 +23,8 @@ use crate::session_tokens::{resolve_session_token_lock, SessionTokenContext};
 use crate::state::AppState;
 use crate::types::run_envelope::new_run_envelope;
 use crate::types::{
-    ErrorResponse, InferRequest, InferenceRequestInternal, StopReasonCode, DEFAULT_MAX_TOKENS,
-    MAX_REPLAY_TEXT_SIZE,
+    ErrorResponse, InferRequest, InferenceRequestInternal, StopPolicySpec, StopReasonCode,
+    DEFAULT_MAX_TOKENS, MAX_REPLAY_TEXT_SIZE,
 };
 use crate::uds_client::WorkerStreamToken;
 use adapteros_core::identity::IdentityEnvelope;
@@ -53,6 +53,83 @@ pub struct OpenAiChatCompletionsRequest {
     pub max_completion_tokens: Option<u32>,
     pub stream: Option<bool>,
     pub n: Option<u32>,
+    pub response_format: Option<OpenAiResponseFormat>,
+    pub tools: Option<Vec<OpenAiTool>>,
+    pub tool_choice: Option<OpenAiToolChoice>,
+    pub seed: Option<u64>,
+    pub stop: Option<OpenAiStop>,
+    pub frequency_penalty: Option<f32>,
+    pub presence_penalty: Option<f32>,
+    pub logprobs: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct OpenAiResponseFormat {
+    #[serde(rename = "type")]
+    pub format_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_schema: Option<OpenAiJsonSchemaFormat>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct OpenAiJsonSchemaFormat {
+    pub name: String,
+    #[schema(value_type = Object)]
+    pub schema: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct OpenAiTool {
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    pub function: OpenAiToolFunction,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct OpenAiToolFunction {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Object)]
+    pub parameters: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(untagged)]
+pub enum OpenAiToolChoice {
+    Mode(String),
+    Named(OpenAiNamedToolChoice),
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct OpenAiNamedToolChoice {
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    pub function: OpenAiNamedToolFunction,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct OpenAiNamedToolFunction {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(untagged)]
+pub enum OpenAiStop {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl OpenAiStop {
+    fn as_sequences(&self) -> Vec<String> {
+        match self {
+            Self::Single(value) => vec![value.clone()],
+            Self::Multiple(values) => values.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -103,7 +180,24 @@ pub struct OpenAiChatChoice {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAiChatMessageResponse {
     pub role: String,
-    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OpenAiToolCall>>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OpenAiToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    pub function: OpenAiToolCallFunction,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OpenAiToolCallFunction {
+    pub name: String,
+    pub arguments: String,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -139,6 +233,11 @@ pub struct OpenAiCompletionsRequest {
     pub max_tokens: Option<u32>,
     pub stream: Option<bool>,
     pub n: Option<u32>,
+    pub seed: Option<u64>,
+    pub stop: Option<OpenAiStop>,
+    pub frequency_penalty: Option<f32>,
+    pub presence_penalty: Option<f32>,
+    pub logprobs: Option<bool>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -256,14 +355,312 @@ fn openai_error(
     code: Option<String>,
     param: Option<String>,
 ) -> OpenAiErrorResponse {
+    openai_error_typed("invalid_request_error", message, code, param)
+}
+
+fn openai_error_typed(
+    error_type: &str,
+    message: impl Into<String>,
+    code: Option<String>,
+    param: Option<String>,
+) -> OpenAiErrorResponse {
     OpenAiErrorResponse {
         error: OpenAiErrorBody {
             message: message.into(),
-            error_type: "invalid_request_error".to_string(),
+            error_type: error_type.to_string(),
             code,
             param,
         },
     }
+}
+
+fn classify_openai_error_type(status: StatusCode) -> &'static str {
+    match status {
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => "permission_error",
+        StatusCode::TOO_MANY_REQUESTS => "rate_limit_error",
+        s if s.is_server_error() => "server_error",
+        _ => "invalid_request_error",
+    }
+}
+
+fn validate_response_format(
+    response_format: Option<&OpenAiResponseFormat>,
+) -> Result<(), OpenAiErrorResponse> {
+    let Some(response_format) = response_format else {
+        return Ok(());
+    };
+
+    match response_format.format_type.as_str() {
+        "json_object" => Ok(()),
+        "json_schema" => {
+            let Some(schema_format) = response_format.json_schema.as_ref() else {
+                return Err(openai_error(
+                    "`response_format.json_schema` is required when type=json_schema",
+                    Some("RESPONSE_FORMAT_INVALID".to_string()),
+                    Some("response_format.json_schema".to_string()),
+                ));
+            };
+            if schema_format.name.trim().is_empty() {
+                return Err(openai_error(
+                    "`response_format.json_schema.name` must be non-empty",
+                    Some("RESPONSE_FORMAT_INVALID".to_string()),
+                    Some("response_format.json_schema.name".to_string()),
+                ));
+            }
+            if !schema_format.schema.is_object() {
+                return Err(openai_error(
+                    "`response_format.json_schema.schema` must be a JSON object",
+                    Some("RESPONSE_FORMAT_INVALID".to_string()),
+                    Some("response_format.json_schema.schema".to_string()),
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(openai_error(
+            "`response_format.type` must be `json_object` or `json_schema`",
+            Some("RESPONSE_FORMAT_UNSUPPORTED".to_string()),
+            Some("response_format.type".to_string()),
+        )),
+    }
+}
+
+fn validate_tools_and_choice(
+    tools: Option<&[OpenAiTool]>,
+    tool_choice: Option<&OpenAiToolChoice>,
+) -> Result<(), OpenAiErrorResponse> {
+    if let Some(tool_choice) = tool_choice {
+        if tools.map(|items| items.is_empty()).unwrap_or(true) {
+            return Err(openai_error(
+                "`tool_choice` requires at least one tool in `tools`",
+                Some("TOOL_CHOICE_INVALID".to_string()),
+                Some("tool_choice".to_string()),
+            ));
+        }
+        match tool_choice {
+            OpenAiToolChoice::Mode(mode)
+                if mode != "none" && mode != "auto" && mode != "required" =>
+            {
+                return Err(openai_error(
+                    "`tool_choice` must be one of `none`, `auto`, `required`, or a named function",
+                    Some("TOOL_CHOICE_UNSUPPORTED".to_string()),
+                    Some("tool_choice".to_string()),
+                ));
+            }
+            OpenAiToolChoice::Named(named)
+                if named.tool_type != "function" || named.function.name.trim().is_empty() =>
+            {
+                return Err(openai_error(
+                    "named `tool_choice` must target a function name",
+                    Some("TOOL_CHOICE_INVALID".to_string()),
+                    Some("tool_choice".to_string()),
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(tools) = tools {
+        for (idx, tool) in tools.iter().enumerate() {
+            if tool.tool_type != "function" {
+                return Err(openai_error(
+                    "only tools with type `function` are supported",
+                    Some("TOOL_TYPE_UNSUPPORTED".to_string()),
+                    Some(format!("tools[{idx}].type")),
+                ));
+            }
+            if tool.function.name.trim().is_empty() {
+                return Err(openai_error(
+                    "`tools[].function.name` must be non-empty",
+                    Some("TOOL_INVALID".to_string()),
+                    Some(format!("tools[{idx}].function.name")),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_penalties_and_logprobs(
+    frequency_penalty: Option<f32>,
+    presence_penalty: Option<f32>,
+    logprobs: Option<bool>,
+) -> Result<(), OpenAiErrorResponse> {
+    if let Some(value) = frequency_penalty {
+        if value != 0.0 {
+            return Err(openai_error(
+                "`frequency_penalty` is accepted for compatibility but only `0.0` is supported",
+                Some("FREQUENCY_PENALTY_UNSUPPORTED".to_string()),
+                Some("frequency_penalty".to_string()),
+            ));
+        }
+    }
+    if let Some(value) = presence_penalty {
+        if value != 0.0 {
+            return Err(openai_error(
+                "`presence_penalty` is accepted for compatibility but only `0.0` is supported",
+                Some("PRESENCE_PENALTY_UNSUPPORTED".to_string()),
+                Some("presence_penalty".to_string()),
+            ));
+        }
+    }
+    if let Some(value) = logprobs {
+        if value {
+            return Err(openai_error(
+                "`logprobs=true` is not yet supported",
+                Some("LOGPROBS_UNSUPPORTED".to_string()),
+                Some("logprobs".to_string()),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn stop_policy_from_openai(stop: Option<&OpenAiStop>, max_tokens: usize) -> Option<StopPolicySpec> {
+    let stop_sequences = stop
+        .map(OpenAiStop::as_sequences)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+
+    if stop_sequences.is_empty() {
+        return None;
+    }
+
+    let mut policy = StopPolicySpec::new(max_tokens.min(u32::MAX as usize) as u32);
+    policy.stop_sequences = stop_sequences;
+    Some(policy)
+}
+
+fn validate_response_format_output(
+    response_format: Option<&OpenAiResponseFormat>,
+    output_text: &str,
+) -> Result<(), OpenAiErrorResponse> {
+    let Some(response_format) = response_format else {
+        return Ok(());
+    };
+    let parsed = serde_json::from_str::<Value>(output_text).map_err(|_| {
+        openai_error(
+            "model output is not valid JSON for requested `response_format`",
+            Some("RESPONSE_FORMAT_VALIDATION_FAILED".to_string()),
+            Some("response_format".to_string()),
+        )
+    })?;
+
+    if response_format.format_type == "json_schema" {
+        let schema = response_format
+            .json_schema
+            .as_ref()
+            .map(|schema| &schema.schema)
+            .ok_or_else(|| {
+                openai_error(
+                    "`response_format.json_schema` is required when type=json_schema",
+                    Some("RESPONSE_FORMAT_INVALID".to_string()),
+                    Some("response_format.json_schema".to_string()),
+                )
+            })?;
+        apply_minimal_json_schema_validation(&parsed, schema)?;
+    }
+
+    Ok(())
+}
+
+fn apply_minimal_json_schema_validation(
+    output: &Value,
+    schema: &Value,
+) -> Result<(), OpenAiErrorResponse> {
+    let Some(required) = schema.get("required").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    let Some(object) = output.as_object() else {
+        return Err(openai_error(
+            "model output must be a JSON object for the requested schema",
+            Some("RESPONSE_SCHEMA_MISMATCH".to_string()),
+            Some("response_format.json_schema.schema".to_string()),
+        ));
+    };
+
+    for field in required.iter().filter_map(Value::as_str) {
+        if !object.contains_key(field) {
+            return Err(openai_error(
+                format!("model output is missing required field `{field}`"),
+                Some("RESPONSE_SCHEMA_MISMATCH".to_string()),
+                Some("response_format.json_schema.schema.required".to_string()),
+            ));
+        }
+    }
+
+    if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
+        for (name, property_schema) in properties {
+            let Some(value) = object.get(name) else {
+                continue;
+            };
+            let Some(expected_type) = property_schema.get("type").and_then(Value::as_str) else {
+                continue;
+            };
+            let type_ok = match expected_type {
+                "string" => value.is_string(),
+                "number" => value.is_number(),
+                "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+                "boolean" => value.is_boolean(),
+                "array" => value.is_array(),
+                "object" => value.is_object(),
+                _ => true,
+            };
+            if !type_ok {
+                return Err(openai_error(
+                    format!(
+                        "model output field `{name}` does not match schema type `{expected_type}`"
+                    ),
+                    Some("RESPONSE_SCHEMA_MISMATCH".to_string()),
+                    Some("response_format.json_schema.schema.properties".to_string()),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn build_tool_call_response(
+    req: &OpenAiChatCompletionsRequest,
+    text: String,
+) -> (OpenAiChatMessageResponse, Option<String>) {
+    let Some(tools) = req.tools.as_ref().filter(|tools| !tools.is_empty()) else {
+        return (
+            OpenAiChatMessageResponse {
+                role: "assistant".to_string(),
+                content: Some(text),
+                tool_calls: None,
+            },
+            None,
+        );
+    };
+
+    let chosen_name = match req.tool_choice.as_ref() {
+        Some(OpenAiToolChoice::Named(named)) => Some(named.function.name.clone()),
+        _ => tools.first().map(|tool| tool.function.name.clone()),
+    }
+    .unwrap_or_else(|| "tool".to_string());
+
+    let tool_calls = vec![OpenAiToolCall {
+        id: "call_0001".to_string(),
+        tool_type: "function".to_string(),
+        function: OpenAiToolCallFunction {
+            name: chosen_name,
+            arguments: text,
+        },
+    }];
+
+    (
+        OpenAiChatMessageResponse {
+            role: "assistant".to_string(),
+            content: None,
+            tool_calls: Some(tool_calls),
+        },
+        Some("tool_calls".to_string()),
+    )
 }
 
 fn content_to_text(content: &Value) -> Option<String> {
@@ -391,6 +788,31 @@ pub async fn chat_completions(
                 .into_response();
         }
     }
+    if let Err(err) = validate_response_format(req.response_format.as_ref()) {
+        return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+    }
+    if let Err(err) = validate_tools_and_choice(req.tools.as_deref(), req.tool_choice.as_ref()) {
+        return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+    }
+    if let Err(err) =
+        validate_penalties_and_logprobs(req.frequency_penalty, req.presence_penalty, req.logprobs)
+    {
+        return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+    }
+    if req.stream.unwrap_or(false)
+        && (req.tools.as_ref().is_some_and(|items| !items.is_empty())
+            || req.response_format.is_some())
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(openai_error(
+                "streaming does not currently support `tools` or `response_format` in compatibility mode",
+                Some("STREAM_COMPATIBILITY_UNSUPPORTED".to_string()),
+                Some("stream".to_string()),
+            )),
+        )
+            .into_response();
+    }
 
     // Branch based on streaming mode
     if req.stream.unwrap_or(false) {
@@ -515,6 +937,10 @@ async fn chat_completions_non_streaming(
                     .saturating_add(cached.completion_tokens),
                 cached_prefix_tokens: Some(cached.prompt_tokens),
             });
+            validate_response_format_output(req.response_format.as_ref(), &cached.output_text)
+                .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
+            let (message, tool_finish_reason) =
+                build_tool_call_response(&req, cached.output_text.clone());
 
             let response = OpenAiChatCompletionsResponse {
                 id,
@@ -524,11 +950,9 @@ async fn chat_completions_non_streaming(
                 system_fingerprint: cached.receipt_digest_hex.clone(),
                 choices: vec![OpenAiChatChoice {
                     index: 0,
-                    message: OpenAiChatMessageResponse {
-                        role: "assistant".to_string(),
-                        content: cached.output_text.clone(),
-                    },
-                    finish_reason: Some(cached.finish_reason.clone()),
+                    message,
+                    finish_reason: tool_finish_reason
+                        .or_else(|| Some(cached.finish_reason.clone())),
                 }],
                 usage,
             };
@@ -548,6 +972,14 @@ async fn chat_completions_non_streaming(
             .map(|v| v as usize),
         temperature: Some(req.temperature.unwrap_or(0.0)),
         top_p: Some(req.top_p.unwrap_or(1.0)),
+        seed: req.seed,
+        stop_policy: stop_policy_from_openai(
+            req.stop.as_ref(),
+            req.max_tokens
+                .or(req.max_completion_tokens)
+                .map(|v| v as usize)
+                .unwrap_or(DEFAULT_MAX_TOKENS),
+        ),
         ..Default::default()
     };
 
@@ -571,7 +1003,7 @@ async fn chat_completions_non_streaming(
         Ok(Json(r)) => r,
         Err(api_error) => {
             let (status, Json(err)): (StatusCode, Json<ErrorResponse>) = api_error.into();
-            return Err((status, Json(map_adapteros_error_to_openai(err))));
+            return Err((status, Json(map_adapteros_error_to_openai(status, err))));
         }
     };
 
@@ -607,6 +1039,9 @@ async fn chat_completions_non_streaming(
 
     let finish_reason =
         map_finish_reason(infer_resp.stop_reason_code).unwrap_or_else(|| "stop".to_string());
+    validate_response_format_output(req.response_format.as_ref(), &infer_resp.text)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
+    let (message, tool_finish_reason) = build_tool_call_response(&req, infer_resp.text.clone());
 
     // Store result in cache for future requests
     if let Some(key) = cache_key {
@@ -635,11 +1070,8 @@ async fn chat_completions_non_streaming(
         system_fingerprint: receipt_digest_hex,
         choices: vec![OpenAiChatChoice {
             index: 0,
-            message: OpenAiChatMessageResponse {
-                role: "assistant".to_string(),
-                content: infer_resp.text,
-            },
-            finish_reason: Some(finish_reason),
+            message,
+            finish_reason: tool_finish_reason.or(Some(finish_reason)),
         }],
         usage,
     };
@@ -731,6 +1163,8 @@ pub async fn completions_openai(
             )),
         ));
     }
+    validate_penalties_and_logprobs(req.frequency_penalty, req.presence_penalty, req.logprobs)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
 
     let prompt =
         completion_prompt_to_text(&req.prompt).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
@@ -742,6 +1176,13 @@ pub async fn completions_openai(
         max_tokens: req.max_tokens.map(|v| v as usize),
         temperature: Some(req.temperature.unwrap_or(0.0)),
         top_p: Some(req.top_p.unwrap_or(1.0)),
+        seed: req.seed,
+        stop_policy: stop_policy_from_openai(
+            req.stop.as_ref(),
+            req.max_tokens
+                .map(|v| v as usize)
+                .unwrap_or(DEFAULT_MAX_TOKENS),
+        ),
         ..Default::default()
     };
 
@@ -760,7 +1201,7 @@ pub async fn completions_openai(
         Ok(Json(r)) => r,
         Err(api_error) => {
             let (status, Json(err)): (StatusCode, Json<ErrorResponse>) = api_error.into();
-            return Err((status, Json(map_adapteros_error_to_openai(err))));
+            return Err((status, Json(map_adapteros_error_to_openai(status, err))));
         }
     };
 
@@ -833,7 +1274,7 @@ pub async fn embeddings_openai(
     )
     .map_err(|e| {
         let (status, Json(err)): (StatusCode, Json<ErrorResponse>) = e.into();
-        (status, Json(map_adapteros_error_to_openai(err)))
+        (status, Json(map_adapteros_error_to_openai(status, err)))
     })?;
 
     // Log user identifier if provided (for abuse detection)
@@ -957,7 +1398,7 @@ async fn chat_completions_streaming(
     )
     .map_err(|e| {
         let (status, Json(err)): (StatusCode, Json<ErrorResponse>) = e.into();
-        (status, Json(map_adapteros_error_to_openai(err)))
+        (status, Json(map_adapteros_error_to_openai(status, err)))
     })?;
 
     // Convert messages to prompt and structured messages
@@ -987,8 +1428,9 @@ async fn chat_completions_streaming(
     }
 
     // Check backpressure
-    check_uma_backpressure(&state)
-        .map_err(|(status, Json(err))| (status, Json(map_adapteros_error_to_openai(err))))?;
+    check_uma_backpressure(&state).map_err(|(status, Json(err))| {
+        (status, Json(map_adapteros_error_to_openai(status, err)))
+    })?;
 
     let session_lock = if let Some(token) = session_token.as_ref() {
         Some(
@@ -996,7 +1438,7 @@ async fn chat_completions_streaming(
                 .await
                 .map_err(|err| {
                     let (status, Json(err)) = <(StatusCode, Json<ErrorResponse>)>::from(err);
-                    (status, Json(map_adapteros_error_to_openai(err)))
+                    (status, Json(map_adapteros_error_to_openai(status, err)))
                 })?,
         )
     } else {
@@ -1107,6 +1549,8 @@ async fn chat_completions_streaming(
         max_tokens,
         temperature,
         top_p: Some(top_p),
+        seed: req.seed,
+        stop_policy: stop_policy_from_openai(req.stop.as_ref(), max_tokens),
         fusion_interval: None,
         claims: Some(claims.clone()),
         model: req.model.clone(),
@@ -1135,7 +1579,7 @@ async fn chat_completions_streaming(
         .await
         .map_err(|e| {
             let (status, Json(err)): (StatusCode, Json<ErrorResponse>) = e.into();
-            (status, Json(map_adapteros_error_to_openai(err)))
+            (status, Json(map_adapteros_error_to_openai(status, err)))
         })?;
 
     // Get streaming config
@@ -1394,14 +1838,19 @@ impl Drop for StreamDropGuard {
     }
 }
 
-fn map_adapteros_error_to_openai(err: ErrorResponse) -> OpenAiErrorResponse {
+fn map_adapteros_error_to_openai(status: StatusCode, err: ErrorResponse) -> OpenAiErrorResponse {
     let mut message = err.message;
     if let Some(details) = err.details {
         if let Ok(details_str) = serde_json::to_string(&details) {
             message = format!("{} ({})", message, details_str);
         }
     }
-    openai_error(message, Some(err.code), None)
+    openai_error_typed(
+        classify_openai_error_type(status),
+        message,
+        Some(err.code),
+        None,
+    )
 }
 
 // ============================================================================
@@ -1525,4 +1974,99 @@ pub async fn list_models_openai(
         object: "list".to_string(),
         data,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn openai_error_format_classifies_invalid_request() {
+        let err = ErrorResponse::new("bad input").with_code("BAD_INPUT");
+        let mapped = map_adapteros_error_to_openai(StatusCode::BAD_REQUEST, err);
+        assert_eq!(mapped.error.error_type, "invalid_request_error");
+        assert_eq!(mapped.error.code.as_deref(), Some("BAD_INPUT"));
+    }
+
+    #[test]
+    fn openai_error_format_classifies_permission_failures() {
+        let err = ErrorResponse::new("forbidden").with_code("FORBIDDEN");
+        let mapped = map_adapteros_error_to_openai(StatusCode::FORBIDDEN, err);
+        assert_eq!(mapped.error.error_type, "permission_error");
+    }
+
+    #[test]
+    fn openai_error_format_classifies_rate_limits() {
+        let err = ErrorResponse::new("too many requests").with_code("RATE_LIMIT");
+        let mapped = map_adapteros_error_to_openai(StatusCode::TOO_MANY_REQUESTS, err);
+        assert_eq!(mapped.error.error_type, "rate_limit_error");
+    }
+
+    #[test]
+    fn openai_error_format_classifies_server_failures() {
+        let err = ErrorResponse::new("internal").with_code("INTERNAL");
+        let mapped = map_adapteros_error_to_openai(StatusCode::INTERNAL_SERVER_ERROR, err);
+        assert_eq!(mapped.error.error_type, "server_error");
+    }
+
+    #[test]
+    fn response_format_json_schema_enforces_required_fields() {
+        let format = OpenAiResponseFormat {
+            format_type: "json_schema".to_string(),
+            json_schema: Some(OpenAiJsonSchemaFormat {
+                name: "shape".to_string(),
+                schema: json!({
+                    "type": "object",
+                    "required": ["status"],
+                    "properties": {
+                        "status": { "type": "string" }
+                    }
+                }),
+                strict: Some(true),
+            }),
+        };
+
+        let result = validate_response_format_output(Some(&format), "{\"ok\":true}");
+        assert!(result.is_err());
+        let err = result.expect_err("schema mismatch error");
+        assert_eq!(err.error.code.as_deref(), Some("RESPONSE_SCHEMA_MISMATCH"));
+    }
+
+    #[test]
+    fn tools_request_shapes_tool_call_response() {
+        let req = OpenAiChatCompletionsRequest {
+            model: Some("adapteros".to_string()),
+            messages: vec![OpenAiChatMessage {
+                role: "user".to_string(),
+                content: json!("call tool"),
+            }],
+            temperature: None,
+            top_p: None,
+            max_tokens: Some(32),
+            max_completion_tokens: None,
+            stream: Some(false),
+            n: None,
+            response_format: None,
+            tools: Some(vec![OpenAiTool {
+                tool_type: "function".to_string(),
+                function: OpenAiToolFunction {
+                    name: "lookup".to_string(),
+                    description: None,
+                    parameters: None,
+                },
+            }]),
+            tool_choice: None,
+            seed: None,
+            stop: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            logprobs: None,
+        };
+
+        let (message, finish_reason) = build_tool_call_response(&req, "{\"id\":1}".to_string());
+        assert!(message.content.is_none());
+        assert!(message.tool_calls.is_some());
+        assert_eq!(finish_reason.as_deref(), Some("tool_calls"));
+    }
 }

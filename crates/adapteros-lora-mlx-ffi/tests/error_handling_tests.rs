@@ -94,7 +94,7 @@ mod adapter_error_tests {
         let config = create_mock_config();
         let model = MLXFFIModel::new_null(config);
 
-        let backend = MLXFFIBackend::new(model);
+        let mut backend = MLXFFIBackend::new(model);
 
         // Try to unload adapter that doesn't exist
         let result = backend.unload_adapter_runtime(999);
@@ -124,7 +124,7 @@ mod adapter_error_tests {
         let config = create_mock_config();
         let model = MLXFFIModel::new_null(config);
 
-        let backend = MLXFFIBackend::new(model);
+        let mut backend = MLXFFIBackend::new(model);
 
         let adapter1 = create_mock_adapter("adapter1", 4);
         backend.register_adapter(1, adapter1).unwrap();
@@ -391,10 +391,11 @@ mod routing_error_tests {
 
 #[cfg(test)]
 mod concurrency_error_tests {
+    use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
     use adapteros_lora_mlx_ffi::backend::MLXFFIBackend;
     use adapteros_lora_mlx_ffi::mock::{create_mock_adapter, create_mock_config};
     use adapteros_lora_mlx_ffi::MLXFFIModel;
-    use std::sync::Arc;
+    use std::sync::{Arc, Barrier, RwLock};
     use std::thread;
 
     #[test]
@@ -402,14 +403,18 @@ mod concurrency_error_tests {
         let config = create_mock_config();
         let model = MLXFFIModel::new_null(config);
 
-        let backend = Arc::new(MLXFFIBackend::new(model));
+        let backend = Arc::new(RwLock::new(MLXFFIBackend::new(model)));
 
         let handles: Vec<_> = (0..4)
             .map(|i| {
                 let backend_clone = Arc::clone(&backend);
                 thread::spawn(move || {
                     let adapter = create_mock_adapter(&format!("adapter{}", i), 4);
-                    backend_clone.register_adapter(i as u16, adapter).unwrap();
+                    backend_clone
+                        .write()
+                        .unwrap()
+                        .register_adapter(i as u16, adapter)
+                        .unwrap();
                 })
             })
             .collect();
@@ -418,7 +423,7 @@ mod concurrency_error_tests {
             handle.join().unwrap();
         }
 
-        assert_eq!(backend.adapter_count(), 4);
+        assert_eq!(backend.read().unwrap().adapter_count(), 4);
     }
 
     #[test]
@@ -426,12 +431,16 @@ mod concurrency_error_tests {
         let config = create_mock_config();
         let model = MLXFFIModel::new_null(config);
 
-        let backend = Arc::new(MLXFFIBackend::new(model));
+        let backend = Arc::new(RwLock::new(MLXFFIBackend::new(model)));
 
         // Pre-register adapters
         for i in 0..4 {
             let adapter = create_mock_adapter(&format!("adapter{}", i), 4);
-            backend.register_adapter(i as u16, adapter).unwrap();
+            backend
+                .write()
+                .unwrap()
+                .register_adapter(i as u16, adapter)
+                .unwrap();
         }
 
         // Concurrent reads
@@ -439,7 +448,7 @@ mod concurrency_error_tests {
             .map(|_| {
                 let backend_clone = Arc::clone(&backend);
                 thread::spawn(move || {
-                    let count = backend_clone.adapter_count();
+                    let count = backend_clone.read().unwrap().adapter_count();
                     assert_eq!(count, 4);
                 })
             })
@@ -448,5 +457,69 @@ mod concurrency_error_tests {
         for handle in handles {
             handle.join().unwrap();
         }
+    }
+
+    #[test]
+    fn test_concurrent_hotswap_under_inference_load() {
+        let config = create_mock_config();
+        let model = MLXFFIModel::new_null(config);
+        let backend = Arc::new(RwLock::new(MLXFFIBackend::new(model)));
+
+        // Keep adapter 0 stable for inference while adapter 1 is churned.
+        {
+            let mut guard = backend.write().unwrap();
+            guard
+                .register_adapter(0, create_mock_adapter("stable", 4))
+                .unwrap();
+            guard
+                .register_adapter(1, create_mock_adapter("churn-initial", 4))
+                .unwrap();
+        }
+
+        let start = Arc::new(Barrier::new(2));
+
+        let inference_backend = Arc::clone(&backend);
+        let inference_start = Arc::clone(&start);
+        let inference_handle = thread::spawn(move || {
+            inference_start.wait();
+            let mut ring = RouterRing::new(1);
+            ring.indices[0] = 0;
+            ring.gates_q15[0] = 32767;
+            let mut io = IoBuffers {
+                input_ids: vec![1, 2, 3, 4],
+                output_logits: vec![0.0; 32000],
+                position: 0,
+                attention_entropy: None,
+                activations: None,
+                session_id: Some("concurrent-hotswap".to_string()),
+            };
+
+            for step in 0..50 {
+                io.position = step;
+                let mut guard = inference_backend.write().unwrap();
+                let result = guard.run_step(&ring, &mut io);
+                assert!(result.is_ok(), "inference failed at step {}", step);
+            }
+        });
+
+        let churn_backend = Arc::clone(&backend);
+        let churn_start = Arc::clone(&start);
+        let churn_handle = thread::spawn(move || {
+            churn_start.wait();
+            for cycle in 0..50 {
+                let mut guard = churn_backend.write().unwrap();
+                guard.unload_adapter_runtime(1).unwrap();
+                guard
+                    .load_adapter_runtime(1, create_mock_adapter(&format!("churn-{}", cycle), 4))
+                    .unwrap();
+            }
+        });
+
+        inference_handle.join().unwrap();
+        churn_handle.join().unwrap();
+
+        let final_backend = backend.read().unwrap();
+        assert!(final_backend.adapter_count() >= 1);
+        assert!(final_backend.health_status().successful_requests >= 50);
     }
 }

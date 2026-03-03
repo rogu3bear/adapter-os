@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/build-targets.sh"
 cd "$ROOT_DIR"
 
 die() {
@@ -333,6 +334,9 @@ print_env_if_set "AOS_CP_URL"
 if is_truthy "${AOS_DEV_NO_AUTH:-}"; then
     echo "WARN: AOS_DEV_NO_AUTH=1 disables auth. Worker registration will not include credentials."
 fi
+WORKER_TARGET_DIR="$(aos_export_cargo_target worker)"
+aos_prune_incremental_if_needed worker || true
+aos_print_build_context worker
 
 CONFIG_PATH="${AOS_CONFIG:-$ROOT_DIR/configs/cp.toml}"
 if [ ! -f "$CONFIG_PATH" ]; then
@@ -350,7 +354,7 @@ if default_model_dir="$(select_default_model_dir "$ROOT_DIR/var/models")"; then
     DEFAULT_MODEL_DIR="$default_model_dir"
 fi
 if [ -z "$DEFAULT_MODEL_DIR" ]; then
-    DEFAULT_MODEL_DIR="/var/models/Llama-3.2-3B-Instruct-4bit"
+    DEFAULT_MODEL_DIR="/var/models/Qwen3.5-27B"
 fi
 
 # Derive AOS_MODEL_PATH from canonical vars if not set
@@ -437,16 +441,40 @@ if [ "$backend" = "coreml" ] && [[ "$model_path" != *.mlpackage ]]; then
 fi
 
 if [ "$backend" = "coreml" ]; then
-    COREML_TARGET_DIR="$ROOT_DIR/target/coreml"
-    WORKER_BIN="$COREML_TARGET_DIR/debug/aos-worker"
+    COREML_TARGET_DIR="${AOS_WORKER_COREML_TARGET_DIR:-$(aos_target_dir_for_flow worker)/coreml}"
+    COREML_TARGET_DIR="$(abspath "$COREML_TARGET_DIR")"
+    COREML_LEGACY_TARGET_DIR="$ROOT_DIR/target/coreml"
+
+    resolve_coreml_worker_bin() {
+        local candidate
+        for candidate in \
+            "$COREML_TARGET_DIR/debug/aos-worker" \
+            "$COREML_LEGACY_TARGET_DIR/debug/aos-worker"; do
+            if [ -x "$candidate" ]; then
+                echo "$candidate"
+                return 0
+            fi
+        done
+        echo "$COREML_TARGET_DIR/debug/aos-worker"
+        return 1
+    }
+
+    WORKER_BIN="$(resolve_coreml_worker_bin || true)"
     if [ ! -x "$WORKER_BIN" ]; then
         require_cmd cargo "Install Rust toolchain (rustup)."
+        mkdir -p "$COREML_TARGET_DIR"
         info "Build CoreML-only worker binary"
         print_cmd cargo build -p adapteros-lora-worker --no-default-features --features multi-backend,coreml-backend --target-dir "$COREML_TARGET_DIR"
-        cargo build -p adapteros-lora-worker --no-default-features --features multi-backend,coreml-backend --target-dir "$COREML_TARGET_DIR"
+        if aos_is_truthy "${AOS_BUILD_USE_SCCACHE:-1}"; then
+            cargo build -p adapteros-lora-worker --no-default-features --features multi-backend,coreml-backend --target-dir "$COREML_TARGET_DIR"
+        else
+            # Explicitly disable wrapper for troubleshooting parity with script-level policy.
+            RUSTC_WRAPPER= cargo build -p adapteros-lora-worker --no-default-features --features multi-backend,coreml-backend --target-dir "$COREML_TARGET_DIR"
+        fi
+        WORKER_BIN="$(resolve_coreml_worker_bin || true)"
     fi
 else
-    WORKER_BIN="$ROOT_DIR/target/debug/aos-worker"
+    WORKER_BIN="$(aos_resolve_binary aos-worker debug worker || true)"
     if [ ! -x "$WORKER_BIN" ]; then
         die "Worker binary not found: $WORKER_BIN. Build with: cargo build -p adapteros-lora-worker --features mlx"
     fi

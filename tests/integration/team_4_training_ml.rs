@@ -37,7 +37,7 @@ mod tests {
 
         let result = sqlx::query("SELECT id, name FROM training_datasets WHERE id = ?")
             .bind("dataset-1")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -58,7 +58,7 @@ mod tests {
         }
 
         let result = sqlx::query("SELECT COUNT(*) as count FROM training_datasets")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -81,7 +81,7 @@ mod tests {
 
         let result = sqlx::query("SELECT id, name FROM training_datasets WHERE id = ?")
             .bind("get-dataset")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -101,7 +101,7 @@ mod tests {
         // Delete dataset
         let delete_result = sqlx::query("DELETE FROM training_datasets WHERE id = ?")
             .bind("delete-dataset")
-            .execute(harness.db().pool())
+            .execute(harness.db().pool_result().unwrap())
             .await;
 
         assert!(delete_result.is_ok());
@@ -109,7 +109,7 @@ mod tests {
         // Verify deletion
         let verify = sqlx::query("SELECT id FROM training_datasets WHERE id = ?")
             .bind("delete-dataset")
-            .fetch_optional(harness.db().pool())
+            .fetch_optional(harness.db().pool_result().unwrap())
             .await;
 
         assert!(verify.is_ok());
@@ -130,7 +130,7 @@ mod tests {
         // Check validation status
         let result = sqlx::query("SELECT validation_status FROM training_datasets WHERE id = ?")
             .bind("validate-dataset")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -174,7 +174,7 @@ mod tests {
 
         let result = sqlx::query("SELECT status FROM training_jobs WHERE id = ?")
             .bind("job-1")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -200,7 +200,7 @@ mod tests {
             "SELECT progress_pct, loss, status FROM training_jobs WHERE id = ?",
         )
         .bind("job-get")
-        .fetch_one(harness.db().pool())
+        .fetch_one(harness.db().pool_result().unwrap())
         .await;
 
         assert!(result.is_ok());
@@ -230,7 +230,7 @@ mod tests {
         }
 
         let result = sqlx::query("SELECT COUNT(*) as count FROM training_jobs")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -259,7 +259,7 @@ mod tests {
         // Verify progress field
         let result = sqlx::query("SELECT progress_pct FROM training_jobs WHERE id = ?")
             .bind("progress-job")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -288,7 +288,7 @@ mod tests {
         // Verify loss field
         let result = sqlx::query("SELECT loss FROM training_jobs WHERE id = ?")
             .bind("loss-job")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -349,7 +349,7 @@ mod tests {
         let result = sqlx::query("UPDATE training_jobs SET status = ? WHERE id = ?")
             .bind("cancelled")
             .bind("cancel-job")
-            .execute(harness.db().pool())
+            .execute(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -370,7 +370,7 @@ mod tests {
         // Verify adapter metadata for packaging
         let result = sqlx::query("SELECT id, hash FROM adapters WHERE id = ?")
             .bind("trained-adapter")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -384,7 +384,7 @@ mod tests {
 
         // Verify metrics infrastructure
         let state = harness.state_ref();
-        assert!(state.db().pool().acquire().await.is_ok());
+        assert!(state.db().pool_result().unwrap().acquire().await.is_ok());
     }
 
     #[tokio::test]
@@ -416,7 +416,7 @@ mod tests {
             .bind("adapter-v1")
             .bind("adapter-v2")
             .bind("adapter-v3")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());

@@ -1064,6 +1064,7 @@ async fn process_document_inner(
 
     let model_hash = embedding_model.model_hash();
     let dimension = embedding_model.dimension();
+    let model_hash_hex = model_hash.to_hex();
 
     // Start transaction for atomic chunk creation
     let pool = state.db.pool();
@@ -1146,33 +1147,69 @@ async fn process_document_inner(
             // Generate RAG doc_id using UUID-based document_id
             // Format: {document_id}__chunk_{index}
             let rag_doc_id = format!("{}__chunk_{}", document_id, chunk.chunk_index);
+            let rag_rev = crate::id_generator::readable_id(adapteros_id::IdPrefix::Chk, "chunk");
+            let rag_embedding_json = serde_json::to_string(&embedding_vec).map_err(|e| {
+                ApiError::db_error(format!("Failed to serialize embedding for RAG: {}", e))
+            })?;
+
+            // Ensure embedding model mapping exists so retrieval joins remain complete.
+            sqlx::query(
+                r#"
+                INSERT INTO rag_embedding_models (model_hash, model_name, dimension, is_active, created_at)
+                VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT(model_hash) DO NOTHING
+                "#,
+            )
+            .bind(&model_hash_hex)
+            .bind(&model_hash_hex)
+            .bind(dimension as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                ApiError::db_error(format!(
+                    "Failed to upsert embedding model for chunk {}: {}",
+                    chunk.chunk_index, e
+                ))
+            })?;
 
             // Insert into RAG index within same transaction
             sqlx::query(
                 r#"
                 INSERT OR REPLACE INTO rag_documents (
                     doc_id, tenant_id, text, embedding_json, rev, effectivity, source_type
-                ) VALUES (?, ?, ?, ?, ?, 'current', 'document')
+                ) VALUES (?, ?, ?, ?, ?, 'all', ?)
                 "#,
             )
             .bind(&rag_doc_id)
             .bind(&claims.tenant_id)
             .bind(&chunk.text)
-            .bind(&serde_json::to_string(&embedding_vec).map_err(|e| {
-                ApiError::db_error(format!(
-                    "Failed to serialize embedding for rag_documents: {}",
-                    e
-                ))
-            })?)
-            .bind(crate::id_generator::readable_id(
-                adapteros_id::IdPrefix::Chk,
-                "chunk",
-            ))
+            .bind(&rag_embedding_json)
+            .bind(&rag_rev)
+            .bind(&document.mime_type)
             .execute(&mut *tx)
             .await
             .map_err(|e| {
                 ApiError::db_error(format!(
                     "Failed to insert RAG chunk {}: {}",
+                    chunk.chunk_index, e
+                ))
+            })?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO rag_document_embeddings (doc_id, tenant_id, model_hash, created_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(doc_id, tenant_id, model_hash) DO NOTHING
+                "#,
+            )
+            .bind(&rag_doc_id)
+            .bind(&claims.tenant_id)
+            .bind(&model_hash_hex)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                ApiError::db_error(format!(
+                    "Failed to map RAG embedding for chunk {}: {}",
                     chunk.chunk_index, e
                 ))
             })?;

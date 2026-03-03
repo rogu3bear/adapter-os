@@ -1,0 +1,53 @@
+{
+  "name": "stack_lifecycle_v1",
+  "description": "Stack lifecycle management dataset covering the full state machine: draft → active → deprecated → retired. 250 examples spanning activation workflows, deprecation patterns, and rollback scenarios for operator training.",
+  "version": "1.0.0",
+  "category": "stacks",
+  "scope": "system",
+  "tier": "production",
+  "rank": 4,
+  "alpha": 8.0,
+  "target_modules": ["gate_proj", "up_proj", "down_proj", "q_proj", "v_proj"],
+  "entries": [
+    {
+      "path": "stack-lifecycle.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "positive",
+      "notes": "250 stack lifecycle examples across three subcategories: draft-to-active (80), deprecation patterns (80), rollback scenarios (90)"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#stack-lifecycle",
+      "crates/adapteros-db/src/adapter_stacks.rs",
+      "migrations/0071_lifecycle_version_history.sql"
+    ],
+    "created_by": "stack-lifecycle-dataset-task",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Lifecycle state machine training data for stack operators. Covers all valid transitions and common failure modes."
+  },
+  "evaluation_gates": [
+    "Correct state transition identified ≥ 97%",
+    "Activation validation checks enumerated completely ≥ 95%",
+    "Deprecation grace period reasoning accurate ≥ 95%",
+    "Rollback sequencing correct ≥ 98%",
+    "Invalid transitions rejected ≥ 99%"
+  ],
+  "intent": "Train the model to reason correctly about adapterOS stack lifecycle states, valid transitions, operator actions at each state, and the full rollback procedure when a deprecated stack must be reactivated.",
+  "lifecycle_states": ["draft", "active", "deprecated", "retired"],
+  "valid_transitions": {
+    "draft→active": "explicit activation after validation",
+    "active→deprecated": "operator marks for sunset",
+    "deprecated→retired": "grace period expiry or explicit retire",
+    "deprecated→active": "reactivation rollback",
+    "draft→retired": "abandon draft without activation"
+  },
+  "subcategory_counts": {
+    "draft_to_active": 80,
+    "deprecation_patterns": 80,
+    "rollback_scenarios": 90,
+    "total": 250
+  }
+}

@@ -42,7 +42,7 @@ async fn test_migration_0193_receipt_accounting_columns_exist() -> Result<()> {
 
     // Verify columns exist (they're created by 0192, 0193 is backward compat)
     let rows = sqlx::query("PRAGMA table_info(inference_trace_receipts)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -82,7 +82,7 @@ async fn test_migration_0194_stop_controller_columns_exist() -> Result<()> {
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(inference_trace_receipts)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -117,7 +117,7 @@ async fn test_migration_0194_stop_reason_index_exists() -> Result<()> {
         "SELECT COUNT(*) FROM sqlite_master
          WHERE type='index' AND name='idx_inference_trace_receipts_stop_reason'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(
@@ -135,14 +135,14 @@ async fn test_migration_0194_stop_controller_data_insertion() -> Result<()> {
 
     // Create tenant and trace
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('test-tenant', 'Test')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     sqlx::query(
         "INSERT INTO inference_traces (trace_id, tenant_id, request_id, context_digest)
          VALUES ('trace-1', 'test-tenant', 'req-1', x'abcd')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Insert receipt with stop controller fields
@@ -159,7 +159,7 @@ async fn test_migration_0194_stop_controller_data_insertion() -> Result<()> {
     .bind("LENGTH")
     .bind(42i64)
     .bind(vec![0u8; 32])
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Verify data
@@ -168,7 +168,7 @@ async fn test_migration_0194_stop_controller_data_insertion() -> Result<()> {
          FROM inference_trace_receipts WHERE trace_id = ?",
     )
     .bind("trace-1")
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(code, Some("LENGTH".to_string()));
@@ -187,7 +187,7 @@ async fn test_migration_0195_tenant_kv_columns_exist() -> Result<()> {
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(tenants)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -214,7 +214,7 @@ async fn test_migration_0195_receipt_kv_columns_exist() -> Result<()> {
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(inference_trace_receipts)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -251,7 +251,7 @@ async fn test_migration_0195_kv_indexes_exist() -> Result<()> {
         "SELECT name FROM sqlite_master
          WHERE type='index' AND name LIKE '%kv%'",
     )
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await?;
 
     let expected_indexes = vec![
@@ -280,7 +280,7 @@ async fn test_migration_0195_kv_data_insertion() -> Result<()> {
         "INSERT INTO tenants (id, name, max_kv_cache_bytes, kv_residency_policy_id)
          VALUES ('tenant-kv', 'KV Tenant', 1000000, 'kv_residency_v1')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Verify tenant data
@@ -288,7 +288,7 @@ async fn test_migration_0195_kv_data_insertion() -> Result<()> {
         "SELECT max_kv_cache_bytes, kv_residency_policy_id
          FROM tenants WHERE id = 'tenant-kv'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(quota, Some(1000000));
@@ -307,7 +307,7 @@ async fn test_migration_0196_replay_stop_policy_column_exists() -> Result<()> {
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(inference_replay_metadata)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -331,14 +331,14 @@ async fn test_migration_0196_replay_stop_policy_data() -> Result<()> {
 
     // Create tenant and trace
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-replay', 'Replay')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     sqlx::query(
         "INSERT INTO inference_traces (trace_id, tenant_id, request_id, context_digest)
          VALUES ('trace-replay', 'tenant-replay', 'req-1', x'abcd')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Insert replay metadata with stop policy
@@ -358,7 +358,7 @@ async fn test_migration_0196_replay_stop_policy_data() -> Result<()> {
     .bind("mlx")
     .bind("test prompt")
     .bind(stop_policy_json)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Verify data
@@ -366,7 +366,7 @@ async fn test_migration_0196_replay_stop_policy_data() -> Result<()> {
         "SELECT stop_policy_json FROM inference_replay_metadata WHERE inference_id = ?",
     )
     .bind("trace-replay")
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(stored_policy, Some(stop_policy_json.to_string()));
@@ -387,7 +387,7 @@ async fn test_migration_0197_prefix_templates_table_exists() -> Result<()> {
         "SELECT COUNT(*) FROM sqlite_master
          WHERE type='table' AND name='prefix_templates'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(table_exists, 1, "prefix_templates table should exist");
@@ -401,7 +401,7 @@ async fn test_migration_0197_prefix_templates_columns() -> Result<()> {
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(prefix_templates)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -440,7 +440,7 @@ async fn test_migration_0197_prefix_templates_fk_constraint() -> Result<()> {
 
     // Create valid tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-prefix', 'Prefix')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Insert valid template
@@ -455,7 +455,7 @@ async fn test_migration_0197_prefix_templates_fk_constraint() -> Result<()> {
     .bind("You are a helpful assistant")
     .bind("b3:hash123")
     .bind(1)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(result.is_ok(), "Valid template insertion should succeed");
@@ -472,7 +472,7 @@ async fn test_migration_0197_prefix_templates_fk_constraint() -> Result<()> {
     .bind("Test")
     .bind("b3:hash456")
     .bind(1)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(
@@ -489,7 +489,7 @@ async fn test_migration_0197_receipt_prefix_columns_exist() -> Result<()> {
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(inference_trace_receipts)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -520,7 +520,7 @@ async fn test_migration_0197_prefix_indexes_exist() -> Result<()> {
         "SELECT name FROM sqlite_master
          WHERE type='index' AND name LIKE '%prefix%'",
     )
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await?;
 
     let expected_indexes = vec![
@@ -551,7 +551,7 @@ async fn test_migration_0198_model_cache_identity_column_exists() -> Result<()> 
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(inference_trace_receipts)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -575,14 +575,14 @@ async fn test_migration_0198_model_cache_identity_data() -> Result<()> {
 
     // Create tenant and trace
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-cache', 'Cache')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     sqlx::query(
         "INSERT INTO inference_traces (trace_id, tenant_id, request_id, context_digest)
          VALUES ('trace-cache', 'tenant-cache', 'req-1', x'abcd')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Insert receipt with model cache identity
@@ -598,7 +598,7 @@ async fn test_migration_0198_model_cache_identity_data() -> Result<()> {
     .bind(vec![0u8; 32])
     .bind(vec![0u8; 32])
     .bind(&cache_digest)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Verify data
@@ -607,7 +607,7 @@ async fn test_migration_0198_model_cache_identity_data() -> Result<()> {
          FROM inference_trace_receipts WHERE trace_id = ?",
     )
     .bind("trace-cache")
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(stored_digest, Some(cache_digest));
@@ -628,7 +628,7 @@ async fn test_migration_0199_evidence_envelopes_table_exists() -> Result<()> {
         "SELECT COUNT(*) FROM sqlite_master
          WHERE type='table' AND name='evidence_envelopes'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(table_exists, 1, "evidence_envelopes table should exist");
@@ -642,7 +642,7 @@ async fn test_migration_0199_evidence_envelopes_columns() -> Result<()> {
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(evidence_envelopes)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -686,7 +686,7 @@ async fn test_migration_0199_evidence_scope_check_constraint() -> Result<()> {
 
     // Create tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-evidence', 'Evidence')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Valid scope
@@ -705,7 +705,7 @@ async fn test_migration_0199_evidence_scope_check_constraint() -> Result<()> {
     .bind("key-1")
     .bind("{}")
     .bind(1)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(valid_result.is_ok(), "Valid scope should succeed");
@@ -726,7 +726,7 @@ async fn test_migration_0199_evidence_scope_check_constraint() -> Result<()> {
     .bind("key-1")
     .bind("{}")
     .bind(2)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(
@@ -744,7 +744,7 @@ async fn test_migration_0199_evidence_fk_constraint() -> Result<()> {
 
     // Create tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-fk', 'FK Test')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Valid FK
@@ -763,7 +763,7 @@ async fn test_migration_0199_evidence_fk_constraint() -> Result<()> {
     .bind("k1")
     .bind("{}")
     .bind(1)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(valid_result.is_ok(), "Valid tenant FK should succeed");
@@ -784,7 +784,7 @@ async fn test_migration_0199_evidence_fk_constraint() -> Result<()> {
     .bind("k1")
     .bind("{}")
     .bind(1)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(
@@ -804,7 +804,7 @@ async fn test_migration_0199_evidence_indexes_exist() -> Result<()> {
         "SELECT name FROM sqlite_master
          WHERE type='index' AND tbl_name='evidence_envelopes'",
     )
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await?;
 
     let expected_indexes = vec![
@@ -833,7 +833,7 @@ async fn test_migration_0199_evidence_unique_sequence_constraint() -> Result<()>
 
     // Create tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-seq', 'Sequence')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // First envelope
@@ -852,7 +852,7 @@ async fn test_migration_0199_evidence_unique_sequence_constraint() -> Result<()>
     .bind("k1")
     .bind("{}")
     .bind(1)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Duplicate sequence in same tenant+scope
@@ -871,7 +871,7 @@ async fn test_migration_0199_evidence_unique_sequence_constraint() -> Result<()>
     .bind("k1")
     .bind("{}")
     .bind(1) // Same sequence
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(
@@ -896,7 +896,7 @@ async fn test_migration_0200_adapter_packages_dropped() -> Result<()> {
         "SELECT COUNT(*) FROM sqlite_master
          WHERE type='table' AND name='adapter_packages'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(table_exists, 0, "adapter_packages table should be dropped");
@@ -906,7 +906,7 @@ async fn test_migration_0200_adapter_packages_dropped() -> Result<()> {
         "SELECT COUNT(*) FROM sqlite_master
          WHERE type='table' AND name='tenant_package_installs'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(
@@ -927,7 +927,7 @@ async fn test_migration_0201_adapter_version_columns_exist() -> Result<()> {
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(adapter_versions)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -962,14 +962,14 @@ async fn test_migration_0201_attach_mode_check_constraint() -> Result<()> {
 
     // Create tenant and repo
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-attach', 'Attach')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     sqlx::query(
         "INSERT INTO adapter_repositories (id, tenant_id, name)
          VALUES ('repo-attach', 'tenant-attach', 'Test Repo')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Valid attach_mode
@@ -985,7 +985,7 @@ async fn test_migration_0201_attach_mode_check_constraint() -> Result<()> {
     .bind("main")
     .bind("draft")
     .bind("free")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(valid_result.is_ok(), "Valid attach_mode should succeed");
@@ -1003,7 +1003,7 @@ async fn test_migration_0201_attach_mode_check_constraint() -> Result<()> {
     .bind("main")
     .bind("draft")
     .bind("invalid-mode")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(
@@ -1021,28 +1021,28 @@ async fn test_migration_0201_free_mode_no_scope_trigger() -> Result<()> {
 
     // Setup
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-trigger', 'Trigger')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     sqlx::query(
         "INSERT INTO adapter_repositories (id, tenant_id, name)
          VALUES ('repo-trigger', 'tenant-trigger', 'Test')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
         "INSERT INTO training_datasets (id, tenant_id, name, description, format, hash_b3, storage_path)
          VALUES ('dataset-1', 'tenant-trigger', 'Dataset', 'Test', 'jsonl', 'b3:hash123', 'var/test')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
         "INSERT INTO training_dataset_versions (id, dataset_id, tenant_id, version_number, storage_path, hash_b3)
          VALUES ('dsv-1', 'dataset-1', 'tenant-trigger', 1, 'var/dsv-1', 'b3:dsv1hash')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Free mode with scope should fail
@@ -1060,7 +1060,7 @@ async fn test_migration_0201_free_mode_no_scope_trigger() -> Result<()> {
     .bind("draft")
     .bind("free")
     .bind("dsv-1")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(
@@ -1078,14 +1078,14 @@ async fn test_migration_0201_requires_dataset_needs_scope_trigger() -> Result<()
 
     // Setup
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-req', 'Req')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     sqlx::query(
         "INSERT INTO adapter_repositories (id, tenant_id, name)
          VALUES ('repo-req', 'tenant-req', 'Test')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // requires_dataset without scope should fail
@@ -1101,7 +1101,7 @@ async fn test_migration_0201_requires_dataset_needs_scope_trigger() -> Result<()
     .bind("main")
     .bind("draft")
     .bind("requires_dataset")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(
@@ -1119,28 +1119,28 @@ async fn test_migration_0201_scope_tenant_isolation_trigger() -> Result<()> {
 
     // Setup tenants
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-a', 'A'), ('tenant-b', 'B')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     sqlx::query(
         "INSERT INTO adapter_repositories (id, tenant_id, name)
          VALUES ('repo-iso', 'tenant-a', 'Test')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
         "INSERT INTO training_datasets (id, tenant_id, name, description, format, hash_b3, storage_path)
          VALUES ('dataset-b', 'tenant-b', 'Dataset', 'Test', 'jsonl', 'b3:hash456', 'var/test-b')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
         "INSERT INTO training_dataset_versions (id, dataset_id, tenant_id, version_number, storage_path, hash_b3)
          VALUES ('dsv-b', 'dataset-b', 'tenant-b', 1, 'var/dsv-b', 'b3:dsvbhash')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Cross-tenant scope reference should fail
@@ -1158,7 +1158,7 @@ async fn test_migration_0201_scope_tenant_isolation_trigger() -> Result<()> {
     .bind("draft")
     .bind("requires_dataset")
     .bind("dsv-b") // Belongs to tenant-b
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(
@@ -1178,7 +1178,7 @@ async fn test_migration_0201_indexes_exist() -> Result<()> {
         "SELECT name FROM sqlite_master
          WHERE type='index' AND tbl_name='adapter_versions'",
     )
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await?;
 
     let expected_indexes = vec![
@@ -1208,7 +1208,7 @@ async fn test_migration_0202_adapter_stacks_metadata_column_exists() -> Result<(
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(adapter_stacks)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut columns = HashSet::new();
@@ -1232,7 +1232,7 @@ async fn test_migration_0202_adapter_stacks_metadata_data() -> Result<()> {
 
     // Create tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-stack', 'Stack')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Insert stack with metadata
@@ -1247,14 +1247,14 @@ async fn test_migration_0202_adapter_stacks_metadata_data() -> Result<()> {
     .bind("stack.test-stack")
     .bind("[]")
     .bind(metadata_json)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Verify data
     let stored_metadata: Option<String> =
         sqlx::query_scalar("SELECT metadata_json FROM adapter_stacks WHERE id = ?")
             .bind("stack-1")
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result()?)
             .await?;
 
     assert_eq!(stored_metadata, Some(metadata_json.to_string()));
@@ -1273,7 +1273,7 @@ async fn test_integration_receipt_with_all_new_fields() -> Result<()> {
 
     // Create tenant
     sqlx::query("INSERT INTO tenants (id, name, max_kv_cache_bytes) VALUES ('tenant-int', 'Integration', 2000000)")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Create trace
@@ -1281,7 +1281,7 @@ async fn test_integration_receipt_with_all_new_fields() -> Result<()> {
         "INSERT INTO inference_traces (trace_id, tenant_id, request_id, context_digest)
          VALUES ('trace-int', 'tenant-int', 'req-int', x'abcd')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Insert receipt with all new fields
@@ -1315,7 +1315,7 @@ async fn test_integration_receipt_with_all_new_fields() -> Result<()> {
     .bind(1i64)
     .bind(512i64)
     .bind(vec![0xCCu8; 32])
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Verify all fields
@@ -1328,7 +1328,7 @@ async fn test_integration_receipt_with_all_new_fields() -> Result<()> {
          FROM inference_trace_receipts WHERE trace_id = ?",
     )
     .bind("trace-int")
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(
@@ -1356,7 +1356,7 @@ async fn test_integration_evidence_chain_with_prefix_templates() -> Result<()> {
 
     // Create tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-chain', 'Chain')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Create prefix template
@@ -1371,7 +1371,7 @@ async fn test_integration_evidence_chain_with_prefix_templates() -> Result<()> {
     .bind("System prompt")
     .bind("b3:sys_hash")
     .bind(10)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Create evidence chain
@@ -1398,7 +1398,7 @@ async fn test_integration_evidence_chain_with_prefix_templates() -> Result<()> {
         .bind("k1")
         .bind("{}")
         .bind(i as i64)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -1407,7 +1407,7 @@ async fn test_integration_evidence_chain_with_prefix_templates() -> Result<()> {
         "SELECT COUNT(*) FROM evidence_envelopes
          WHERE tenant_id = 'tenant-chain' AND scope = 'telemetry'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(count, 3);
@@ -1416,7 +1416,7 @@ async fn test_integration_evidence_chain_with_prefix_templates() -> Result<()> {
     let template_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM prefix_templates WHERE tenant_id = 'tenant-chain'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(template_count, 1);
@@ -1435,7 +1435,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind(format!("Test Tenant {}", tenant_id))
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Create adapters with various states for testing
@@ -1475,7 +1475,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
         .bind("cold")
         .bind(i as i64)
         .bind((i as i64) * 1024)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
         // Set expires_at for some adapters
@@ -1483,7 +1483,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
             sqlx::query("UPDATE adapters SET expires_at = ? WHERE adapter_id = ?")
                 .bind(expires)
                 .bind(&adapter_id)
-                .execute(db.pool())
+                .execute(db.pool_result()?)
                 .await?;
         }
     }
@@ -1504,7 +1504,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
         .bind(format!("var/docs/{}/{}", tenant_id, i))
         .bind((i as i64 + 1) * 1000)
         .bind("text/plain")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -1523,7 +1523,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
         .bind(&repo_id)
         .bind(format!("/repos/{}/{}", tenant_id, i))
         .bind("system")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -1551,7 +1551,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
         .bind(r#"{"progress_pct":25}"#)
         .bind("system")
         .bind(format!("-{} hours", i))
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -1570,7 +1570,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
     .bind(format!("b3:tokenizer_hash_{}", tenant_id))
     .bind(format!("b3:tokenizer_cfg_hash_{}", tenant_id))
     .bind(tenant_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Create chat sessions for tenant
@@ -1585,7 +1585,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
         .bind(format!("session-{}-{}", tenant_id, i))
         .bind(tenant_id)
         .bind(format!("Session {}-{}", tenant_id, i))
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -1604,7 +1604,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
         .bind(if i % 2 == 0 { "user" } else { "assistant" })
         .bind(format!("Message content {}-{}", tenant_id, i))
         .bind(format!("-{} minutes", i))
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -1619,7 +1619,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
     .bind(tenant_id)
     .bind(format!("model-{}", tenant_id))
     .bind("loaded")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     Ok(())
@@ -1641,7 +1641,7 @@ async fn validate_query_plan(
         query_builder = query_builder.bind(param);
     }
 
-    let plan_rows = query_builder.fetch_all(db.pool()).await?;
+    let plan_rows = query_builder.fetch_all(db.pool_result()?).await?;
 
     println!("Query Plan for: {}", query);
     let mut has_temp_btree = false;
@@ -1702,7 +1702,7 @@ async fn test_migration_0210_tenant_scoped_indexes_exist() -> Result<()> {
              WHERE type='index' AND name = ?",
         )
         .bind(expected)
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await?;
 
         assert_eq!(index_exists, 1, "Index '{}' should exist", expected);
@@ -1834,7 +1834,7 @@ async fn test_migration_0210_base_model_status_upsert() -> Result<()> {
     .bind(tenant_id)
     .bind(format!("model-{}", tenant_id))
     .bind("error")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     assert_eq!(result.rows_affected(), 1, "Upsert should affect 1 row");
@@ -1845,7 +1845,7 @@ async fn test_migration_0210_base_model_status_upsert() -> Result<()> {
     )
     .bind(tenant_id)
     .bind(format!("model-{}", tenant_id))
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(status, "error", "Status should be updated via upsert");
@@ -1870,7 +1870,7 @@ async fn test_migration_0210_query_performance_validation() -> Result<()> {
         "SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC",
     )
     .bind(tenant_id)
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await?;
     let adapter_time = start.elapsed();
 
@@ -1879,7 +1879,7 @@ async fn test_migration_0210_query_performance_validation() -> Result<()> {
     let documents: Vec<sqlx::sqlite::SqliteRow> =
         sqlx::query("SELECT * FROM documents WHERE tenant_id = ? ORDER BY created_at DESC")
             .bind(tenant_id)
-            .fetch_all(db.pool())
+            .fetch_all(db.pool_result()?)
             .await?;
     let document_time = start.elapsed();
 
@@ -1890,7 +1890,7 @@ async fn test_migration_0210_query_performance_validation() -> Result<()> {
     )
     .bind(tenant_id)
     .bind("running")
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await?;
     let job_time = start.elapsed();
 

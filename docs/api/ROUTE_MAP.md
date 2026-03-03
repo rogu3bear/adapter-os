@@ -351,9 +351,13 @@
 | `protected` | `/v1/storage/tenant-usage` |
 | `protected` | `/v1/stream/activity/{workspace_id}` |
 | `protected` | `/v1/stream/adapters` |
+| `protected` | `/v1/stream/alerts` |
+| `protected` | `/v1/stream/anomalies` |
 | `protected` | `/v1/stream/boot-progress` |
 | `protected` | `/v1/stream/client-errors` |
 | `protected` | `/v1/stream/contacts` |
+| `protected` | `/v1/stream/dashboard` |
+| `protected` | `/v1/stream/dashboard/{dashboard_id}` |
 | `protected` | `/v1/stream/discovery` |
 | `protected` | `/v1/stream/file-changes` |
 | `protected` | `/v1/stream/messages/{workspace_id}` |

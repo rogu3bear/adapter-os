@@ -890,8 +890,8 @@ fn test_code_dataset_config_defaults() {
         "Positive weight should be positive"
     );
     assert!(
-        config.negative_weight < 0.0,
-        "Negative weight should be negative for abstention"
+        config.negative_weight >= 0.0,
+        "Negative weight should be non-negative; abstention classification uses sample_role metadata"
     );
 }
 
@@ -973,6 +973,14 @@ async fn test_scan_root_dataset_creation_pipeline() {
         .await
         .expect("Failed to create test database");
 
+    // Create tenant for FK constraints
+    sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
+        .bind("test-tenant")
+        .bind("Test Tenant")
+        .execute(db.pool_result().unwrap())
+        .await
+        .expect("Failed to create tenant");
+
     // Create a dataset representing a scan-root ingestion
     let dataset_params = CreateDatasetParams::builder()
         .name("scan-root-packages-core")
@@ -980,9 +988,9 @@ async fn test_scan_root_dataset_creation_pipeline() {
         .hash_b3("a".repeat(64)) // 64 hex chars for valid BLAKE3 hash
         .storage_path("/var/aos/datasets/scan-root-packages-core")
         .description("Dataset from packages/core scan-root")
-        .dataset_type("codebase")
+        .dataset_type("training")
         .source_location("repo:my-project/packages/core")
-        .collection_method("code_ingestion_pipeline")
+        .collection_method("pipeline")
         .tenant_id("test-tenant")
         .build()
         .expect("Failed to build dataset params");
@@ -1003,7 +1011,7 @@ async fn test_scan_root_dataset_creation_pipeline() {
 
     assert_eq!(dataset.name, "scan-root-packages-core");
     assert_eq!(dataset.format, "jsonl");
-    assert_eq!(dataset.dataset_type.as_deref(), Some("codebase"));
+    assert_eq!(dataset.dataset_type.as_deref(), Some("training"));
     assert_eq!(
         dataset.source_location.as_deref(),
         Some("repo:my-project/packages/core")
@@ -1262,7 +1270,7 @@ async fn test_create_dataset_from_repo_defaults() {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind("test-tenant")
         .bind("Test Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("Failed to create tenant");
 
@@ -1295,11 +1303,8 @@ async fn test_create_dataset_from_repo_defaults() {
     let expected_name = format!("{}-{}", expected_slug, short_commit);
 
     assert_eq!(dataset.name, expected_name);
-    assert_eq!(dataset.dataset_type.as_deref(), Some("codebase"));
-    assert_eq!(
-        dataset.collection_method.as_deref(),
-        Some("code_ingestion_pipeline")
-    );
+    assert_eq!(dataset.dataset_type.as_deref(), Some("training"));
+    assert_eq!(dataset.collection_method.as_deref(), Some("pipeline"));
     assert_eq!(dataset.status, "processing");
     assert_eq!(dataset.repo_slug.as_deref(), Some(expected_slug));
     assert_eq!(dataset.commit_sha.as_deref(), Some(commit_sha));
@@ -1451,23 +1456,13 @@ async fn test_training_job_scan_root_dataset_linkage() {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind("test-tenant")
         .bind("Test Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("Failed to create tenant");
 
-    // Create adapter repository for FK constraints
-    sqlx::query(
-        "INSERT INTO adapter_repositories (id, tenant_id, name, description, git_url, lifecycle_state)
-         VALUES (?, ?, ?, ?, ?, 'active')"
-    )
-    .bind("test-repo")
-    .bind("test-tenant")
-    .bind("test-repo")
-    .bind("Test repository for scan-root")
-    .bind("https://github.com/test/repo.git")
-    .execute(db.pool())
-    .await
-    .expect("Failed to create repository");
+    db.ensure_training_repo_parent_exists("test-repo", "test-user")
+        .await
+        .expect("Failed to create repository parent");
 
     // Create scan-root dataset
     let dataset_params = CreateDatasetParams::builder()
@@ -1475,7 +1470,7 @@ async fn test_training_job_scan_root_dataset_linkage() {
         .format("jsonl")
         .hash_b3("b".repeat(64))
         .storage_path("/var/aos/datasets/scan-root-training")
-        .dataset_type("codebase")
+        .dataset_type("training")
         .source_location("repo:test-project/packages/backend")
         .tenant_id("test-tenant")
         .build()
@@ -1497,25 +1492,29 @@ async fn test_training_job_scan_root_dataset_linkage() {
     });
 
     let job_id = uuid::Uuid::now_v7().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-
-    sqlx::query(
-        "INSERT INTO training_jobs (
-            id, repo_id, training_config_json, status, progress_json,
-            started_at, created_by, dataset_id, tenant_id, code_commit_sha
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    db.create_training_job_with_provenance(
+        Some(&job_id),
+        "test-repo",
+        &training_config.to_string(),
+        "test-user",
+        Some(&dataset_id),
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some("test-tenant"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some("abc123def456"),
+        None,
+        false,
+        None,
     )
-    .bind(&job_id)
-    .bind("test-repo")
-    .bind(training_config.to_string())
-    .bind("pending")
-    .bind(r#"{"progress_pct": 0}"#)
-    .bind(&now)
-    .bind("test-user")
-    .bind(&dataset_id)
-    .bind("test-tenant")
-    .bind("abc123def456")
-    .execute(db.pool())
     .await
     .expect("Failed to create training job");
 
@@ -2042,7 +2041,7 @@ async fn test_record_dataset_hash_inputs() {
     )
     .bind(&dataset_id)
     .bind("b".repeat(64))
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result().unwrap())
     .await
     .expect("Failed to count dataset hash inputs");
 

@@ -281,14 +281,178 @@ impl CanonicalTensor {
         // Parse quantization parameters
         let quantization_params = if bytes.len() > offset && bytes[offset] == 1 {
             offset += 1;
-            // Parse quantization params (simplified - full implementation would parse all fields)
+
+            // quant_type
+            if bytes.len() < offset + 8 {
+                return Err(AosError::Validation(
+                    "Insufficient bytes for quant_type length".into(),
+                ));
+            }
+            let qt_len = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap()) as usize;
+            offset += 8;
+            if bytes.len() < offset + qt_len {
+                return Err(AosError::Validation(
+                    "Insufficient bytes for quant_type data".into(),
+                ));
+            }
+            let quant_type = String::from_utf8(bytes[offset..offset + qt_len].to_vec())
+                .map_err(|e| AosError::Validation(format!("Invalid UTF-8 in quant_type: {}", e)))?;
+            offset += qt_len;
+
+            // group_size
+            if bytes.len() < offset + 1 {
+                return Err(AosError::Validation(
+                    "Insufficient bytes for group_size flag".into(),
+                ));
+            }
+            let has_gs = bytes[offset] == 1;
+            offset += 1;
+            let group_size = if has_gs {
+                if bytes.len() < offset + 4 {
+                    return Err(AosError::Validation(
+                        "Insufficient bytes for group_size".into(),
+                    ));
+                }
+                let gs = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+                offset += 4;
+                Some(gs)
+            } else {
+                None
+            };
+
+            // bits
+            if bytes.len() < offset + 1 {
+                return Err(AosError::Validation(
+                    "Insufficient bytes for bits flag".into(),
+                ));
+            }
+            let has_bits = bytes[offset] == 1;
+            offset += 1;
+            let bits = if has_bits {
+                if bytes.len() < offset + 1 {
+                    return Err(AosError::Validation("Insufficient bytes for bits".into()));
+                }
+                let b = bytes[offset];
+                offset += 1;
+                Some(b)
+            } else {
+                None
+            };
+
+            // scales
+            if bytes.len() < offset + 1 {
+                return Err(AosError::Validation(
+                    "Insufficient bytes for scales flag".into(),
+                ));
+            }
+            let has_scales = bytes[offset] == 1;
+            offset += 1;
+            let scales = if has_scales {
+                if bytes.len() < offset + 8 {
+                    return Err(AosError::Validation(
+                        "Insufficient bytes for scales length".into(),
+                    ));
+                }
+                let len =
+                    u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap()) as usize;
+                offset += 8;
+                if bytes.len() < offset + len * 4 {
+                    return Err(AosError::Validation(
+                        "Insufficient bytes for scales data".into(),
+                    ));
+                }
+                let mut s = Vec::with_capacity(len);
+                for _ in 0..len {
+                    s.push(f32::from_le_bytes(
+                        bytes[offset..offset + 4].try_into().unwrap(),
+                    ));
+                    offset += 4;
+                }
+                Some(s)
+            } else {
+                None
+            };
+
+            // zero_points
+            if bytes.len() < offset + 1 {
+                return Err(AosError::Validation(
+                    "Insufficient bytes for zero_points flag".into(),
+                ));
+            }
+            let has_zp = bytes[offset] == 1;
+            offset += 1;
+            let zero_points = if has_zp {
+                if bytes.len() < offset + 8 {
+                    return Err(AosError::Validation(
+                        "Insufficient bytes for zero_points length".into(),
+                    ));
+                }
+                let len =
+                    u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap()) as usize;
+                offset += 8;
+                if bytes.len() < offset + len {
+                    return Err(AosError::Validation(
+                        "Insufficient bytes for zero_points data".into(),
+                    ));
+                }
+                let mut zp = Vec::with_capacity(len);
+                for i in 0..len {
+                    zp.push(bytes[offset + i] as i8);
+                }
+                offset += len;
+                Some(zp)
+            } else {
+                None
+            };
+
+            // extra_params
+            if bytes.len() < offset + 8 {
+                return Err(AosError::Validation(
+                    "Insufficient bytes for extra_params length".into(),
+                ));
+            }
+            let ep_len = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap()) as usize;
+            offset += 8;
+            let mut extra_params = BTreeMap::new();
+            for _ in 0..ep_len {
+                if bytes.len() < offset + 8 {
+                    return Err(AosError::Validation(
+                        "Insufficient bytes for extra_params key length".into(),
+                    ));
+                }
+                let key_len =
+                    u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap()) as usize;
+                offset += 8;
+
+                if bytes.len() < offset + key_len {
+                    return Err(AosError::Validation(
+                        "Insufficient bytes for extra_params key data".into(),
+                    ));
+                }
+                let key =
+                    String::from_utf8(bytes[offset..offset + key_len].to_vec()).map_err(|e| {
+                        AosError::Validation(format!("Invalid UTF-8 in extra_params key: {}", e))
+                    })?;
+                offset += key_len;
+
+                if bytes.len() < offset + 4 {
+                    return Err(AosError::Validation(
+                        "Insufficient bytes for extra_params value".into(),
+                    ));
+                }
+                let val = f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+                offset += 4;
+
+                extra_params.insert(key, val);
+            }
+
             Some(CanonicalQuantizationParams {
-                quant_type: "unknown".to_string(),
-                group_size: None,
-                bits: None,
-                scales: None,
-                zero_points: None,
-                extra_params: BTreeMap::new(),
+                quant_type,
+                group_size,
+                bits,
+                scales,
+                zero_points,
+                extra_params,
             })
         } else {
             offset += 1;

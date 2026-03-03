@@ -181,6 +181,7 @@ fn build_principal_from_claims(
     Principal::from_claims(claims, principal_type, auth_mode)
 }
 
+pub mod api_prefix_compat;
 pub mod audit;
 pub mod caching;
 pub mod canonicalization;
@@ -196,6 +197,7 @@ pub mod trace_context;
 pub mod versioning;
 pub mod worker_uid;
 
+pub use api_prefix_compat::api_prefix_compat_middleware;
 pub use caching::{caching_middleware, CacheControl};
 pub use canonicalization::{
     canonicalization_middleware, selective_canonicalization_middleware, CanonicalRequest,
@@ -293,9 +295,10 @@ fn dev_no_auth_enabled() -> bool {
 #[cfg(debug_assertions)]
 fn dev_no_auth_claims() -> Claims {
     let now = Utc::now();
+    // Use same user_id as dev bypass handler so tenant/user/workspace bootstrap applies
     Claims {
-        sub: "dev-no-auth".to_string(),
-        email: "dev-no-auth@adapteros.local".to_string(),
+        sub: "dev-admin-user".to_string(),
+        email: "dev-admin@adapteros.local".to_string(),
         role: "admin".to_string(),
         roles: vec!["admin".to_string()],
         // Default tenant for dev no-auth (matches test harness seed data).
@@ -879,6 +882,7 @@ pub async fn auth_middleware(
     // Check dev bypass FIRST (only in debug builds)
     if let Some(resolution) = resolve_dev_bypass(req.headers()) {
         tracing::info!("Dev no-auth bypass enabled; skipping authentication");
+        crate::dev_bootstrap::ensure_dev_no_auth_bootstrap(&state).await;
         resolution.inject_into_request(&mut req);
         return Ok(next.run(req).await);
     }
@@ -1134,6 +1138,7 @@ pub async fn dual_auth_middleware(
     // Check dev bypass FIRST (only in debug builds)
     if let Some(resolution) = resolve_dev_bypass(req.headers()) {
         tracing::info!("Dev no-auth bypass enabled; skipping authentication");
+        crate::dev_bootstrap::ensure_dev_no_auth_bootstrap(&state).await;
         resolution.inject_into_request(&mut req);
         return Ok(next.run(req).await);
     }
@@ -1401,6 +1406,7 @@ pub async fn optional_auth_middleware(
     // Check dev bypass FIRST (only in debug builds)
     if let Some(resolution) = resolve_dev_bypass(req.headers()) {
         tracing::debug!("Dev no-auth bypass enabled; injecting dev claims");
+        crate::dev_bootstrap::ensure_dev_no_auth_bootstrap(&state).await;
         resolution.inject_into_request(&mut req);
         return next.run(req).await;
     }

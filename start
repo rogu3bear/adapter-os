@@ -21,9 +21,15 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Keep local builds on the canonical cache root unless explicitly overridden.
+: "${CARGO_TARGET_DIR:=target}"
+export CARGO_TARGET_DIR
+
 # Source libraries
 source scripts/lib/freeze-guard.sh
 source scripts/lib/env-loader.sh
+source scripts/lib/manifest-reader.sh
+source scripts/lib/ports.sh
 
 # Set SCRIPT_DIR for path normalization
 export SCRIPT_DIR
@@ -40,41 +46,71 @@ export AOS_DEBUG_RUN_ID=$AOS_RUN_ID
 # Values can still be overridden by environment variables set before running ./start
 load_env_file ".env" --no-override || true
 
-# Resolve server port from config when env is not set
-read_server_port_from_config() {
-    local config_path="$1"
-    awk '
-        $0 ~ /^\[server\]/ { in_server = 1; next }
-        in_server && $0 ~ /^\[/ { in_server = 0 }
-        in_server && $0 ~ /^[[:space:]]*port[[:space:]]*=/ {
-            gsub(/#.*/, "", $0)
-            split($0, a, "=")
-            gsub(/[[:space:]]/, "", a[2])
-            print a[2]
-            exit
-        }
-    ' "$config_path"
+# If manifest exists and AOS_CONFIG is not explicitly set, use manifest as config.
+# The manifest is a superset of cp.toml — unknown sections are silently ignored
+# by the Rust config loader.
+if manifest_exists "$AOS_MANIFEST_FILE" && [ -z "${AOS_CONFIG+x}" ]; then
+    export AOS_CONFIG_PATH="$SCRIPT_DIR/$AOS_MANIFEST_FILE"
+fi
+
+# Bridge manifest sections to env vars.
+# Uses : "${VAR:=$val}" pattern — only sets if not already set, preserving:
+#   CLI flags > env vars > .env > manifest.toml > built-in defaults
+bridge_manifest_to_env() {
+    local manifest="$AOS_MANIFEST_FILE"
+    manifest_exists "$manifest" || return 0
+
+    local val
+
+    # [services] → SKIP_* flags (inverted: services.worker=false → SKIP_WORKER=1)
+    val="$(toml_read "$manifest" services worker 2>/dev/null || true)"
+    if [ "$val" = "false" ] && [ -z "${SKIP_WORKER+x}" ]; then
+        SKIP_WORKER=1
+    fi
+    val="$(toml_read "$manifest" services secd 2>/dev/null || true)"
+    if [ "$val" = "false" ] && [ -z "${SKIP_SECD+x}" ]; then
+        SKIP_SECD=1
+    fi
+    val="$(toml_read "$manifest" services node 2>/dev/null || true)"
+    if [ "$val" = "false" ] && [ -z "${SKIP_NODE+x}" ]; then
+        SKIP_NODE=1
+    fi
+
+    # [boot] → AOS_* vars
+    val="$(toml_read "$manifest" boot verify_chat 2>/dev/null || true)"
+    if [ "$val" = "true" ] && [ -z "${AOS_VERIFY_CHAT+x}" ]; then
+        AOS_VERIFY_CHAT=1
+    fi
+    val="$(toml_read "$manifest" boot health_timeout_secs 2>/dev/null || true)"
+    [ -n "$val" ] && : "${AOS_HEALTH_TIMEOUT:=$val}"
+    val="$(toml_read "$manifest" boot readyz_timeout_secs 2>/dev/null || true)"
+    [ -n "$val" ] && : "${AOS_READYZ_TIMEOUT:=$val}"
+    val="$(toml_read "$manifest" boot log_profile 2>/dev/null || true)"
+    [ -n "$val" ] && : "${AOS_LOG_PROFILE:=$val}"
+
+    # [model] → AOS_MODEL_* vars
+    val="$(toml_read "$manifest" model path 2>/dev/null || true)"
+    [ -n "$val" ] && : "${AOS_MODEL_PATH:=$val}"
+    val="$(toml_read "$manifest" model backend 2>/dev/null || true)"
+    [ -n "$val" ] && : "${AOS_MODEL_BACKEND:=$val}"
+    val="$(toml_read "$manifest" model manifest 2>/dev/null || true)"
+    [ -n "$val" ] && : "${AOS_WORKER_MANIFEST:=$val}"
+    val="$(toml_read "$manifest" model tokenizer_path 2>/dev/null || true)"
+    [ -n "$val" ] && : "${AOS_TOKENIZER_PATH:=$val}"
+
+    # [server] → AOS_SERVER_PORT
+    val="$(toml_read "$manifest" server port 2>/dev/null || true)"
+    [ -n "$val" ] && : "${AOS_SERVER_PORT:=$val}"
 }
 
-read_dev_bypass_from_config() {
-    local config_path="$1"
-    awk '
-        $0 ~ /^\[security\]/ { in_security = 1; next }
-        in_security && $0 ~ /^\[/ { in_security = 0 }
-        in_security && $0 ~ /^[[:space:]]*dev_bypass[[:space:]]*=/ {
-            gsub(/#.*/, "", $0)
-            split($0, a, "=")
-            gsub(/[[:space:]]/, "", a[2])
-            print a[2]
-            exit
-        }
-    ' "$config_path"
-}
+bridge_manifest_to_env
 
+# Resolve server port and dev bypass from config using toml_read
+# (replaces previous ad-hoc awk parsers)
 if [ -z "${AOS_SERVER_PORT:-}" ]; then
-    config_for_port="${AOS_CONFIG_PATH:-${AOS_CONFIG:-$SCRIPT_DIR/configs/cp.toml}}"
-    if [ -f "$config_for_port" ]; then
-        port_from_config="$(read_server_port_from_config "$config_for_port")"
+    local_config="${AOS_CONFIG_PATH:-${AOS_CONFIG:-$SCRIPT_DIR/configs/cp.toml}}"
+    if [ -f "$local_config" ]; then
+        port_from_config="$(toml_read "$local_config" server port 2>/dev/null || true)"
         if [ -n "$port_from_config" ]; then
             AOS_SERVER_PORT="$port_from_config"
         fi
@@ -82,9 +118,9 @@ if [ -z "${AOS_SERVER_PORT:-}" ]; then
 fi
 
 if [ -z "${AOS_DEV_NO_AUTH:-}" ]; then
-    config_for_dev_bypass="${AOS_CONFIG_PATH:-${AOS_CONFIG:-$SCRIPT_DIR/configs/cp.toml}}"
-    if [ -f "$config_for_dev_bypass" ]; then
-        dev_bypass_from_config="$(read_dev_bypass_from_config "$config_for_dev_bypass")"
+    local_config="${AOS_CONFIG_PATH:-${AOS_CONFIG:-$SCRIPT_DIR/configs/cp.toml}}"
+    if [ -f "$local_config" ]; then
+        dev_bypass_from_config="$(toml_read "$local_config" security dev_bypass 2>/dev/null || true)"
         if [ "$dev_bypass_from_config" = "true" ]; then
             export AOS_DEV_NO_AUTH=1
         fi
@@ -92,7 +128,7 @@ if [ -z "${AOS_DEV_NO_AUTH:-}" ]; then
 fi
 
 # Configuration (can be overridden via environment)
-: "${AOS_SERVER_PORT:=8080}"
+aos_apply_port_pane_defaults
 : "${AOS_VAR_DIR:=var}"
 : "${AOS_LOG_DIR:=$AOS_VAR_DIR/logs}"
 : "${SKIP_WORKER:=0}"
@@ -105,7 +141,6 @@ fi
 : "${AOS_DEV_CLIENT_ERROR_RETENTION_DAYS:=30}"
 
 # Align control plane URL for worker registration if not set
-: "${AOS_CP_URL:=http://127.0.0.1:$AOS_SERVER_PORT}"
 export AOS_CP_URL
 
 # Run quick validation (non-fatal, just warnings)
@@ -124,10 +159,12 @@ CHECK_MARK="✓"
 CROSS_MARK="✗"
 ARROW="→"
 
-# Progress tracking
-BOOT_PROGRESS_CURRENT=0
-BOOT_PROGRESS_TOTAL=100
-BOOT_PROGRESS_STEPS=()
+# Progress tracking (phase-driven via /healthz/startup; see boot_phase_to_pct)
+POLL_BOOT_STATE=""
+POLL_FAIL_REASON=""
+POLL_FAIL_PHASE=""
+POLL_FAIL_ACTION=""
+POLL_FAIL_ERROR=""
 
 # =============================================================================
 # Animation & Progress Helpers
@@ -286,47 +323,213 @@ print_progress_animated() {
     fi
 }
 
-# Boot progress tracker
-init_boot_progress() {
-    BOOT_PROGRESS_CURRENT=0
-    BOOT_PROGRESS_TOTAL=100
-    BOOT_PROGRESS_STEPS=(
-        "preflight:10"
-        "backend_start:25"
-        "backend_health:35"
-        "model_seed:45"
-        "worker_start:60"
-        "worker_ready:75"
-        "model_load:85"
-        "inference_check:90"
-        "chat_verify:95"
-        "complete:100"
-    )
+# =============================================================================
+# Boot Phase Mapping (driven by /healthz/startup JSON)
+# =============================================================================
+
+# Maps boot_state string from /healthz/startup to a progress percentage.
+# Source of truth: crates/adapteros-boot/src/phase.rs (BootPhase::as_str())
+boot_phase_to_pct() {
+    case "$1" in
+        stopped)             echo 0 ;;
+        starting)            echo 5 ;;
+        security-init)       echo 8 ;;
+        executor-init)       echo 12 ;;
+        preflight)           echo 15 ;;
+        boot-invariants)     echo 18 ;;
+        db-connecting)       echo 22 ;;
+        migrating)           echo 30 ;;
+        post-db-invariants)  echo 35 ;;
+        startup-recovery)    echo 38 ;;
+        seeding)             echo 42 ;;
+        loading-policies)    echo 48 ;;
+        starting-backend)    echo 55 ;;
+        loading-base-models) echo 62 ;;
+        loading-adapters)    echo 70 ;;
+        worker-discovery)    echo 78 ;;
+        router-build)        echo 84 ;;
+        finalize)            echo 90 ;;
+        bind)                echo 95 ;;
+        ready|fully-ready)   echo 100 ;;
+        degraded)            echo 100 ;;
+        failed)              echo -1 ;;
+        *)                   echo 0 ;;
+    esac
 }
 
-update_boot_progress() {
-    local step="$1"
-    local target_pct=0
-    
-    # Find target percentage for this step
-    for step_def in "${BOOT_PROGRESS_STEPS[@]}"; do
-        local step_name="${step_def%%:*}"
-        local step_pct="${step_def##*:}"
-        if [ "$step_name" = "$step" ]; then
-            target_pct=$step_pct
-            break
+# Maps boot_state to a human-readable label for the progress bar.
+boot_phase_to_label() {
+    case "$1" in
+        stopped)             echo "Stopped" ;;
+        starting)            echo "Starting up..." ;;
+        security-init)       echo "Initializing security..." ;;
+        executor-init)       echo "Initializing executor..." ;;
+        preflight)           echo "Running preflight checks..." ;;
+        boot-invariants)     echo "Checking boot invariants..." ;;
+        db-connecting)       echo "Connecting to database..." ;;
+        migrating)           echo "Running migrations..." ;;
+        post-db-invariants)  echo "Post-migration checks..." ;;
+        startup-recovery)    echo "Running startup recovery..." ;;
+        seeding)             echo "Seeding data..." ;;
+        loading-policies)    echo "Loading policies..." ;;
+        starting-backend)    echo "Starting backend services..." ;;
+        loading-base-models) echo "Loading base models..." ;;
+        loading-adapters)    echo "Loading adapters..." ;;
+        worker-discovery)    echo "Discovering workers..." ;;
+        router-build)        echo "Building router..." ;;
+        finalize)            echo "Finalizing..." ;;
+        bind)                echo "Binding to port..." ;;
+        ready)               echo "Ready" ;;
+        fully-ready)         echo "Fully ready" ;;
+        degraded)            echo "Ready (degraded)" ;;
+        failed)              echo "Failed" ;;
+        *)                   echo "Booting..." ;;
+    esac
+}
+
+# Extract boot_state from /healthz/startup JSON response.
+# Uses jq if available, falls back to grep/sed.
+extract_boot_state() {
+    local body="$1"
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$body" | jq -r '.boot_state // empty' 2>/dev/null
+    else
+        printf '%s' "$body" | grep -o '"boot_state":"[^"]*"' | sed 's/.*"boot_state":"\([^"]*\)".*/\1/'
+    fi
+}
+
+# Extract a string field from JSON (jq with grep/sed fallback).
+extract_json_field() {
+    local body="$1"
+    local field="$2"
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$body" | jq -r ".$field // empty" 2>/dev/null
+    else
+        printf '%s' "$body" | grep -o "\"$field\":\"[^\"]*\"" | sed "s/.*\"$field\":\"\([^\"]*\)\".*/\1/"
+    fi
+}
+
+# =============================================================================
+# poll_backend_startup - Phase-driven backend health wait
+# =============================================================================
+#
+# Usage: poll_backend_startup <pid> <timeout_secs>
+# Returns: 0 = ready, 1 = crash/timeout, 2 = boot failure (structured error)
+#
+# Polls /healthz/startup for real boot phase data. Falls back to /healthz
+# if /healthz/startup returns 404 or connection refused (old binary).
+poll_backend_startup() {
+    local backend_pid="$1"
+    local timeout_secs="$2"
+    local startup_url="http://localhost:$AOS_SERVER_PORT/healthz/startup"
+    local healthz_url="http://localhost:$AOS_SERVER_PORT/healthz"
+    local waited=0
+    local last_phase=""
+    local use_startup_endpoint=1  # optimistic; downgrade on 404
+    local got_first_response=0
+
+    while [ $waited -lt "$timeout_secs" ]; do
+        # Crash detection
+        if [ -n "$backend_pid" ] && ! kill -0 "$backend_pid" 2>/dev/null; then
+            term_clear_row
+            POLL_FAIL_REASON="CRASHED"
+            POLL_FAIL_PHASE="${last_phase:-pre-listen}"
+            return 1
         fi
-    done
-    
-    # Smoothly animate to target
-    while [ $BOOT_PROGRESS_CURRENT -lt $target_pct ]; do
-        BOOT_PROGRESS_CURRENT=$((BOOT_PROGRESS_CURRENT + 2))
-        if [ $BOOT_PROGRESS_CURRENT -gt $target_pct ]; then
-            BOOT_PROGRESS_CURRENT=$target_pct
+
+        if [ "$use_startup_endpoint" -eq 1 ]; then
+            # Try /healthz/startup (returns JSON body even on 503 during boot)
+            local tmp_body
+            tmp_body="$AOS_VAR_DIR/run/.startup-poll.json"
+            local http_code
+            http_code=$(curl -sf -o "$tmp_body" -w "%{http_code}" --max-time 2 "$startup_url" 2>/dev/null || echo "000")
+
+            if [ "$http_code" = "000" ]; then
+                # Connection refused - server not yet listening
+                if [ "$AOS_CAN_ANIMATE" -eq 1 ]; then
+                    print_progress_animated $waited "$timeout_secs" "Launching backend..."
+                elif [ "$got_first_response" -eq 0 ] && [ "$waited" -eq 0 ]; then
+                    echo "  Launching backend..."
+                fi
+                sleep 1
+                ((waited++))
+                continue
+            fi
+
+            if [ "$http_code" = "404" ]; then
+                # Old binary without /healthz/startup - fall back
+                use_startup_endpoint=0
+                rm -f "$tmp_body" 2>/dev/null
+                continue
+            fi
+
+            got_first_response=1
+            local body=""
+            [ -f "$tmp_body" ] && body="$(cat "$tmp_body" 2>/dev/null)"
+            rm -f "$tmp_body" 2>/dev/null
+
+            local boot_state
+            boot_state="$(extract_boot_state "$body")"
+
+            if [ -z "$boot_state" ]; then
+                # Malformed response - treat like pre-listen
+                sleep 1
+                ((waited++))
+                continue
+            fi
+
+            # Failed state - structured error
+            if [ "$boot_state" = "failed" ]; then
+                term_clear_row
+                POLL_FAIL_REASON="BOOT_FAILED"
+                POLL_FAIL_PHASE="$(extract_json_field "$body" "failed_phase")"
+                POLL_FAIL_ACTION="$(extract_json_field "$body" "next_action")"
+                POLL_FAIL_ERROR="$(extract_json_field "$body" "last_error_code")"
+                return 2
+            fi
+
+            # Ready states
+            if [ "$boot_state" = "ready" ] || [ "$boot_state" = "fully-ready" ] || [ "$boot_state" = "degraded" ]; then
+                term_clear_row
+                POLL_BOOT_STATE="$boot_state"
+                return 0
+            fi
+
+            # In-progress phase - render progress
+            local pct
+            pct="$(boot_phase_to_pct "$boot_state")"
+            local label
+            label="$(boot_phase_to_label "$boot_state")"
+
+            if [ "$AOS_CAN_ANIMATE" -eq 1 ]; then
+                print_progress_animated "$pct" 100 "$label"
+            elif [ "$boot_state" != "$last_phase" ]; then
+                echo "  [$pct%] $label"
+            fi
+            last_phase="$boot_state"
+        else
+            # Fallback: basic /healthz polling (old binary)
+            if [ "$AOS_CAN_ANIMATE" -eq 1 ]; then
+                print_progress_animated $waited "$timeout_secs" "Waiting for backend health..."
+            elif [ "$waited" -eq 0 ]; then
+                echo "  Waiting for backend health..."
+            fi
+            if curl -sf --max-time 2 "$healthz_url" >/dev/null 2>&1; then
+                term_clear_row
+                POLL_BOOT_STATE="ready"
+                return 0
+            fi
         fi
-        print_progress_animated "$BOOT_PROGRESS_CURRENT" "$BOOT_PROGRESS_TOTAL" "Boot progress"
-        sleep 0.05
+
+        sleep 1
+        ((waited++))
     done
+
+    # Timeout
+    term_clear_row
+    POLL_FAIL_REASON="TIMEOUT"
+    POLL_FAIL_PHASE="${last_phase:-unknown}"
+    return 1
 }
 
 # Enhanced progress bar for operations with time estimate
@@ -529,7 +732,7 @@ ensure_backend_log_alias() {
     local backend="$AOS_LOG_DIR/backend.log"
 
     if [ -L "$alias" ]; then
-        ln -sfn "backend.log" "$alias"
+        ln -sfn "backend.log" "$alias" 2>/dev/null || true
         return
     fi
 
@@ -544,7 +747,7 @@ ensure_backend_log_alias() {
     fi
 
     if [ ! -e "$alias" ]; then
-        ln -s "backend.log" "$alias"
+        ln -sfn "backend.log" "$alias" 2>/dev/null || true
     fi
 }
 
@@ -708,7 +911,7 @@ log_readyz_timeline() {
 dump_env_summary() {
     log_line INFO "env: AOS_SERVER_PORT=$AOS_SERVER_PORT AOS_VAR_DIR=$AOS_VAR_DIR SKIP_WORKER=$SKIP_WORKER"
     local server_bin=""
-    for candidate in target/release/adapteros-server target/debug/adapteros-server; do
+    for candidate in target/release/aos-server target/debug/aos-server; do
         if [ -f "$candidate" ]; then
             server_bin="$candidate"
             break
@@ -853,45 +1056,67 @@ load_seeded_model_on_worker() {
     local timeout_secs="${AOS_MODEL_LOAD_TIMEOUT_SECS:-120}"
     local start_ts now elapsed
     start_ts="$(date +%s)"
+    local load_request_sent=0
+    local last_model_phase=""
 
     while true; do
-        local status="000"
-        if [ -n "$auth_header" ]; then
-            status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
-                -H "Content-Type: application/json" -H "$auth_header" \
-                -d '{}' "$url" 2>/dev/null || echo "000")
-        else
-            status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
-                -H "Content-Type: application/json" \
-                -d '{}' "$url" 2>/dev/null || echo "000")
+        # Send load request (first iteration only - subsequent iterations just poll)
+        if [ "$load_request_sent" -eq 0 ]; then
+            local status="000"
+            if [ -n "$auth_header" ]; then
+                status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
+                    -H "Content-Type: application/json" -H "$auth_header" \
+                    -d '{}' "$url" 2>/dev/null || echo "000")
+            else
+                status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
+                    -H "Content-Type: application/json" \
+                    -d '{}' "$url" 2>/dev/null || echo "000")
+            fi
+
+            if [ "$status" != "200" ]; then
+                log_line ERROR "model:load failed status=$status model_id=$model_id"
+                return 1
+            fi
+            load_request_sent=1
         fi
 
-        if [ "$status" != "200" ]; then
-            log_line ERROR "model:load failed status=$status model_id=$model_id"
-            return 1
+        # Poll DB for model status
+        local db_status="" db_error="" memory_mb=""
+        if command -v sqlite3 >/dev/null 2>&1 && [ -f "$AOS_VAR_DIR/aos-cp.sqlite3" ]; then
+            db_status="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
+                "SELECT status FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
+                2>/dev/null | head -1)"
+            db_error="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
+                "SELECT error_message FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
+                2>/dev/null | head -1)"
+            memory_mb="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
+                "SELECT memory_usage_mb FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
+                2>/dev/null | head -1)"
         fi
 
-        local db_status db_error
-        db_status="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
-            "SELECT status FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
-            2>/dev/null | head -1)"
-        db_error="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
-            "SELECT error_message FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
-            2>/dev/null | head -1)"
-
+        # Map DB status to progress percentage and label
+        local mpct=20
+        local mlabel="Sending load request..."
         case "$db_status" in
             ready|loaded)
+                term_clear_row
+                # Store memory info for caller to display
+                MODEL_LOAD_MEMORY_MB="${memory_mb:-}"
                 return 0
                 ;;
             loading)
-                # Keep waiting until ready or timeout.
+                mpct=60
+                mlabel="Loading model to RAM..."
                 ;;
             error)
+                term_clear_row
                 log_line WARN "model:load worker reported error model_id=$model_id error=${db_error:-unknown}"
                 return 1
                 ;;
             "")
-                # base_model_status row may be created async; keep waiting.
+                # Row not yet created - waiting for worker to pick up
+                mpct=35
+                mlabel="Waiting for worker..."
                 ;;
             *)
                 log_line WARN "model:load unexpected db status model_id=$model_id status=$db_status"
@@ -899,9 +1124,18 @@ load_seeded_model_on_worker() {
                 ;;
         esac
 
+        # Render progress
+        if [ "$AOS_CAN_ANIMATE" -eq 1 ]; then
+            print_progress_animated "$mpct" 100 "$mlabel"
+        elif [ "$db_status" != "$last_model_phase" ]; then
+            echo "  [$mpct%] $mlabel"
+        fi
+        last_model_phase="$db_status"
+
         now="$(date +%s)"
         elapsed=$((now - start_ts))
         if [ "$elapsed" -ge "$timeout_secs" ]; then
+            term_clear_row
             log_line ERROR "model:load timeout model_id=$model_id waited_secs=$elapsed last_status=${db_status:-none}"
             return 1
         fi
@@ -909,6 +1143,9 @@ load_seeded_model_on_worker() {
         sleep 1
     done
 }
+
+# Memory info from last model load (set by load_seeded_model_on_worker)
+MODEL_LOAD_MEMORY_MB=""
 
 show_help() {
     print_banner
@@ -920,6 +1157,7 @@ Commands:
   up, start     Start backend + worker [default]
   down, stop    Graceful shutdown
   status        Show service status
+  init          Generate system manifest (configs/manifest.toml)
   backend       Start backend only
   worker        Start worker only
   secd          Start Secure Enclave Daemon only
@@ -931,7 +1169,7 @@ UI: Backend serves Leptos WASM from static/. For dev hot-reload,
     run `trunk serve` in crates/adapteros-ui/ separately.
 
 Environment:
-  AOS_SERVER_PORT   Backend API port (default: 8080)
+  AOS_SERVER_PORT   Backend API port (default: 18080)
   AOS_VAR_DIR       Runtime data directory (default: var)
   AOS_DEV_LOG_RETENTION_DAYS            Runtime log retention in days (default: 7)
   AOS_DEV_CLIENT_ERROR_RETENTION_DAYS   client_errors retention in days (default: 30)
@@ -1034,7 +1272,128 @@ show_status() {
 }
 
 do_preflight() {
+    if ! check_start_dependencies "preflight"; then
+        return 1
+    fi
     freeze_preflight "$AOS_SERVER_PORT" "$AOS_VAR_DIR"
+}
+
+binary_exists() {
+    local path="$1"
+    [ -f "$path" ] && [ -x "$path" ]
+}
+
+require_binary_or_cargo() {
+    local label="$1"
+    local debug_bin="$2"
+    local release_bin="$3"
+
+    if binary_exists "$debug_bin" || binary_exists "$release_bin"; then
+        return 0
+    fi
+
+    if command -v cargo >/dev/null 2>&1; then
+        return 0
+    fi
+
+    fg_error "Missing dependency for $label startup: no built binary and 'cargo' not found."
+    echo "  Expected one of:"
+    echo "    - $debug_bin"
+    echo "    - $release_bin"
+    echo "  Install Rust toolchain (cargo) or build binaries before running ./start."
+    echo ""
+    return 1
+}
+
+check_start_dependencies() {
+    local mode="${1:-up}"
+    local failed=0
+
+    if ! command -v lsof >/dev/null 2>&1; then
+        fg_error "Missing required command: lsof"
+        echo "  ./start relies on lsof for deterministic port and process checks."
+        echo ""
+        failed=1
+    fi
+
+    case "$mode" in
+        up|start|backend)
+            if ! command -v curl >/dev/null 2>&1; then
+                fg_error "Missing required command: curl"
+                echo "  ./start uses curl for health and readiness checks."
+                echo ""
+                failed=1
+            fi
+            if [ ! -x scripts/service-manager.sh ]; then
+                fg_error "Missing required script: scripts/service-manager.sh"
+                echo ""
+                failed=1
+            fi
+            if ! require_binary_or_cargo \
+                "backend" \
+                "$SCRIPT_DIR/target/debug/aos-server" \
+                "$SCRIPT_DIR/target/release/aos-server"; then
+                failed=1
+            fi
+            if [ "${SKIP_WORKER:-0}" != "1" ]; then
+                if ! require_binary_or_cargo \
+                    "worker" \
+                    "$SCRIPT_DIR/target/debug/aos-worker" \
+                    "$SCRIPT_DIR/target/release/aos-worker"; then
+                    failed=1
+                fi
+            fi
+            ;;
+        worker)
+            if [ ! -x scripts/service-manager.sh ]; then
+                fg_error "Missing required script: scripts/service-manager.sh"
+                echo ""
+                failed=1
+            fi
+            if ! require_binary_or_cargo \
+                "worker" \
+                "$SCRIPT_DIR/target/debug/aos-worker" \
+                "$SCRIPT_DIR/target/release/aos-worker"; then
+                failed=1
+            fi
+            ;;
+        secd)
+            if [ ! -x scripts/service-manager.sh ]; then
+                fg_error "Missing required script: scripts/service-manager.sh"
+                echo ""
+                failed=1
+            fi
+            if ! require_binary_or_cargo \
+                "secd" \
+                "$SCRIPT_DIR/target/debug/aos-secd" \
+                "$SCRIPT_DIR/target/release/aos-secd"; then
+                failed=1
+            fi
+            ;;
+        node)
+            if [ ! -x scripts/service-manager.sh ]; then
+                fg_error "Missing required script: scripts/service-manager.sh"
+                echo ""
+                failed=1
+            fi
+            if ! require_binary_or_cargo \
+                "node" \
+                "$SCRIPT_DIR/target/debug/aos-node" \
+                "$SCRIPT_DIR/target/release/aos-node"; then
+                failed=1
+            fi
+            ;;
+        preflight|check)
+            # Port/process dependency checks only.
+            ;;
+    esac
+
+    if [ "$failed" -ne 0 ]; then
+        fg_error "Dependency preflight failed. Resolve missing items and retry."
+        return 1
+    fi
+
+    return 0
 }
 
 # Start backend with progress animation
@@ -1067,67 +1426,76 @@ start_backend_animated() {
                 tail -n 20 -F "$AOS_LOG_DIR/backend.log" &
                 tail_pid=$!
             fi
-            # Wait for health check (configurable timeout) with progress
-            local waited=0
+            # Wait for backend startup with real phase-driven progress
             local health_timeout="${AOS_HEALTH_TIMEOUT:-15}"
             local backend_pid
             backend_pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
-            while [ $waited -lt "$health_timeout" ]; do
-                # Early crash detection: check if process is still alive
-                if [ -n "$backend_pid" ] && ! kill -0 "$backend_pid" 2>/dev/null; then
-                    term_clear_row
-                    update_step "error" "Backend API     ${FG_RED}CRASHED${FG_RESET} (process died during startup)"
-                    log_line ERROR "backend:early_crash pid=$backend_pid"
-                    [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -30 "$AOS_VAR_DIR/logs/backend.log" 2>/dev/null
-                    append_debug_log \
-                        "start_backend_animated:early_crash" \
-                        "backend crashed during health wait" \
-                        "H1" \
-                        "$(printf '{"pid":"%s"}' "$backend_pid")"
-                    if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
-                    return 1
-                fi
-                print_progress_animated $waited $health_timeout "Waiting for backend health..."
-                if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
-                    term_clear_row
+
+            local poll_rc=0
+            poll_backend_startup "$backend_pid" "$health_timeout" || poll_rc=$?
+
+            case $poll_rc in
+                0)
+                    # Success
                     local pid
                     pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
-                    update_step "success" "Backend API     ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_SERVER_PORT)"
-                    log_line INFO "backend:ready pid=$pid port=$AOS_SERVER_PORT"
+                    if [ "$POLL_BOOT_STATE" = "degraded" ]; then
+                        update_step "success" "Backend API     ${FG_YELLOW}DEGRADED${FG_RESET} (PID $pid, port $AOS_SERVER_PORT)"
+                    else
+                        update_step "success" "Backend API     ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_SERVER_PORT)"
+                    fi
+                    log_line INFO "backend:ready pid=$pid port=$AOS_SERVER_PORT state=$POLL_BOOT_STATE"
                     if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
-                    #region agent log
                     append_debug_log \
                         "start_backend_animated:health" \
                         "backend ready" \
                         "H1" \
-                        "$(printf '{"pid":"%s","manifest":"%s","backend_port":"%s"}' "$pid" "${AOS_MANIFEST_PATH:-}" "${AOS_SERVER_PORT:-8080}")"
-                    #endregion agent log
+                        "$(printf '{"pid":"%s","manifest":"%s","backend_port":"%s","boot_state":"%s"}' "$pid" "${AOS_MANIFEST_PATH:-}" "${AOS_SERVER_PORT:-18080}" "$POLL_BOOT_STATE")"
                     return 0
-                fi
-                sleep 1
-                ((waited++))
-            done
-            term_clear_row
-            # Health check timeout - this is a failure, not success
-            local pid
-            pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
-            local health_timeout="${AOS_HEALTH_TIMEOUT:-15}"
-            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-                update_step "error" "Backend API     ${FG_RED}UNHEALTHY${FG_RESET} (PID $pid, healthz timeout after ${health_timeout}s)"
-            else
-                update_step "error" "Backend API     ${FG_RED}CRASHED${FG_RESET} (process not running)"
-            fi
-            log_line ERROR "backend:health_timeout pid=${pid:-none} timeout=${health_timeout}s"
-            [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -20 "$AOS_VAR_DIR/logs/backend.log" 2>/dev/null
-            #region agent log
-            append_debug_log \
-                "start_backend_animated:health_timeout" \
-                "backend healthz timeout - treated as failure" \
-                "H1" \
-                "$(printf '{"pid":"%s","manifest":"%s","backend_port":"%s"}' "$pid" "${AOS_MANIFEST_PATH:-}" "${AOS_SERVER_PORT:-8080}")"
-            #endregion agent log
-            if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
-            return 1
+                    ;;
+                2)
+                    # Boot failure - structured error from server
+                    update_step "error" "Backend API     ${FG_RED}BOOT FAILED${FG_RESET}"
+                    echo ""
+                    echo -e "  ${FG_RED}Backend boot failed${FG_RESET}"
+                    [ -n "$POLL_FAIL_PHASE" ] && echo "    Failed phase:  $POLL_FAIL_PHASE"
+                    [ -n "$POLL_FAIL_ERROR" ] && echo "    Error code:    $POLL_FAIL_ERROR"
+                    [ -n "$POLL_FAIL_ACTION" ] && echo "    Next action:   $POLL_FAIL_ACTION"
+                    echo ""
+                    log_line ERROR "backend:boot_failed phase=${POLL_FAIL_PHASE:-unknown} error=${POLL_FAIL_ERROR:-unknown}"
+                    [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -30 "$AOS_VAR_DIR/logs/backend.log" 2>/dev/null
+                    append_debug_log \
+                        "start_backend_animated:boot_failed" \
+                        "backend boot failed" \
+                        "H1" \
+                        "$(printf '{"failed_phase":"%s","error_code":"%s","next_action":"%s"}' "${POLL_FAIL_PHASE:-}" "${POLL_FAIL_ERROR:-}" "${POLL_FAIL_ACTION:-}")"
+                    if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
+                    return 1
+                    ;;
+                *)
+                    # Crash or timeout
+                    local pid
+                    pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
+                    if [ "$POLL_FAIL_REASON" = "CRASHED" ]; then
+                        update_step "error" "Backend API     ${FG_RED}CRASHED${FG_RESET} (process died during startup)"
+                        log_line ERROR "backend:early_crash pid=$backend_pid phase=${POLL_FAIL_PHASE:-unknown}"
+                    elif [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                        update_step "error" "Backend API     ${FG_RED}UNHEALTHY${FG_RESET} (PID $pid, timeout after ${health_timeout}s at phase: ${POLL_FAIL_PHASE:-unknown})"
+                        log_line ERROR "backend:health_timeout pid=$pid timeout=${health_timeout}s phase=${POLL_FAIL_PHASE:-unknown}"
+                    else
+                        update_step "error" "Backend API     ${FG_RED}CRASHED${FG_RESET} (process not running)"
+                        log_line ERROR "backend:health_timeout pid=${pid:-none} timeout=${health_timeout}s"
+                    fi
+                    [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -30 "$AOS_VAR_DIR/logs/backend.log" 2>/dev/null
+                    append_debug_log \
+                        "start_backend_animated:health_timeout" \
+                        "backend startup failed" \
+                        "H1" \
+                        "$(printf '{"pid":"%s","reason":"%s","phase":"%s"}' "${pid:-}" "$POLL_FAIL_REASON" "${POLL_FAIL_PHASE:-}")"
+                    if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
+                    return 1
+                    ;;
+            esac
         else
             stop_spinner
             update_step "error" "Backend API - failed to start"
@@ -1145,7 +1513,7 @@ start_backend_animated() {
                 "start_backend_animated:error" \
                 "backend start failed" \
                 "H1" \
-                "$(printf '{"manifest":"%s","backend_port":"%s"}' "${AOS_MANIFEST_PATH:-}" "${AOS_SERVER_PORT:-8080}")"
+                "$(printf '{"manifest":"%s","backend_port":"%s"}' "${AOS_MANIFEST_PATH:-}" "${AOS_SERVER_PORT:-18080}")"
             #endregion agent log
             return 1
         fi
@@ -1196,10 +1564,34 @@ start_backend() {
 
 start_all() {
     BOOT_IN_PROGRESS=1
+
+    # First-boot detection: if no manifest exists and we're interactive, offer to generate one
+    if ! manifest_exists "$AOS_MANIFEST_FILE" && [ -t 0 ] && [ "${AOS_SKIP_INIT:-0}" != "1" ]; then
+        print_banner
+        echo ""
+        echo -e "  ${FG_YELLOW}No system manifest found.${FG_RESET}"
+        echo -e "  A manifest configures your adapterOS instance (services, model, ports)."
+        echo ""
+        printf "  Generate one now? [Y/n]: "
+        local init_choice
+        read -r init_choice
+        init_choice="${init_choice:-Y}"
+        case "$init_choice" in
+            [Yy]|[Yy]es)
+                source scripts/lib/manifest-wizard.sh
+                run_manifest_wizard
+                # Re-bridge after generating manifest
+                bridge_manifest_to_env
+                ;;
+            *)
+                echo -e "  ${FG_CYAN}Skipping.${FG_RESET} Run ${FG_BOLD}./start init${FG_RESET} later to generate a manifest."
+                echo ""
+                ;;
+        esac
+    fi
+
     print_banner
 
-    # Initialize boot progress tracking
-    init_boot_progress
     echo ""
     echo -e "${FG_CYAN}Starting adapterOS${FG_RESET}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1208,11 +1600,8 @@ start_all() {
     fi
     echo -e "  Run ID: ${FG_CYAN}${AOS_RUN_ID}${FG_RESET}"
     echo ""
-    print_progress_animated 0 100 "Initializing..."
-    sleep 0.2
 
     # Check for stale build cache (warns if >48h or >50GB; do not fail boot)
-    update_boot_progress "preflight"
     if [ -x "scripts/check_cache_staleness.sh" ]; then
         cache_warn="$(scripts/check_cache_staleness.sh 2>&1 || true)"
         if [ -n "${cache_warn:-}" ]; then
@@ -1230,7 +1619,7 @@ start_all() {
         "start_all:env" \
         "start_all entry" \
         "H4" \
-        "$(printf '{"AOS_SERVER_PORT":"%s","AOS_MANIFEST_PATH":"%s","AOS_MODEL_BACKEND":"%s","SKIP_WORKER":"%s"}' "${AOS_SERVER_PORT:-8080}" "${AOS_MANIFEST_PATH:-}" "${AOS_MODEL_BACKEND:-}" "${SKIP_WORKER:-0}")"
+        "$(printf '{"AOS_SERVER_PORT":"%s","AOS_MANIFEST_PATH":"%s","AOS_MODEL_BACKEND":"%s","SKIP_WORKER":"%s"}' "${AOS_SERVER_PORT:-18080}" "${AOS_MANIFEST_PATH:-}" "${AOS_MODEL_BACKEND:-}" "${SKIP_WORKER:-0}")"
     #endregion agent log
 
     # Preflight with animation
@@ -1262,16 +1651,13 @@ start_all() {
     local backend_ok=0
     local worker_ok=0
 
-    update_boot_progress "backend_start"
     start_backend_animated && backend_ok=1
     if [ $backend_ok -eq 1 ]; then
-        update_boot_progress "backend_health"
         check_ui_assets || true
     fi
 
     # Seed model into database if AOS_MODEL_PATH is set
     if [ $backend_ok -eq 1 ] && [ -n "${AOS_MODEL_PATH:-}" ]; then
-        update_boot_progress "model_seed"
         print_step "running" "Seeding model into database..."
         local aosctl_bin=""
         if [ -f "./aosctl" ]; then
@@ -1297,18 +1683,19 @@ start_all() {
     fi
 
     # Start worker (required by default, use --skip-worker to opt out)
-    update_boot_progress "worker_start"
     print_step "running" "Starting Inference Worker..."
     if [ "${SKIP_WORKER:-0}" = "1" ]; then
         update_step "pending" "Worker          ${FG_YELLOW}SKIPPED${FG_RESET}  (requested via --skip-worker)"
     elif scripts/service-manager.sh start worker >/dev/null 2>&1; then
-        # Wait for socket with progress animation
+        # Wait for worker with phase-aware progress milestones
         local waited=0
         local worker_timeout=15
         local worker_pid
         worker_pid=$(cat "$AOS_VAR_DIR/worker.pid" 2>/dev/null)
+        local worker_phase="starting"
+
         while [ $waited -lt $worker_timeout ]; do
-            # Early crash detection: check if worker process is still alive
+            # Early crash detection
             if [ -n "$worker_pid" ] && ! kill -0 "$worker_pid" 2>/dev/null; then
                 term_clear_row
                 update_step "error" "Worker          ${FG_RED}CRASHED${FG_RESET} (process died during startup)"
@@ -1325,28 +1712,58 @@ start_all() {
                 echo ""
                 return 1
             fi
-            print_progress_animated $waited $worker_timeout "Worker starting..."
+
+            # Determine worker phase and percentage
+            local wpct=15
+            local wlabel="Starting worker process..."
             if [ -S "$AOS_VAR_DIR/run/worker.sock" ]; then
                 local worker_sock_abs="$AOS_VAR_DIR/run/worker.sock"
                 if [[ "$worker_sock_abs" != /* ]]; then
                     worker_sock_abs="$SCRIPT_DIR/$worker_sock_abs"
                 fi
+
+                # Socket exists - check if listener is attached
                 local socket_pid=""
                 if command -v lsof >/dev/null 2>&1; then
                     socket_pid=$(lsof -t "$worker_sock_abs" 2>/dev/null | head -1)
                 fi
+
                 if [ -n "$socket_pid" ] && kill -0 "$socket_pid" 2>/dev/null; then
-                term_clear_row
-                update_step "success" "Worker          ${FG_GREEN}READY${FG_RESET}  (PID $socket_pid, socket)"
-                worker_ok=1
-                update_boot_progress "worker_ready"
-                break
+                    # Socket + live listener - check DB status for full readiness
+                    local db_worker_status=""
+                    if command -v sqlite3 >/dev/null 2>&1 && [ -f "$AOS_VAR_DIR/aos-cp.sqlite3" ]; then
+                        db_worker_status=$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
+                            "SELECT status FROM workers WHERE pid=$worker_pid ORDER BY started_at DESC LIMIT 1;" \
+                            2>/dev/null | head -1)
+                    fi
+
+                    case "$db_worker_status" in
+                        healthy|serving)
+                            # Fully ready
+                            term_clear_row
+                            update_step "success" "Worker          ${FG_GREEN}READY${FG_RESET}  (PID $socket_pid, socket)"
+                            worker_ok=1
+                            break
+                            ;;
+                        *)
+                            wpct=75
+                            wlabel="Registered with control plane..."
+                            ;;
+                    esac
+                else
+                    # Socket exists but no listener yet (race during bind)
+                    wpct=50
+                    wlabel="Socket bound, registering..."
                 fi
-                term_clear_row
-                update_step "error" "Worker          ${FG_RED}STALE${FG_RESET}  (socket exists but no live process)"
-                log_line ERROR "worker:stale_socket socket=$worker_sock_abs"
-                return 1
             fi
+
+            if [ "$AOS_CAN_ANIMATE" -eq 1 ]; then
+                print_progress_animated "$wpct" 100 "$wlabel"
+            elif [ "$worker_phase" != "$wlabel" ]; then
+                echo "  [$wpct%] $wlabel"
+                worker_phase="$wlabel"
+            fi
+
             sleep 1
             ((waited++))
         done
@@ -1385,15 +1802,25 @@ start_all() {
     # This is intentionally conservative (dev/demo quality-of-life) and only runs when:
     # - backend + worker are up
     # - a model path is provided
-    if [ $backend_ok -eq 1 ] && [ $worker_ok -eq 1 ] && [ -n "${AOS_MODEL_PATH:-}" ]; then
-        update_boot_progress "model_load"
+    # Skip when AOS_QUICK_BOOT=1 (--quick): worker loads on first inference; avoids 409 hot-swap gate loop
+    if [ "${AOS_QUICK_BOOT:-0}" = "1" ]; then
+        update_step "pending" "Model           ${FG_YELLOW}SKIPPED${FG_RESET}  (--quick: loads on first inference)"
+    elif [ $backend_ok -eq 1 ] && [ $worker_ok -eq 1 ] && [ -n "${AOS_MODEL_PATH:-}" ]; then
         print_step "running" "Loading base model on worker..."
-        start_spinner "Loading model..."
         if load_seeded_model_on_worker "$AOS_MODEL_PATH"; then
-            stop_spinner
-            update_step "success" "Model           ${FG_GREEN}LOADED${FG_RESET}"
+            local mem_info=""
+            if [ -n "$MODEL_LOAD_MEMORY_MB" ] && [ "$MODEL_LOAD_MEMORY_MB" != "0" ]; then
+                # Format memory: show as GB if >= 1024 MB, otherwise MB
+                if [ "$MODEL_LOAD_MEMORY_MB" -ge 1024 ] 2>/dev/null; then
+                    local gb_whole=$((MODEL_LOAD_MEMORY_MB / 1024))
+                    local gb_frac=$(( (MODEL_LOAD_MEMORY_MB % 1024) * 10 / 1024 ))
+                    mem_info="  (${gb_whole}.${gb_frac} GB)"
+                else
+                    mem_info="  (${MODEL_LOAD_MEMORY_MB} MB)"
+                fi
+            fi
+            update_step "success" "Model           ${FG_GREEN}LOADED${FG_RESET}${mem_info}"
         else
-            stop_spinner
             update_step "error" "Model           ${FG_RED}NOT LOADED${FG_RESET}"
             echo ""
             echo "  Check:"
@@ -1431,7 +1858,6 @@ start_all() {
     # Final readiness check (unless --quick was used)
     local inference_ready=0
     if [ $backend_ok -eq 1 ] && [ $worker_ok -eq 1 ] && [ "${AOS_QUICK_BOOT:-0}" != "1" ]; then
-        update_boot_progress "inference_check"
         print_step "running" "Checking inference readiness..."
         local readyz_timeout="${AOS_READYZ_TIMEOUT:-30}"
         local readyz_waited=0
@@ -1450,7 +1876,6 @@ start_all() {
                 term_clear_row
                 update_step "success" "Inference       ${FG_GREEN}READY${FG_RESET}  (/readyz check passed)"
                 inference_ready=1
-                update_boot_progress "complete"
                 break
             fi
             sleep 1
@@ -1466,8 +1891,6 @@ start_all() {
             echo ""
             return 1
         fi
-    else
-        update_boot_progress "complete"
     fi
 
     # Optional chat verification
@@ -1477,7 +1900,7 @@ start_all() {
             log_line ERROR "chat:verify blocked backend=$backend_ok worker=$worker_ok"
             return 1
         fi
-        update_boot_progress "chat_verify"
+
         print_step "running" "Verifying chat response..."
         if ! verify_chat; then
             update_step "error" "Chat verification failed"
@@ -1503,9 +1926,6 @@ start_all() {
     if [ $backend_ok -eq 1 ] && [ $show_full_success -eq 1 ]; then
         # Boot complete - clear the flag so cleanup won't kill services
         BOOT_IN_PROGRESS=0
-        # Show final progress bar completion
-        print_progress_animated 100 100 "Complete!"
-        echo ""
         echo ""
         echo -e "${FG_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
         echo ""
@@ -1758,6 +2178,7 @@ main() {
 
     case "$cmd" in
         up|start|"")
+            check_start_dependencies "up"
             run_dev_log_hygiene
             start_all
             ;;
@@ -1768,10 +2189,12 @@ main() {
             show_status
             ;;
         backend)
+            check_start_dependencies "backend"
             run_dev_log_hygiene
             start_backend
             ;;
         worker)
+            check_start_dependencies "worker"
             run_dev_log_hygiene
             if [ -x scripts/service-manager.sh ]; then
                 scripts/service-manager.sh start worker
@@ -1781,6 +2204,7 @@ main() {
             fi
             ;;
         secd)
+            check_start_dependencies "secd"
             run_dev_log_hygiene
             if [ -x scripts/service-manager.sh ]; then
                 scripts/service-manager.sh start secd
@@ -1790,6 +2214,7 @@ main() {
             fi
             ;;
         node)
+            check_start_dependencies "node"
             run_dev_log_hygiene
             if [ -x scripts/service-manager.sh ]; then
                 scripts/service-manager.sh start node
@@ -1797,6 +2222,11 @@ main() {
                 fg_error "service-manager.sh not found"
                 exit 1
             fi
+            ;;
+        init)
+            source scripts/lib/manifest-wizard.sh
+            shift
+            run_manifest_wizard "$@"
             ;;
         preflight|check)
             print_banner

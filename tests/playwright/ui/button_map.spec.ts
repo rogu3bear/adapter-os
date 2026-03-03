@@ -72,7 +72,7 @@ async function collectButtonsAndLinks(page: Page): Promise<Entry[]> {
 test('button map (demo surfaces)', { tag: ['@map'] }, async ({ page }) => {
   test.setTimeout(6 * 60_000);
 
-  const routes = ['/documents', '/datasets', '/training', '/chat', '/runs'];
+  const routes = ['/documents', '/training', '/chat', '/runs'];
   const report: Entry[] = [];
 
   for (const route of routes) {

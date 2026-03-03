@@ -1026,7 +1026,7 @@ jobs:
     env:
       AOS_DEV_NO_AUTH: "1"
       AOS_BACKEND: mock
-      AOS_SERVER_PORT: "8080"
+      AOS_SERVER_PORT: "18080"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -1064,7 +1064,7 @@ jobs:
 
           # Wait for server to be ready
           for i in {1..30}; do
-            if curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+            if curl -fsS --max-time 2 "http://127.0.0.1:${AOS_SERVER_PORT}/healthz" >/dev/null 2>&1; then
               echo "Server ready after ${i}s"
               break
             fi
@@ -1072,10 +1072,10 @@ jobs:
           done
 
           # Verify server is up
-          curl -fsS http://127.0.0.1:8080/healthz || (echo "Server failed to start"; exit 1)
+          curl -fsS "http://127.0.0.1:${AOS_SERVER_PORT}/healthz" || (echo "Server failed to start"; exit 1)
       - name: Measure TTI with Lighthouse
         run: |
-          npx lighthouse http://127.0.0.1:8080 \
+          npx lighthouse "http://127.0.0.1:${AOS_SERVER_PORT}" \
             --only-categories=performance \
             --output=json \
             --output-path=./lighthouse.json \

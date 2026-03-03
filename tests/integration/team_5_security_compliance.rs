@@ -34,7 +34,7 @@ mod tests {
 
         // Verify audit_logs table exists
         let result = sqlx::query("SELECT 1 FROM audit_logs LIMIT 1")
-            .fetch_optional(harness.db().pool())
+            .fetch_optional(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -56,7 +56,7 @@ mod tests {
         .bind("adapter.register")
         .bind("adapter-123")
         .bind("success")
-        .execute(harness.db().pool())
+        .execute(harness.db().pool_result().unwrap())
         .await;
 
         assert!(result.is_ok());
@@ -77,7 +77,7 @@ mod tests {
         .bind("adapter.load")
         .bind("adapter-1")
         .bind("success")
-        .execute(harness.db().pool())
+        .execute(harness.db().pool_result().unwrap())
         .await;
 
         let _ = sqlx::query(
@@ -88,12 +88,12 @@ mod tests {
         .bind("policy.apply")
         .bind("policy-1")
         .bind("success")
-        .execute(harness.db().pool())
+        .execute(harness.db().pool_result().unwrap())
         .await;
 
         // Query audit logs
         let result = sqlx::query("SELECT action FROM audit_logs ORDER BY created_at DESC")
-            .fetch_all(harness.db().pool())
+            .fetch_all(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -146,7 +146,7 @@ mod tests {
         // Verify tenant isolation - adapters from one tenant don't see others
         let result = sqlx::query("SELECT id FROM adapters WHERE tenant_id = ?")
             .bind("default")
-            .fetch_all(harness.db().pool())
+            .fetch_all(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -167,7 +167,7 @@ mod tests {
         // Verify ACL can be enforced
         let result = sqlx::query("SELECT id FROM adapters WHERE id = ?")
             .bind("restricted-adapter")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -252,7 +252,7 @@ mod tests {
 
         // Verify sessions table exists if implemented
         let result = sqlx::query("SELECT 1 FROM auth_sessions LIMIT 1")
-            .fetch_optional(harness.db().pool())
+            .fetch_optional(harness.db().pool_result().unwrap())
             .await;
 
         // Table may or may not exist depending on implementation
@@ -267,7 +267,7 @@ mod tests {
 
         // Verify pinned_adapters table exists
         let result = sqlx::query("SELECT 1 FROM pinned_adapters LIMIT 1")
-            .fetch_optional(harness.db().pool())
+            .fetch_optional(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -288,7 +288,7 @@ mod tests {
         // Verify expiration date can be checked
         let result = sqlx::query("SELECT id FROM adapters WHERE id = ?")
             .bind("ttl-adapter")
-            .fetch_one(harness.db().pool())
+            .fetch_one(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -325,7 +325,7 @@ mod tests {
             .expect("Failed to initialize harness");
 
         // Verify crypto module is accessible through app state
-        assert!(harness.state_ref().db().pool().acquire().await.is_ok());
+        assert!(harness.state_ref().db().pool_result().unwrap().acquire().await.is_ok());
     }
 
     #[tokio::test]
@@ -336,7 +336,7 @@ mod tests {
 
         // Verify determinism validation infrastructure
         // In real implementation, would validate determinism seeds
-        assert!(harness.state_ref().db().pool().acquire().await.is_ok());
+        assert!(harness.state_ref().db().pool_result().unwrap().acquire().await.is_ok());
     }
 
     #[tokio::test]
@@ -354,7 +354,7 @@ mod tests {
         // Verify adapters are isolated by tenant
         let result = sqlx::query("SELECT id FROM adapters WHERE tenant_id = ?")
             .bind("default")
-            .fetch_all(harness.db().pool())
+            .fetch_all(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());
@@ -369,7 +369,7 @@ mod tests {
 
         // Verify audit logging for policy operations
         let result = sqlx::query("SELECT 1 FROM audit_logs LIMIT 1")
-            .fetch_optional(harness.db().pool())
+            .fetch_optional(harness.db().pool_result().unwrap())
             .await;
 
         assert!(result.is_ok());

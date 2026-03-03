@@ -68,9 +68,9 @@ require_https = false
 # Production: Restrict to your actual domains
 # Development: Include localhost variants
 cors_origins = [
-    "http://localhost:3200",
+    "http://localhost:18081",
     "http://localhost:3201",
-    "http://127.0.0.1:3200"
+    "http://127.0.0.1:18081"
 ]
 
 # Enable rate limiting (default: true)

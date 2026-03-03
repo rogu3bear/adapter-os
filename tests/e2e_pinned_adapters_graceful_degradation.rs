@@ -219,6 +219,7 @@ fn test_inference_result_has_pinned_adapter_fields() {
         router_decision_chain: None,
         rag_evidence: None,
         citations: vec![],
+        document_links: vec![],
         latency_ms: 500,
         request_id: "test-request-123".to_string(),
         run_envelope: None,
@@ -243,6 +244,8 @@ fn test_inference_result_has_pinned_adapter_fields() {
         stop_policy_digest_b3: None,
         model_type: None,
         abstention: None,
+        adapter_attachments: vec![],
+        degraded_notices: vec![],
         pending_evidence_ids: Vec::new(),
     };
 
@@ -278,6 +281,7 @@ fn test_inference_result_omits_none_pinned_fields() {
         router_decision_chain: None,
         rag_evidence: None,
         citations: vec![],
+        document_links: vec![],
         latency_ms: 250,
         request_id: "test-request-456".to_string(),
         run_envelope: None,
@@ -299,6 +303,8 @@ fn test_inference_result_omits_none_pinned_fields() {
         stop_policy_digest_b3: None,
         model_type: None,
         abstention: None,
+        adapter_attachments: vec![],
+        degraded_notices: vec![],
         pending_evidence_ids: Vec::new(),
     };
 
@@ -397,6 +403,7 @@ fn test_graceful_degradation_http_200_behavior() {
         router_decision_chain: None,
         rag_evidence: None,
         citations: vec![],
+        document_links: vec![],
         latency_ms: 1000,
         request_id: "graceful-degradation-test".to_string(),
         run_envelope: None,
@@ -418,6 +425,8 @@ fn test_graceful_degradation_http_200_behavior() {
         stop_policy_digest_b3: None,
         model_type: None,
         abstention: None,
+        adapter_attachments: vec![],
+        degraded_notices: vec![],
         pending_evidence_ids: Vec::new(),
     };
 

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "description": "Allowed tracked tooling config paths.",
+  "allowed_paths": [
+    ".mcp.json",
+    ".claude/settings.json",
+    ".claude/hooks/block-dangerous-git.sh",
+    ".cursor/rules/adapteros-rust.mdc",
+    ".cursor/rules/adapteros-ui.mdc",
+    ".cursor/rules/adapteros.mdc",
+    ".cursor/worktrees.json",
+    ".vscode/launch.json",
+    ".vscode/settings.json",
+    ".vscode/tasks.json"
+  ]
+}

@@ -12,6 +12,7 @@
 
 mod assets;
 
+use adapteros_core::determinism_mode::DeterminismMode;
 use adapteros_server::boot::api_config::{build_api_config, spawn_sighup_handler};
 use adapteros_server::boot::background_tasks::spawn_all_background_tasks;
 use adapteros_server::boot::migrations::run_migrations;
@@ -31,8 +32,33 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use tracing::{error, info, instrument, warn};
 
-mod alerting;
 mod openapi;
+
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+fn configure_mlx_version_enforcement(
+    server_config: &std::sync::Arc<std::sync::RwLock<adapteros_server_api::config::Config>>,
+    cli_strict: bool,
+) -> Result<()> {
+    let strict_mode = {
+        let cfg = server_config
+            .read()
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
+        cli_strict || cfg.general.determinism_mode == Some(DeterminismMode::Strict)
+    };
+
+    std::env::set_var(
+        "AOS_ENFORCE_MLX_VERSION_MATCH",
+        if strict_mode { "1" } else { "0" },
+    );
+
+    info!(
+        strict_mode,
+        "Configured MLX runtime/build version enforcement mode"
+    );
+    Ok(())
+}
 
 #[tokio::main]
 #[instrument(skip_all)]
@@ -47,6 +73,7 @@ async fn main() -> Result<()> {
     // Phase 1: Configuration
     // =========================================================================
     let config_ctx = initialize_config(&cli).await?;
+    configure_mlx_version_enforcement(&config_ctx.server_config, cli.strict)?;
     let boot_state = config_ctx.boot_state.clone();
     let startup_orchestrator = StartupOrchestrator::new(boot_state.clone());
 
@@ -95,6 +122,27 @@ async fn main() -> Result<()> {
                 None,
             )
             .await?;
+
+        #[cfg(feature = "multi-backend")]
+        if std::env::var("AOS_ENFORCE_MLX_VERSION_MATCH").as_deref() == Ok("1") {
+            startup_orchestrator
+                .run_phase(
+                    "mlx_version_guard",
+                    failure_codes::EXECUTOR_INIT_FAILED,
+                    RetryPolicy::no_retry(),
+                    |_| async {
+                        adapteros_lora_worker::mlx_runtime_init().map_err(|e| {
+                            anyhow::anyhow!(
+                                "Strict determinism requires MLX runtime/build version parity: {}",
+                                e
+                            )
+                        })
+                    },
+                    None,
+                )
+                .await?;
+        }
+
         startup_orchestrator.mark_determinism_seed_initialized(executor_ctx.manifest_hash.is_some());
 
         let has_manifest_hash = executor_ctx.manifest_hash.is_some();
@@ -217,7 +265,7 @@ async fn main() -> Result<()> {
         // =====================================================================
         // Phase 6: Database Migrations
         // =====================================================================
-        let _migrate_only = startup_orchestrator
+        startup_orchestrator
             .run_phase(
                 "migrations",
                 failure_codes::MIGRATION_FAILED,
@@ -247,7 +295,7 @@ async fn main() -> Result<()> {
                 RetryPolicy::no_retry(),
                 |_| async {
                     let post_db_report =
-                        validate_post_db_invariants(&config_ctx.server_config, db_ctx.db.pool())
+                        validate_post_db_invariants(&config_ctx.server_config, db_ctx.db.pool_result()?)
                             .await;
                     enforce_invariants(&post_db_report, production_mode)
                         .map_err(|e| anyhow::anyhow!("{}", e))
@@ -288,7 +336,7 @@ async fn main() -> Result<()> {
                 "router_build",
                 failure_codes::ROUTER_BUILD_FAILED,
                 RetryPolicy::no_retry(),
-                |_| async { build_api_config(config_ctx.server_config.clone()) },
+                |_| async { build_api_config(config_ctx.server_config.clone(), &db_ctx.db).await },
                 None,
             )
             .await?;

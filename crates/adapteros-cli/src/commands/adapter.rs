@@ -547,7 +547,7 @@ pub enum AdapterCommand {
         repo_id: String,
 
         /// Control plane base URL
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
 
         /// Output JSON
@@ -569,7 +569,7 @@ pub enum AdapterCommand {
         version_id: String,
 
         /// Control plane base URL
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
 
         /// Output JSON
@@ -595,7 +595,7 @@ pub enum AdapterCommand {
         version_id: Option<String>,
 
         /// Control plane base URL
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
         base_url: String,
 
         /// Output JSON
@@ -730,8 +730,8 @@ pub enum AdapterCommand {
         /// Activate immediately
         #[arg(long)]
         activate: bool,
-        /// Control plane base URL (default: http://127.0.0.1:8080/api)
-        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
+        /// Control plane base URL (default: http://127.0.0.1:18080/api)
+        #[arg(long, default_value = "http://127.0.0.1:18080/api")]
         base_url: String,
     },
 
@@ -819,7 +819,7 @@ pub enum AdapterCommand {
         tier: Option<i32>,
 
         /// Control plane base URL
-        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
+        #[arg(long, default_value = "http://127.0.0.1:18080/api")]
         base_url: String,
     },
 
@@ -832,7 +832,7 @@ pub enum AdapterCommand {
     /// - No conflicting active adapters
     /// - System is not in maintenance mode
     #[command(
-        after_help = "Examples:\n  aosctl adapter swap adapter-1\n  aosctl adapter swap adapter-1 --server-url http://localhost:8080\n  aosctl adapter swap adapter-1 --timeout 60\n  aosctl adapter swap adapter-1 --skip-preflight  # Emergency only"
+        after_help = "Examples:\n  aosctl adapter swap adapter-1\n  aosctl adapter swap adapter-1 --server-url http://localhost:18080\n  aosctl adapter swap adapter-1 --timeout 60\n  aosctl adapter swap adapter-1 --skip-preflight  # Emergency only"
     )]
     Swap {
         /// Adapter ID to activate on the worker
@@ -840,7 +840,7 @@ pub enum AdapterCommand {
         adapter_id: String,
 
         /// Control plane base URL
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://127.0.0.1:8080")]
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://127.0.0.1:18080")]
         server_url: String,
 
         /// Timeout in seconds to wait for readiness
@@ -897,7 +897,7 @@ pub enum AdapterCommand {
         out: Option<PathBuf>,
 
         /// Control plane base URL
-        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
+        #[arg(long, default_value = "http://127.0.0.1:18080/api")]
         base_url: String,
     },
 
@@ -919,7 +919,7 @@ pub enum AdapterCommand {
         auto_load: bool,
 
         /// Control plane base URL
-        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
+        #[arg(long, default_value = "http://127.0.0.1:18080/api")]
         base_url: String,
     },
 
@@ -945,7 +945,7 @@ pub enum AdapterCommand {
         force: bool,
 
         /// Server URL
-        #[arg(long, default_value = "http://127.0.0.1:8081")]
+        #[arg(long, default_value = "http://127.0.0.1:18081")]
         server_url: String,
 
         /// Output JSON
@@ -967,7 +967,7 @@ pub enum AdapterCommand {
         force: bool,
 
         /// Server URL
-        #[arg(long, default_value = "http://127.0.0.1:8081")]
+        #[arg(long, default_value = "http://127.0.0.1:18081")]
         server_url: String,
 
         /// Output JSON
@@ -2515,7 +2515,7 @@ async fn lineage_adapter(
 
     // Call lineage API endpoint
     let client = Client::new();
-    let url = format!("http://127.0.0.1:8080/v1/adapters/{}/lineage", adapter_id);
+    let url = format!("http://127.0.0.1:18080/v1/adapters/{}/lineage", adapter_id);
 
     let response = client
         .get(&url)

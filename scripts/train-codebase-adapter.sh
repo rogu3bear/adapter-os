@@ -16,7 +16,7 @@ Pipeline:
   7) Load adapter + run one inference and print output
 
 Requirements:
-  - adapterOS control plane running (default: http://localhost:8080)
+  - adapterOS control plane running (default: http://localhost:18080)
   - curl, jq, python3
 
 Authentication:
@@ -27,7 +27,7 @@ Usage:
   scripts/train-codebase-adapter.sh [OPTIONS]
 
 Options:
-  --base-url <url>        Control plane base URL (default: http://localhost:8080)
+  --base-url <url>        Control plane base URL (default: http://localhost:18080)
   --tenant <tenant>       Tenant ID (default: default)
   --token <token>         Bearer token (or set AOS_AUTH_TOKEN)
   --repo-name <name>      Adapter repository name (default: codebase-reference)
@@ -105,7 +105,7 @@ fi
 
 mkdir -p "$TMP_ROOT"
 
-BASE_URL="${AOS_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}"
+BASE_URL="${AOS_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-18080}}"
 TENANT_ID="${AOS_TENANT_ID:-default}"
 AUTH_TOKEN="${AOS_AUTH_TOKEN:-}"
 

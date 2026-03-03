@@ -1,6 +1,5 @@
 ---
 source: crates/adapteros-server-api/tests/contract_snapshots.rs
-assertion_line: 574
 expression: "json!({\n    \"status\": evidence_create_status.as_u16(), \"body\": evidence_create_body\n})"
 ---
 {
@@ -9,7 +8,7 @@ expression: "json!({\n    \"status\": evidence_create_status.as_u16(), \"body\":
     "hint": "Adapter not found: list adapters (`GET /v1/adapters`) or seed fixtures (`aosctl db seed-fixtures`), then retry with a valid `adapter_id`",
     "message": "Adapter not found",
     "request_id": "<redacted>",
-    "schema_version": "1.0.0"
+    "schema_version": "2.0.0"
   },
   "status": 404
 }

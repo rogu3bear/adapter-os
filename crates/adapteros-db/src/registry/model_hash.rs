@@ -123,7 +123,7 @@ pub async fn register_model(db: &Db, model: ModelRecord) -> Result<String> {
     .bind(&model.license_text)
     .bind(model.model_card_hash.as_ref().map(|h| h.to_hex()))
     .bind(model.created_at)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await
     .map_err(|e| AosError::Registry(format!("Failed to register model: {}", e)))?;
 
@@ -140,7 +140,7 @@ pub async fn get_model(db: &Db, name: &str) -> Result<Option<ModelRecord>> {
         "#,
     )
     .bind(name)
-    .fetch_optional(db.pool())
+    .fetch_optional(db.pool_result()?)
     .await
     .map_err(|e| AosError::Registry(format!("Failed to get model: {}", e)))?;
 
@@ -156,7 +156,7 @@ pub async fn list_models(db: &Db) -> Result<Vec<ModelRecord>> {
         FROM base_models ORDER BY created_at DESC
         "#,
     )
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await
     .map_err(|e| AosError::Registry(format!("Failed to list models: {}", e)))?;
 
@@ -197,7 +197,7 @@ async fn check_hash_collisions(db: &Db, model: &ModelRecord) -> Result<()> {
         let existing: Option<String> = sqlx::query_scalar(&query)
             .bind(&hash_value)
             .bind(&model.name)
-            .fetch_optional(db.pool())
+            .fetch_optional(db.pool_result()?)
             .await
             .map_err(|e| AosError::Registry(format!("Hash collision check failed: {}", e)))?;
 

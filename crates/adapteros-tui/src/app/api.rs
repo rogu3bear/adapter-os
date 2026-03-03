@@ -13,26 +13,6 @@ mod response_types {
     use serde::Deserialize;
 
     #[derive(Debug, Clone, Deserialize, Default)]
-    #[allow(dead_code)]
-    pub struct AdapterDetailResponse {
-        pub id: String,
-        pub name: String,
-        pub version: String,
-        #[serde(default)]
-        pub tier: String,
-        #[serde(default)]
-        pub rank: u32,
-        #[serde(default)]
-        pub loaded: bool,
-        #[serde(default)]
-        pub pinned: bool,
-        pub memory_mb: Option<u32>,
-        #[serde(default)]
-        pub activation_count: u64,
-        pub last_activated: Option<String>,
-    }
-
-    #[derive(Debug, Clone, Deserialize, Default)]
     pub struct TrainingJobResponse {
         pub id: String,
         #[serde(default)]
@@ -49,42 +29,6 @@ mod response_types {
         pub estimated_time_remaining: Option<String>,
         pub dataset_name: Option<String>,
         pub backend: Option<String>,
-    }
-
-    #[derive(Debug, Clone, Deserialize, Default)]
-    #[allow(dead_code)]
-    pub struct InferResponse {
-        pub text: String,
-        #[serde(default)]
-        pub tokens_generated: u32,
-        #[serde(default)]
-        pub latency_ms: u64,
-    }
-
-    #[derive(Debug, Clone, Deserialize, Default)]
-    #[allow(dead_code)]
-    pub struct MemoryBreakdown {
-        #[serde(default)]
-        pub total_mb: u64,
-        #[serde(default)]
-        pub used_mb: u64,
-        #[serde(default)]
-        pub model_mb: u64,
-        #[serde(default)]
-        pub adapters_mb: u64,
-        #[serde(default)]
-        pub cache_mb: u64,
-        #[serde(default)]
-        pub headroom_percent: f32,
-    }
-
-    #[derive(Debug, Clone, Deserialize, Default)]
-    #[allow(dead_code)]
-    pub struct SystemStatusResponse {
-        #[serde(default)]
-        pub inference_ready: String,
-        #[serde(default)]
-        pub inference_blockers: Vec<String>,
     }
 }
 
@@ -110,25 +54,48 @@ impl ApiClient {
 
     /// Get system metrics from the server
     pub async fn get_metrics(&self) -> Result<SystemMetrics> {
-        let url = format!("{}/api/metrics", self.base_url);
+        let endpoints = [
+            format!("{}/v1/metrics/snapshot", self.base_url),
+            format!("{}/v1/metrics", self.base_url),
+            format!("{}/metrics", self.base_url),
+            format!("{}/api/metrics", self.base_url),
+        ];
 
-        match self.client.get(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    let data: Value = response.json().await?;
-                    debug!("Received metrics: {:?}", data);
-                    Ok(self.parse_metrics(data))
-                } else {
-                    debug!("Metrics API returned status: {}", response.status());
-                    Ok(SystemMetrics::default())
+        for url in endpoints {
+            match self.client.get(&url).send().await {
+                Ok(response) => {
+                    if !response.status().is_success() {
+                        debug!(
+                            "Metrics API returned status {} for {}",
+                            response.status(),
+                            url
+                        );
+                        continue;
+                    }
+
+                    let payload = response.text().await.unwrap_or_default();
+                    if payload.trim().is_empty() {
+                        debug!("Metrics endpoint {} returned empty payload", url);
+                        continue;
+                    }
+
+                    let metrics = if let Ok(data) = serde_json::from_str::<Value>(&payload) {
+                        debug!("Received JSON metrics from {}", url);
+                        self.parse_metrics_json(&data)
+                    } else {
+                        debug!("Received Prometheus/OpenMetrics payload from {}", url);
+                        self.parse_metrics_prometheus(&payload)
+                    };
+
+                    return Ok(metrics);
+                }
+                Err(e) => {
+                    debug!("Failed to fetch metrics from {}: {}", url, e);
                 }
             }
-            Err(e) => {
-                debug!("Failed to fetch metrics (server may not be running): {}", e);
-                // Return default metrics if API is not available
-                Ok(SystemMetrics::default())
-            }
         }
+
+        Ok(SystemMetrics::default())
     }
 
     /// Get service status from the server
@@ -201,7 +168,6 @@ impl ApiClient {
     }
 
     /// Stop a specific service
-    #[allow(dead_code)]
     pub async fn stop_service(&self, name: &str) -> Result<()> {
         let url = format!("{}/api/services/{}/stop", self.base_url, name);
         info!("Stopping service: {}", name);
@@ -226,7 +192,6 @@ impl ApiClient {
     }
 
     /// Restart a specific service
-    #[allow(dead_code)]
     pub async fn restart_service(&self, name: &str) -> Result<()> {
         let url = format!("{}/api/services/{}/restart", self.base_url, name);
         info!("Restarting service: {}", name);
@@ -252,24 +217,31 @@ impl ApiClient {
 
     /// Get adapter list
     pub async fn get_adapters(&self) -> Result<Vec<AdapterInfo>> {
-        let url = format!("{}/api/adapters", self.base_url);
+        let endpoints = [
+            format!("{}/v1/adapters", self.base_url),
+            format!("{}/api/adapters", self.base_url),
+        ];
 
-        match self.client.get(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    let adapters: Vec<AdapterInfo> = response.json().await?;
-                    debug!("Received {} adapters", adapters.len());
-                    Ok(adapters)
-                } else {
-                    debug!("Adapters API returned: {}", response.status());
-                    Ok(vec![])
+        for url in endpoints {
+            match self.client.get(&url).send().await {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let raw: Vec<Value> = response.json().await.unwrap_or_default();
+                        let adapters: Vec<AdapterInfo> =
+                            raw.into_iter().filter_map(Self::map_adapter_info).collect();
+                        debug!("Received {} adapters from {}", adapters.len(), url);
+                        return Ok(adapters);
+                    }
+
+                    debug!("Adapters API returned {} for {}", response.status(), url);
+                }
+                Err(e) => {
+                    debug!("Failed to fetch adapters from {}: {}", url, e);
                 }
             }
-            Err(e) => {
-                debug!("Failed to fetch adapters: {}", e);
-                Ok(vec![])
-            }
         }
+
+        Ok(vec![])
     }
 
     /// Get server health
@@ -335,34 +307,198 @@ impl ApiClient {
         }
     }
 
-    /// Parse metrics from JSON response
-    fn parse_metrics(&self, data: Value) -> SystemMetrics {
+    /// Parse metrics from JSON payloads (legacy and v1 snapshot forms).
+    fn parse_metrics_json(&self, data: &Value) -> SystemMetrics {
+        let active_adapters =
+            Self::extract_metric_value(data, &["active_adapters", "aos_adapter_cache_entries"])
+                .unwrap_or(0.0);
+        let total_adapters = Self::extract_metric_value(data, &["total_adapters"])
+            .unwrap_or(active_adapters.max(50.0));
+        let memory_headroom_percent =
+            Self::extract_metric_value(data, &["memory_headroom_percent"])
+                .or_else(|| {
+                    Self::extract_metric_value(data, &["aos_memory_pressure_ratio"])
+                        .map(|ratio| (1.0 - ratio).clamp(0.0, 1.0) * 100.0)
+                })
+                .unwrap_or(15.0);
+
         SystemMetrics {
-            inference_latency_p95_ms: data
-                .get("inference_latency_p95_ms")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            tokens_per_second: data
-                .get("tokens_per_second")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            queue_depth: data
-                .get("queue_depth")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            active_adapters: data
-                .get("active_adapters")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            total_adapters: data
-                .get("total_adapters")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(50) as u32,
-            memory_headroom_percent: data
-                .get("memory_headroom_percent")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(15.0) as f32,
+            inference_latency_p95_ms: Self::extract_metric_value(
+                data,
+                &[
+                    "inference_latency_p95_ms",
+                    "p95_latency_ms",
+                    "avg_latency_ms",
+                ],
+            )
+            .unwrap_or(0.0) as u32,
+            tokens_per_second: Self::extract_metric_value(data, &["tokens_per_second", "tps"])
+                .unwrap_or(0.0) as u32,
+            queue_depth: Self::extract_metric_value(data, &["queue_depth"]).unwrap_or(0.0) as u32,
+            active_adapters: active_adapters as u32,
+            total_adapters: total_adapters as u32,
+            memory_headroom_percent: memory_headroom_percent as f32,
         }
+    }
+
+    /// Parse metrics from Prometheus/OpenMetrics exposition payloads.
+    fn parse_metrics_prometheus(&self, payload: &str) -> SystemMetrics {
+        let active_adapters =
+            Self::extract_prometheus_metric(payload, "aos_adapter_cache_entries", None)
+                .unwrap_or(0.0);
+        let memory_headroom_percent = Self::extract_prometheus_metric(
+            payload,
+            "aos_memory_pressure_ratio",
+            Some(("pool_type", "system")),
+        )
+        .map(|ratio| (1.0 - ratio).clamp(0.0, 1.0) * 100.0)
+        .unwrap_or(15.0);
+
+        SystemMetrics {
+            inference_latency_p95_ms: Self::extract_prometheus_metric(
+                payload,
+                "aos_inference_latency_p95_ms",
+                None,
+            )
+            .or_else(|| Self::extract_prometheus_metric(payload, "inference_latency_p95_ms", None))
+            .unwrap_or(0.0) as u32,
+            tokens_per_second: Self::extract_prometheus_metric(
+                payload,
+                "aos_tokens_per_second",
+                None,
+            )
+            .or_else(|| Self::extract_prometheus_metric(payload, "tokens_per_second", None))
+            .unwrap_or(0.0) as u32,
+            queue_depth: Self::extract_prometheus_metric(payload, "queue_depth", None)
+                .or_else(|| Self::extract_prometheus_metric(payload, "adapteros_queue_depth", None))
+                .unwrap_or(0.0) as u32,
+            active_adapters: active_adapters as u32,
+            total_adapters: active_adapters.max(50.0) as u32,
+            memory_headroom_percent: memory_headroom_percent as f32,
+        }
+    }
+
+    fn extract_metric_value(data: &Value, keys: &[&str]) -> Option<f64> {
+        for key in keys {
+            if let Some(value) = data.get(*key).and_then(Self::value_as_f64) {
+                return Some(value);
+            }
+
+            for section in ["metrics", "gauges", "counters"] {
+                if let Some(value) = data
+                    .get(section)
+                    .and_then(|v| v.get(*key))
+                    .and_then(Self::value_as_f64)
+                {
+                    return Some(value);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn extract_prometheus_metric(
+        payload: &str,
+        metric: &str,
+        required_label: Option<(&str, &str)>,
+    ) -> Option<f64> {
+        for raw_line in payload.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') || !line.starts_with(metric) {
+                continue;
+            }
+
+            let suffix = &line[metric.len()..];
+            if !(suffix.starts_with('{') || suffix.starts_with(' ') || suffix.starts_with('\t')) {
+                continue;
+            }
+
+            if let Some((label_key, label_value)) = required_label {
+                if !line.contains(&format!(r#"{label_key}="{label_value}""#)) {
+                    continue;
+                }
+            }
+
+            if let Some(value) = line
+                .split_whitespace()
+                .last()
+                .and_then(|v| v.parse::<f64>().ok())
+            {
+                return Some(value);
+            }
+        }
+
+        None
+    }
+
+    fn value_as_f64(value: &Value) -> Option<f64> {
+        value.as_f64().or_else(|| value.as_u64().map(|v| v as f64))
+    }
+
+    fn map_adapter_info(value: Value) -> Option<AdapterInfo> {
+        let id = value
+            .get("id")
+            .or_else(|| value.get("adapter_id"))
+            .and_then(|v| v.as_str())?
+            .to_string();
+        let name = value
+            .get("name")
+            .or_else(|| value.get("display_name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(&id)
+            .to_string();
+        let version = value
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let loaded = value
+            .get("loaded")
+            .and_then(|v| v.as_bool())
+            .or_else(|| {
+                let runtime_state = value
+                    .get("runtime_state")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        value
+                            .get("runtime_state")
+                            .and_then(|v| v.get("state"))
+                            .and_then(|v| v.as_str())
+                    })?;
+                let lowered = runtime_state.to_ascii_lowercase();
+                Some(matches!(
+                    lowered.as_str(),
+                    "loaded" | "warm" | "hot" | "active" | "running"
+                ))
+            })
+            .unwrap_or(false);
+
+        let pinned = value
+            .get("pinned")
+            .and_then(|v| v.as_bool().or_else(|| v.as_i64().map(|n| n != 0)))
+            .unwrap_or(false);
+        let memory_mb = value
+            .get("memory_mb")
+            .and_then(|v| v.as_u64())
+            .and_then(|v| u32::try_from(v).ok())
+            .or_else(|| {
+                value
+                    .get("memory_bytes")
+                    .and_then(|v| v.as_u64())
+                    .map(|bytes| bytes / (1024 * 1024))
+                    .and_then(|mb| u32::try_from(mb).ok())
+            });
+
+        Some(AdapterInfo {
+            id,
+            name,
+            version,
+            loaded,
+            pinned,
+            memory_mb,
+        })
     }
 
     fn map_log_entry(value: Value) -> Option<LogEntry> {
@@ -536,28 +672,6 @@ impl ApiClient {
         }
     }
 
-    /// Get detailed information about a specific adapter
-    #[allow(dead_code)]
-    pub async fn get_adapter_detail(&self, adapter_id: &str) -> Result<AdapterDetailResponse> {
-        let url = format!("{}/v1/adapters/{}/detail", self.base_url, adapter_id);
-
-        match self.client.get(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    let detail: AdapterDetailResponse = response.json().await?;
-                    debug!("Received adapter detail for: {}", adapter_id);
-                    Ok(detail)
-                } else {
-                    Err(anyhow!(
-                        "Failed to get adapter detail: HTTP {}",
-                        response.status()
-                    ))
-                }
-            }
-            Err(e) => Err(anyhow!("Failed to fetch adapter detail: {}", e)),
-        }
-    }
-
     // === Training Job Methods ===
 
     /// List all training jobs
@@ -582,28 +696,6 @@ impl ApiClient {
         }
     }
 
-    /// Get details of a specific training job
-    #[allow(dead_code)]
-    pub async fn get_training_job(&self, job_id: &str) -> Result<TrainingJobResponse> {
-        let url = format!("{}/v1/training/jobs/{}", self.base_url, job_id);
-
-        match self.client.get(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    let job: TrainingJobResponse = response.json().await?;
-                    debug!("Received training job detail for: {}", job_id);
-                    Ok(job)
-                } else {
-                    Err(anyhow!(
-                        "Failed to get training job: HTTP {}",
-                        response.status()
-                    ))
-                }
-            }
-            Err(e) => Err(anyhow!("Failed to fetch training job: {}", e)),
-        }
-    }
-
     /// Cancel a running training job
     pub async fn cancel_training_job(&self, job_id: &str) -> Result<()> {
         let url = format!("{}/v1/training/jobs/{}/cancel", self.base_url, job_id);
@@ -625,92 +717,6 @@ impl ApiClient {
                 job_id,
                 response.status()
             ))
-        }
-    }
-
-    // === Inference Methods ===
-
-    /// Run inference with optional adapter
-    #[allow(dead_code)]
-    pub async fn infer(&self, prompt: &str, adapter_id: Option<&str>) -> Result<InferResponse> {
-        let url = format!("{}/v1/infer", self.base_url);
-        info!("Running inference with adapter: {:?}", adapter_id);
-
-        let mut body = serde_json::json!({
-            "prompt": prompt,
-            "max_tokens": 512,
-            "temperature": 0.7,
-        });
-        if let Some(adapter) = adapter_id {
-            body["adapter_id"] = serde_json::json!(adapter);
-        }
-
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow!("Failed to call inference API: {}", e))?;
-
-        if response.status().is_success() {
-            let infer_response: InferResponse = response.json().await?;
-            info!(
-                "Inference completed: {} tokens in {}ms",
-                infer_response.tokens_generated, infer_response.latency_ms
-            );
-            Ok(infer_response)
-        } else {
-            Err(anyhow!("Inference failed: HTTP {}", response.status()))
-        }
-    }
-
-    // === Memory/Capacity Methods ===
-
-    /// Get unified memory breakdown
-    #[allow(dead_code)]
-    pub async fn get_memory_breakdown(&self) -> Result<MemoryBreakdown> {
-        let url = format!("{}/v1/memory/uma", self.base_url);
-
-        match self.client.get(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    let breakdown: MemoryBreakdown = response.json().await?;
-                    debug!("Received memory breakdown: {:?}", breakdown);
-                    Ok(breakdown)
-                } else {
-                    debug!("Memory API returned: {}", response.status());
-                    Ok(MemoryBreakdown::default())
-                }
-            }
-            Err(e) => {
-                debug!("Failed to fetch memory breakdown: {}", e);
-                Ok(MemoryBreakdown::default())
-            }
-        }
-    }
-
-    // === System Status Methods ===
-
-    /// Get comprehensive system status
-    #[allow(dead_code)]
-    pub async fn get_system_status(&self) -> Result<SystemStatusResponse> {
-        let url = format!("{}/v1/system/status", self.base_url);
-
-        match self.client.get(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    let status: SystemStatusResponse = response.json().await?;
-                    debug!("Received system status: {:?}", status);
-                    Ok(status)
-                } else {
-                    Err(anyhow!(
-                        "Failed to get system status: HTTP {}",
-                        response.status()
-                    ))
-                }
-            }
-            Err(e) => Err(anyhow!("Failed to fetch system status: {}", e)),
         }
     }
 }

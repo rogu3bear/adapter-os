@@ -161,7 +161,7 @@ fn test_api_error_structured_has_code() {
         code: "TEST_ERROR".to_string(),
         failure_code: None,
         hint: None,
-        details: None,
+        details: Box::new(None),
         request_id: None,
         error_id: None,
         fingerprint: None,

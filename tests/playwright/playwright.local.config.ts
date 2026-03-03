@@ -21,7 +21,7 @@ const baseURLRaw = (process.env.PW_BASE_URL ?? '').trim();
 const serverPortRaw = (process.env.AOS_SERVER_PORT ?? '').trim();
 const baseURL =
   baseURLRaw ||
-  `http://127.0.0.1:${serverPortRaw || '8080'}`;
+  `http://127.0.0.1:${serverPortRaw || '18080'}`;
 
 export default defineConfig({
   testDir: 'ui',

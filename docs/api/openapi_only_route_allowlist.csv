@@ -1,0 +1,6 @@
+route,owner,expires_on,rationale
+/v1/auth/sessions/{session_id},api-contract-team,2026-06-30,OpenAPI placeholder naming does not match runtime placeholder (`{jti}`) yet.
+/v1/repos/{repo_id}/branches/{branch}/rollback,api-contract-team,2026-06-30,OpenAPI legacy path shape differs from runtime path ordering.
+/v1/training/{job_id}/priority,api-contract-team,2026-06-30,OpenAPI legacy training priority path retained during migration to `/v1/training/jobs/{job_id}/priority`.
+/v1/tutorials/{tutorial_id}/incomplete,api-contract-team,2026-06-30,Tutorial endpoint remains documented while runtime migration is pending.
+/v1/tutorials/{tutorial_id}/undismiss,api-contract-team,2026-06-30,Tutorial endpoint remains documented while runtime migration is pending.

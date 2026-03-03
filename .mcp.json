@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--browser", "chromium",
+        "--viewport-size", "1440x900",
+        "--caps", "core,tabs,pdf,history,wait,files,install,vision,devtools"
+      ],
+      "env": {
+      }
+    }
+  }
+}

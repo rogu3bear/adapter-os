@@ -36,7 +36,7 @@ impl Db {
         .bind(tenant_id)
         .bind(user_id)
         .bind(payload_json)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create job: {}", e)))?;
 
@@ -53,7 +53,7 @@ impl Db {
     /// Count queued jobs for metrics
     pub async fn count_queued_jobs(&self) -> Result<i64> {
         let result = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE status = 'queued'")
-            .fetch_one(self.pool())
+            .fetch_one(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to count queued jobs: {}", e)))?;
         Ok(result)
@@ -72,7 +72,7 @@ impl Db {
         .bind(result_json)
         .bind(status)
         .bind(id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to update job status: {}", e)))?;
         Ok(())
@@ -83,7 +83,7 @@ impl Db {
             "SELECT id, kind, tenant_id, user_id, payload_json, status, result_json, logs_path, created_at, started_at, finished_at FROM jobs WHERE id = ?"
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get job: {}", e)))?;
         Ok(job)
@@ -95,14 +95,14 @@ impl Db {
                 "SELECT id, kind, tenant_id, user_id, payload_json, status, result_json, logs_path, created_at, started_at, finished_at FROM jobs WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 100"
             )
             .bind(tid)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to list jobs: {}", e)))?
         } else {
             sqlx::query_as::<_, Job>(
                 "SELECT id, kind, tenant_id, user_id, payload_json, status, result_json, logs_path, created_at, started_at, finished_at FROM jobs ORDER BY created_at DESC LIMIT 100"
             )
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to list jobs: {}", e)))?
         };

@@ -1091,7 +1091,7 @@ struct ResolvedAdapterScale {
 }
 
 fn infer_sidecar_rank(tensors: &safetensors::SafeTensors) -> Option<usize> {
-    let mut tensor_names: Vec<&str> = tensors.names().into_iter().map(|s| s.as_str()).collect();
+    let mut tensor_names: Vec<&str> = tensors.names();
     tensor_names.sort();
 
     for name in &tensor_names {
@@ -2104,7 +2104,7 @@ impl CoreMLBackend {
         let resolved_scale = resolve_sidecar_scale(metadata, inferred_rank);
 
         // Keep deterministic tensor traversal by sorting names.
-        let mut tensor_names: Vec<&str> = tensors.names().into_iter().map(|s| s.as_str()).collect();
+        let mut tensor_names: Vec<&str> = tensors.names();
         tensor_names.sort();
 
         let mut adapter_weights = Vec::new();
@@ -2651,7 +2651,7 @@ mod metadata_override_tests {
             name.to_string(),
             safetensors::tensor::TensorView::new(safetensors::Dtype::F32, shape, &bytes).unwrap(),
         );
-        safetensors::serialize(&tensors, &None).unwrap()
+        safetensors::serialize(&tensors, None).unwrap()
     }
 
     #[test]

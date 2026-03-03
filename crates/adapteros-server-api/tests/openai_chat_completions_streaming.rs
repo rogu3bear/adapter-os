@@ -56,6 +56,14 @@ async fn test_non_streaming_still_works() {
         max_completion_tokens: None,
         stream: Some(false), // Non-streaming
         n: None,
+        response_format: None,
+        tools: None,
+        tool_choice: None,
+        seed: None,
+        stop: None,
+        frequency_penalty: None,
+        presence_penalty: None,
+        logprobs: None,
     };
 
     // Verify the request is valid and would not be rejected
@@ -77,6 +85,14 @@ async fn test_streaming_request_accepted() {
         max_completion_tokens: None,
         stream: Some(true), // Streaming - now accepted
         n: None,
+        response_format: None,
+        tools: None,
+        tool_choice: None,
+        seed: None,
+        stop: None,
+        frequency_penalty: None,
+        presence_penalty: None,
+        logprobs: None,
     };
 
     // Verify the request has stream=true
@@ -98,6 +114,14 @@ async fn test_n_greater_than_one_rejected() {
         max_completion_tokens: None,
         stream: None,
         n: Some(2), // n>1 - should be rejected
+        response_format: None,
+        tools: None,
+        tool_choice: None,
+        seed: None,
+        stop: None,
+        frequency_penalty: None,
+        presence_penalty: None,
+        logprobs: None,
     };
 
     assert!(request.n.unwrap_or(1) > 1);

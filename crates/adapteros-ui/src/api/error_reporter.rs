@@ -225,7 +225,7 @@ fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
                 page: page.map(|s| s.to_string()),
                 user_agent: get_user_agent(),
                 timestamp: current_timestamp(),
-                details: details.clone(),
+                details: (**details).clone(),
                 ui_build_id: option_env!("AOS_BUILD_ID").map(|s| s.to_string()),
             };
         }

@@ -209,7 +209,7 @@ pub async fn log_tenant_access_attempt(
     .bind(reason)
     .bind(request_path)
     .bind(&timestamp)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     Ok(())
@@ -296,7 +296,7 @@ pub async fn get_tenant_token_baseline(db: &Db, tenant_id: &str) -> Result<Optio
         "SELECT token_issued_at_min FROM tenants WHERE id = ?",
     )
     .bind(tenant_id)
-    .fetch_optional(db.pool())
+    .fetch_optional(db.pool_result()?)
     .await?;
 
     // flatten: Option<Option<String>> -> Option<String>
@@ -313,7 +313,7 @@ pub async fn set_tenant_token_baseline(db: &Db, tenant_id: &str, baseline: &str)
     sqlx::query("UPDATE tenants SET token_issued_at_min = ? WHERE id = ?")
         .bind(baseline)
         .bind(tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     info!(
@@ -368,7 +368,7 @@ pub async fn track_auth_attempt(
     .bind(success as i64)
     .bind(&attempted_at)
     .bind(failure_reason)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     if success {
@@ -377,7 +377,7 @@ pub async fn track_auth_attempt(
             "UPDATE users SET failed_attempts = 0, last_failed_at = NULL, lockout_until = NULL WHERE email = ?",
         )
         .bind(email)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .ok();
 
@@ -389,7 +389,7 @@ pub async fn track_auth_attempt(
         "SELECT failed_attempts, last_failed_at, lockout_until FROM users WHERE email = ?",
     )
     .bind(email)
-    .fetch_optional(db.pool())
+    .fetch_optional(db.pool_result()?)
     .await
     {
         Ok(row) => row,
@@ -429,7 +429,7 @@ pub async fn track_auth_attempt(
         .bind(email)
         .bind(ip_address)
         .bind(&window_cutoff)
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await
         {
             Ok(count) => count,
@@ -454,7 +454,7 @@ pub async fn track_auth_attempt(
         .bind(&attempted_at)
         .bind(lockout_until.map(|ts| ts.to_rfc3339()))
         .bind(email)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -483,7 +483,7 @@ pub async fn check_login_lockout(
         "SELECT failed_attempts, last_failed_at, lockout_until FROM users WHERE email = ?",
     )
     .bind(email)
-    .fetch_optional(db.pool())
+    .fetch_optional(db.pool_result()?)
     .await
     {
         Ok(row) => row,
@@ -531,7 +531,7 @@ pub async fn check_login_lockout(
     .bind(email)
     .bind(ip_address)
     .bind(&window_cutoff)
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await
     {
         Ok(count) => count,
@@ -576,7 +576,7 @@ pub async fn track_registration_attempt(db: &Db, ip_address: &str) -> Result<()>
     .bind(&marker_email)
     .bind(ip_address)
     .bind(&attempted_at)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     info!(ip_address = %ip_address, "Registration attempt tracked");
@@ -601,7 +601,7 @@ pub async fn check_registration_rate_limit(db: &Db, ip_address: &str) -> Result<
     .bind(&marker_email)
     .bind(ip_address)
     .bind(&window_cutoff)
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await
     .unwrap_or(0);
 
@@ -634,7 +634,7 @@ pub async fn get_failed_attempts(
     )
     .bind(email)
     .bind(limit.min(100))
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result()?)
     .await?;
 
     Ok(attempts)
@@ -705,7 +705,7 @@ pub async fn upsert_user_session(
         .bind(if locked { 1 } else { 0 })
         .bind(ip_address)
         .bind(user_agent)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     Ok(())
@@ -733,7 +733,7 @@ pub async fn get_session_by_id(db: &Db, session_id: &str) -> Result<Option<Sessi
     let row = sqlx::query_as::<_, SessionRecord>(&query)
         .bind(session_id)
         .bind(session_id)
-        .fetch_optional(db.pool())
+        .fetch_optional(db.pool_result()?)
         .await?;
 
     Ok(row)
@@ -762,7 +762,7 @@ pub async fn update_session_rotation(
         .bind(session_expires_at)
         .bind(session_id)
         .bind(session_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     Ok(())
 }
@@ -779,7 +779,7 @@ pub async fn lock_session(db: &Db, session_id: &str) -> Result<()> {
     sqlx::query(&query)
         .bind(session_id)
         .bind(session_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     Ok(())
 }
@@ -811,7 +811,7 @@ pub async fn create_session(
         .bind(ip_address)
         .bind(user_agent)
         .bind(&created_at)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     Ok(())
@@ -826,7 +826,7 @@ pub async fn update_session_activity(db: &Db, jti: &str) -> Result<()> {
     sqlx::query(&query)
         .bind(&last_activity)
         .bind(jti)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     Ok(())
@@ -850,7 +850,7 @@ pub async fn get_user_sessions(
     let sessions = sqlx::query_as::<_, (String, String, Option<String>, String)>(&query)
         .bind(user_id)
         .bind(now)
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     Ok(sessions)
@@ -862,7 +862,10 @@ pub async fn cleanup_expired_sessions(db: &Db) -> Result<usize> {
     let session_table = db.resolve_session_table().await?;
     let query = format!("DELETE FROM {session_table} WHERE expires_at < ?");
 
-    let result = sqlx::query(&query).bind(now).execute(db.pool()).await?;
+    let result = sqlx::query(&query)
+        .bind(now)
+        .execute(db.pool_result()?)
+        .await?;
 
     let count = result.rows_affected() as usize;
 
@@ -892,7 +895,7 @@ mod tests {
                 failure_reason TEXT
             )",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("Failed to create auth_attempts table");
 
@@ -911,7 +914,7 @@ mod tests {
                 lockout_until TEXT
             )",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("Failed to create users table");
     }
@@ -1085,7 +1088,7 @@ mod tests {
             .bind("Test User")
             .bind("hash")
             .bind("admin")
-            .execute(db.pool())
+            .execute(db.pool_result().expect("db pool available"))
             .await
             .expect("insert user");
 
@@ -1104,7 +1107,7 @@ mod tests {
         let locked_row =
             sqlx::query("SELECT failed_attempts, lockout_until FROM users WHERE email = ?")
                 .bind("user@example.com")
-                .fetch_one(db.pool())
+                .fetch_one(db.pool_result().expect("db pool available"))
                 .await
                 .expect("fetch user");
 
@@ -1130,7 +1133,7 @@ mod tests {
         let reset_row =
             sqlx::query("SELECT failed_attempts, lockout_until FROM users WHERE email = ?")
                 .bind("user@example.com")
-                .fetch_one(db.pool())
+                .fetch_one(db.pool_result().expect("db pool available"))
                 .await
                 .expect("fetch user");
 

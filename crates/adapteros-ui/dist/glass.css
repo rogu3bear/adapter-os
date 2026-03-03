@@ -243,9 +243,17 @@
     z-index: 0;
 }
 
-.theme-glass .dialog-content > * {
+.theme-glass .dialog-content > :not(.dialog-close) {
     position: relative;
     z-index: 2;
+}
+
+.theme-glass .dialog-content > .dialog-close {
+    position: absolute;
+    z-index: 3;
+    display: inline-flex;
+    width: auto;
+    height: auto;
 }
 
 /* Scrollable dialogs need overflow-y: auto to work properly */
@@ -568,6 +576,11 @@
     --glass-text-muted: hsl(216 15% 32%);                /* stronger muted contrast */
 }
 
+/* Support both class placements:
+ * - `html.dark body.theme-glass` (current runtime)
+ * - `.dark.theme-glass` (same-element fallback)
+ */
+.dark .theme-glass,
 .dark.theme-glass {
     /* Dark mode: Lighter text for better contrast on dark glass */
     --glass-text-primary: hsl(210 40% 98%);              /* #f5f7fa - 16.2:1 on dark bg */

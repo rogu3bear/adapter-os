@@ -13,13 +13,14 @@ Incident response procedures.
 | [INFERENCE_LATENCY_SPIKE](INFERENCE_LATENCY_SPIKE.md) | P99 latency elevated |
 | [MEMORY_PRESSURE](MEMORY_PRESSURE.md) | High memory, eviction failures |
 | [DISK_FULL](DISK_FULL.md) | Disk exhausted, write failures |
+| [QUANTIZE_QWEN35_RELEASE](QUANTIZE_QWEN35_RELEASE.md) | Deterministic Qwen3.5-27B quantization release and rollback |
 
 ---
 
 ## Quick Commands
 
 ```bash
-curl -f http://localhost:8080/healthz
+curl -f http://localhost:18080/healthz
 ./aosctl doctor
 ./aosctl preflight
 ps aux | grep aos-worker

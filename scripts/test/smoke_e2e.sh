@@ -29,7 +29,7 @@ for arg in "$@"; do
             echo "  --help, -h     Show this help message"
             echo ""
             echo "Environment variables:"
-            echo "  API_URL          Server URL (default: http://127.0.0.1:8080)"
+            echo "  API_URL          Server URL (default: http://127.0.0.1:18080)"
             echo "  DB_PATH          SQLite database path"
             echo "  START_TIMEOUT    Timeout waiting for server (default: 60s)"
             echo "  CURL_TIMEOUT     HTTP request timeout (default: 10s)"
@@ -39,7 +39,7 @@ for arg in "$@"; do
 done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-API_URL="${API_URL:-http://127.0.0.1:${AOS_SERVER_PORT:-8080}}"
+API_URL="${API_URL:-http://127.0.0.1:${AOS_SERVER_PORT:-18080}}"
 API_BASE="${API_URL%/}/api"
 DB_PATH="${DB_PATH:-$ROOT/var/smoke-e2e.sqlite3}"
 PID_FILE="${PID_FILE:-$ROOT/var/run/smoke-e2e-api.pid}"

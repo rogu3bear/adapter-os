@@ -2,31 +2,37 @@
 //!
 //! Provides document list, detail, and management functionality.
 
-use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse};
-use crate::api::{report_error_with_toast, use_api_client, ApiClient};
+use crate::api::client::{
+    ChunkListResponse, DatasetResponse as ApiDatasetResponse, DocumentListParams, DocumentResponse,
+};
+use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonLink, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, CopyableId, Dialog, EmptyState, EmptyStateVariant, ErrorDisplay,
-    IconExternalLink, InlineProgress, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, PageScaffoldPrimaryAction, ProgressStage, ProgressStages, RefreshButton,
-    Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ConfirmationSeverity, CopyableId, DocumentUploadDialog, EmptyState, EmptyStateVariant,
+    ErrorDisplay, IconExternalLink, InlineProgress, LoadingDisplay, PageBreadcrumbItem,
+    PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction, ProgressStage, ProgressStages,
+    RefreshButton, Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_conditional_polling, use_delete_dialog, use_system_status,
     LoadingState,
 };
 use crate::signals::{try_use_route_context, SelectedEntity};
-use crate::utils::{format_bytes, format_datetime, format_relative_time};
+use crate::utils::{
+    chat_path_with_adapter, format_bytes, format_datetime, format_relative_time,
+    status_display_label, status_display_with_raw,
+};
+use adapteros_api_types::{
+    CreateTrainingJobRequest, ModelLoadStatus, TrainingConfigRequest, TrainingListParams,
+    TRAINING_DATA_CONTRACT_VERSION,
+};
+use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
+use serde_json::Value;
 use std::sync::Arc;
 
 use adapteros_api_types::StatusIndicator as ApiStatusIndicator;
-
-#[cfg(target_arch = "wasm32")]
-use send_wrapper::SendWrapper;
-#[cfg(target_arch = "wasm32")]
-use serde_json::Value;
 
 /// Get badge variant based on document status
 fn status_badge_variant(status: &str) -> BadgeVariant {
@@ -85,6 +91,466 @@ fn training_route_for_document(doc_id: &str) -> String {
     format!("/training?source=document&document_id={}", doc_id)
 }
 
+const TALK_STAGE_SOURCE_STORED: &str = "source_stored";
+const TALK_STAGE_PARSED: &str = "parsed";
+const TALK_STAGE_DATASET_READY: &str = "dataset_ready";
+const TALK_STAGE_TRAINING_RUNNING: &str = "training_running";
+const TALK_STAGE_ADAPTER_READY: &str = "adapter_ready";
+const TALK_STAGE_CHAT_READY: &str = "chat_ready";
+
+const TALK_FLOW_POLL_MS: u32 = 2500;
+const TALK_FLOW_MAX_POLLS: usize = 120;
+const TALK_FLOW_MAX_DATASET_SCAN: usize = 24;
+const TALK_FLOW_PREVIEW_LIMIT: usize = 3;
+
+#[derive(Clone, Debug)]
+struct DocumentTalkFlowState {
+    document_status: String,
+    dataset_id: Option<String>,
+    training_job_id: Option<String>,
+    training_status: Option<String>,
+    adapter_id: Option<String>,
+    waiting_reason: Option<String>,
+    detail_message: Option<String>,
+    chat_ready: bool,
+}
+
+impl DocumentTalkFlowState {
+    fn idle(document_status: &str) -> Self {
+        Self {
+            document_status: document_status.to_string(),
+            dataset_id: None,
+            training_job_id: None,
+            training_status: None,
+            adapter_id: None,
+            waiting_reason: None,
+            detail_message: None,
+            chat_ready: false,
+        }
+    }
+}
+
+fn is_document_parsed(status: &str) -> bool {
+    matches!(status, "indexed" | "ready")
+}
+
+fn is_training_active(status: &str) -> bool {
+    matches!(status, "running" | "pending" | "queued")
+}
+
+fn is_training_terminal_error(status: &str) -> bool {
+    matches!(status, "failed" | "cancelled")
+}
+
+fn talk_flow_wait_reason_for_document(status: &str) -> &'static str {
+    match status {
+        "uploaded" => "Document uploaded. Waiting for parsing to start.",
+        "processing" | "chunked" | "embedded" => "Parsing in progress.",
+        "indexed" | "ready" => "Parsing complete.",
+        "failed" => "Parsing failed. Retry this document first.",
+        _ => "Waiting for document parsing.",
+    }
+}
+
+fn talk_flow_wait_reason_for_training(status: &str) -> &'static str {
+    match status {
+        "pending" | "queued" => "Training is queued.",
+        "running" => "Training is running.",
+        "completed" => "Training finished. Finalizing adapter.",
+        "failed" => "Training failed.",
+        "cancelled" => "Training was cancelled.",
+        _ => "Checking training status.",
+    }
+}
+
+fn talk_flow_stages() -> Vec<ProgressStage> {
+    vec![
+        ProgressStage::new(TALK_STAGE_SOURCE_STORED, "Source stored"),
+        ProgressStage::new(TALK_STAGE_PARSED, "Parsed"),
+        ProgressStage::new(TALK_STAGE_DATASET_READY, "Dataset ready"),
+        ProgressStage::new(TALK_STAGE_TRAINING_RUNNING, "Training running"),
+        ProgressStage::new(TALK_STAGE_ADAPTER_READY, "Adapter ready"),
+        ProgressStage::new(TALK_STAGE_CHAT_READY, "Chat ready"),
+    ]
+}
+
+fn talk_flow_stage_state(
+    flow: &DocumentTalkFlowState,
+) -> (Option<String>, Vec<String>, Vec<String>) {
+    let mut completed = vec![TALK_STAGE_SOURCE_STORED.to_string()];
+    let mut errors = vec![];
+    let mut current: Option<String> = Some(TALK_STAGE_PARSED.to_string());
+
+    if flow.document_status == "failed" {
+        errors.push(TALK_STAGE_PARSED.to_string());
+        current = None;
+    } else if is_document_parsed(&flow.document_status) {
+        completed.push(TALK_STAGE_PARSED.to_string());
+        current = Some(TALK_STAGE_DATASET_READY.to_string());
+    }
+
+    if flow.dataset_id.is_some() {
+        completed.push(TALK_STAGE_DATASET_READY.to_string());
+        current = Some(TALK_STAGE_TRAINING_RUNNING.to_string());
+    }
+
+    if let Some(status) = flow.training_status.as_deref() {
+        if is_training_active(status) || status == "completed" {
+            completed.push(TALK_STAGE_TRAINING_RUNNING.to_string());
+        } else if is_training_terminal_error(status) {
+            errors.push(TALK_STAGE_TRAINING_RUNNING.to_string());
+            current = None;
+        }
+    } else if flow.training_job_id.is_some() {
+        current = Some(TALK_STAGE_TRAINING_RUNNING.to_string());
+    }
+
+    if flow.adapter_id.is_some() {
+        completed.push(TALK_STAGE_ADAPTER_READY.to_string());
+        current = Some(TALK_STAGE_CHAT_READY.to_string());
+    }
+
+    if flow.chat_ready {
+        completed.push(TALK_STAGE_CHAT_READY.to_string());
+        current = None;
+    }
+
+    (current, completed, errors)
+}
+
+fn preview_contains_document(preview_row: &Value, document_id: &str) -> bool {
+    let Some(metadata) = preview_row
+        .get("metadata")
+        .and_then(|value| value.as_object())
+    else {
+        return false;
+    };
+
+    let source_id = metadata
+        .get("source_document_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let fallback_id = metadata
+        .get("document_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    source_id == document_id || fallback_id == document_id
+}
+
+async fn find_lineage_dataset_for_document(
+    client: &ApiClient,
+    document_id: &str,
+) -> Result<Option<ApiDatasetResponse>, crate::api::ApiError> {
+    let mut datasets = client.list_datasets(None).await?.datasets;
+    datasets.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+
+    for dataset in datasets.into_iter().take(TALK_FLOW_MAX_DATASET_SCAN) {
+        let preview = match client
+            .preview_dataset(&dataset.id, Some(TALK_FLOW_PREVIEW_LIMIT))
+            .await
+        {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        if preview
+            .examples
+            .iter()
+            .any(|row| preview_contains_document(row, document_id))
+        {
+            return Ok(Some(dataset));
+        }
+    }
+
+    Ok(None)
+}
+
+async fn select_base_model_id(client: &ApiClient) -> Result<Option<String>, crate::api::ApiError> {
+    let models = client.list_models_status().await?;
+
+    if let Some(ready) = models
+        .models
+        .iter()
+        .find(|m| m.status == ModelLoadStatus::Ready || m.is_loaded)
+    {
+        return Ok(Some(ready.model_id.clone()));
+    }
+
+    Ok(models.models.first().map(|model| model.model_id.clone()))
+}
+
+fn build_document_training_request(
+    dataset: &ApiDatasetResponse,
+    base_model_id: String,
+    document_name: &str,
+) -> CreateTrainingJobRequest {
+    let params = TrainingConfigRequest {
+        rank: 8,
+        alpha: 16,
+        targets: vec!["q_proj".to_string(), "v_proj".to_string()],
+        training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+        pad_token_id: 0,
+        ignore_index: -100,
+        epochs: 10,
+        learning_rate: 0.0001,
+        batch_size: 4,
+        warmup_steps: None,
+        max_seq_length: None,
+        gradient_accumulation_steps: None,
+        validation_split: Some(0.15),
+        preferred_backend: None,
+        backend_policy: None,
+        coreml_training_fallback: None,
+        #[cfg(not(target_arch = "wasm32"))]
+        coreml_placement: None,
+        enable_coreml_export: None,
+        require_gpu: None,
+        max_gpu_memory_mb: None,
+        #[cfg(not(target_arch = "wasm32"))]
+        base_model_path: None,
+        #[cfg(not(target_arch = "wasm32"))]
+        preprocessing: None,
+        force_resume: None,
+        multi_module_training: None,
+        lora_layer_indices: None,
+        early_stopping: Some(true),
+        patience: None,
+        min_delta: None,
+    };
+
+    CreateTrainingJobRequest {
+        workspace_id: String::new(),
+        base_model_id,
+        dataset_id: dataset.id.clone(),
+        dataset_version_id: dataset.dataset_version_id.clone(),
+        adapter_name: None,
+        params,
+        lora_tier: None,
+        template_id: None,
+        repo_id: None,
+        description: Some(format!("Created from document '{}'.", document_name)),
+        adapter_type: None,
+        category: Some("docs".to_string()),
+    }
+}
+
+async fn run_document_talk_flow(
+    client: Arc<ApiClient>,
+    document: DocumentResponse,
+    flow_state: WriteSignal<DocumentTalkFlowState>,
+    refetch_trigger: WriteSignal<u32>,
+) -> Result<String, String> {
+    let document_id = document.document_id.clone();
+    let mut current_document = document;
+    let mut flow = DocumentTalkFlowState::idle(&current_document.status);
+    flow.waiting_reason = Some("Checking document status.".to_string());
+    flow.detail_message = Some("Starting document-to-chat handoff.".to_string());
+    flow_state.set(flow.clone());
+
+    let mut parse_polls = 0usize;
+    while !is_document_parsed(&current_document.status) {
+        flow.document_status = current_document.status.clone();
+        flow.waiting_reason =
+            Some(talk_flow_wait_reason_for_document(&current_document.status).to_string());
+        flow_state.set(flow.clone());
+
+        if current_document.status == "failed" {
+            let message = current_document
+                .error_message
+                .clone()
+                .unwrap_or_else(|| "Parsing failed. Retry this document first.".to_string());
+            return Err(message);
+        }
+
+        if parse_polls >= TALK_FLOW_MAX_POLLS {
+            return Err("This document is still parsing. Try again in a moment.".to_string());
+        }
+
+        TimeoutFuture::new(TALK_FLOW_POLL_MS).await;
+        current_document = client
+            .get_document(&document_id)
+            .await
+            .map_err(|e| format!("Unable to refresh document status: {}", e.user_message()))?;
+        let _ = refetch_trigger.try_update(|value| *value += 1);
+        parse_polls += 1;
+    }
+
+    flow.document_status = current_document.status.clone();
+    flow.waiting_reason = Some("Checking existing dataset lineage.".to_string());
+    flow.detail_message = Some("Looking for an existing dataset from this document.".to_string());
+    flow_state.set(flow.clone());
+
+    let dataset = if let Some(existing) = find_lineage_dataset_for_document(&client, &document_id)
+        .await
+        .map_err(|e| format!("Unable to check existing datasets: {}", e.user_message()))?
+    {
+        flow.dataset_id = Some(existing.id.clone());
+        flow.waiting_reason = Some("Reusing an existing dataset for this document.".to_string());
+        flow.detail_message = Some("Lineage match found in existing datasets.".to_string());
+        flow_state.set(flow.clone());
+        existing
+    } else {
+        flow.waiting_reason = Some("Creating dataset from this document.".to_string());
+        flow.detail_message = Some("No lineage match found, creating a new dataset.".to_string());
+        flow_state.set(flow.clone());
+
+        let created = client
+            .create_dataset_from_documents(vec![document_id.clone()], None)
+            .await
+            .map_err(|e| format!("Unable to create dataset: {}", e.user_message()))?;
+        flow.dataset_id = Some(created.id.clone());
+        flow.waiting_reason = Some("Dataset is ready.".to_string());
+        flow.detail_message = Some("Dataset created from current document.".to_string());
+        flow_state.set(flow.clone());
+        created
+    };
+
+    flow.waiting_reason = Some("Checking for an existing adapter.".to_string());
+    flow.detail_message = Some("Looking for adapters already linked to this dataset.".to_string());
+    flow_state.set(flow.clone());
+
+    if let Ok(lineage) = client.get_dataset_adapters(&dataset.id).await {
+        if let Some(adapter_id) = lineage
+            .adapters
+            .into_iter()
+            .find_map(|entry| (!entry.adapter_id.trim().is_empty()).then_some(entry.adapter_id))
+        {
+            flow.adapter_id = Some(adapter_id.clone());
+            flow.waiting_reason = Some("Adapter found. Opening chat.".to_string());
+            flow.detail_message = Some("Using existing adapter lineage.".to_string());
+            flow.chat_ready = true;
+            flow_state.set(flow);
+            return Ok(chat_path_with_adapter(&adapter_id));
+        }
+    }
+
+    flow.waiting_reason = Some("Checking existing training jobs.".to_string());
+    flow.detail_message = Some("Searching for a reusable build for this dataset.".to_string());
+    flow_state.set(flow.clone());
+
+    let mut jobs = client
+        .list_training_jobs(Some(&TrainingListParams {
+            status: None,
+            page: Some(1),
+            page_size: Some(100),
+            adapter_name: None,
+            template_id: None,
+            dataset_id: Some(dataset.id.clone()),
+        }))
+        .await
+        .map_err(|e| format!("Unable to check training jobs: {}", e.user_message()))?
+        .jobs;
+    jobs.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+
+    let mut completed_with_adapter = None;
+    let mut active_job = None;
+    let mut completed_without_adapter = None;
+
+    for job in jobs {
+        let has_adapter = job
+            .adapter_id
+            .as_ref()
+            .is_some_and(|id| !id.trim().is_empty());
+
+        if completed_with_adapter.is_none() && job.status == "completed" && has_adapter {
+            completed_with_adapter = Some(job.clone());
+        }
+        if active_job.is_none() && is_training_active(&job.status) {
+            active_job = Some(job.clone());
+        }
+        if completed_without_adapter.is_none() && job.status == "completed" && !has_adapter {
+            completed_without_adapter = Some(job.clone());
+        }
+    }
+
+    if let Some(existing) = completed_with_adapter {
+        if let Some(adapter_id) = existing.adapter_id {
+            flow.training_job_id = Some(existing.id);
+            flow.training_status = Some("completed".to_string());
+            flow.adapter_id = Some(adapter_id.clone());
+            flow.waiting_reason = Some("Adapter ready. Opening chat.".to_string());
+            flow.detail_message = Some("Reusing completed training lineage.".to_string());
+            flow.chat_ready = true;
+            flow_state.set(flow);
+            return Ok(chat_path_with_adapter(&adapter_id));
+        }
+    }
+
+    let mut job = if let Some(existing) = active_job.or(completed_without_adapter) {
+        flow.training_job_id = Some(existing.id.clone());
+        flow.training_status = Some(existing.status.clone());
+        flow.waiting_reason =
+            Some(talk_flow_wait_reason_for_training(&existing.status).to_string());
+        flow.detail_message = Some("Reusing an existing training job.".to_string());
+        flow_state.set(flow.clone());
+        existing
+    } else {
+        flow.waiting_reason = Some("Starting training with sensible defaults.".to_string());
+        flow.detail_message = Some("No existing training job found for this dataset.".to_string());
+        flow_state.set(flow.clone());
+
+        let base_model_id = select_base_model_id(&client)
+            .await
+            .map_err(|e| format!("Unable to resolve a training model: {}", e.user_message()))?
+            .ok_or_else(|| {
+                "No training model is available yet. Load a model, then try again.".to_string()
+            })?;
+
+        let request =
+            build_document_training_request(&dataset, base_model_id, &current_document.name);
+        let created = client
+            .create_training_job(&request)
+            .await
+            .map_err(|e| format!("Unable to start training: {}", e.user_message()))?;
+        flow.training_job_id = Some(created.id.clone());
+        flow.training_status = Some(created.status.clone());
+        flow.detail_message = Some("Training job created for this document lineage.".to_string());
+        flow.waiting_reason = Some(talk_flow_wait_reason_for_training(&created.status).to_string());
+        flow_state.set(flow.clone());
+        created
+    };
+
+    let mut training_polls = 0usize;
+    loop {
+        flow.training_job_id = Some(job.id.clone());
+        flow.training_status = Some(job.status.clone());
+        flow.waiting_reason = Some(talk_flow_wait_reason_for_training(&job.status).to_string());
+        flow_state.set(flow.clone());
+
+        if let Some(adapter_id) = job.adapter_id.clone().filter(|id| !id.trim().is_empty()) {
+            flow.adapter_id = Some(adapter_id.clone());
+            flow.waiting_reason = Some("Adapter ready. Opening chat.".to_string());
+            flow.detail_message = Some("Training lineage is ready for chat handoff.".to_string());
+            flow.chat_ready = true;
+            flow_state.set(flow);
+            return Ok(chat_path_with_adapter(&adapter_id));
+        }
+
+        if is_training_terminal_error(&job.status) {
+            let message = job.error_message.unwrap_or_else(|| {
+                "Training stopped before an adapter was ready. Open training job details."
+                    .to_string()
+            });
+            return Err(message);
+        }
+
+        if training_polls >= TALK_FLOW_MAX_POLLS {
+            return Err(
+                "Training is still running. Open training job details to keep watching progress."
+                    .to_string(),
+            );
+        }
+
+        TimeoutFuture::new(TALK_FLOW_POLL_MS).await;
+        job = client
+            .get_training_job(&job.id)
+            .await
+            .map_err(|e| format!("Unable to refresh training status: {}", e.user_message()))?;
+        training_polls += 1;
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct DocumentStatusCounts {
     indexed: u64,
@@ -104,7 +570,6 @@ pub fn Documents() -> impl IntoView {
     let show_upload_dialog = RwSignal::new(false);
     let navigate = use_navigate();
     let navigate_upload = navigate.clone();
-    let seeded_demo_fixtures = RwSignal::new(false);
 
     let refetch = move || set_refetch_trigger.update(|t| *t += 1);
 
@@ -138,71 +603,6 @@ pub fn Documents() -> impl IntoView {
         }
     });
 
-    // Demo guarantee: the ingest demo script expects a fast "Failed" filter path.
-    //
-    // If testkit is enabled (E2E_MODE) and there are no failed docs yet, seed two
-    // deterministic fixtures:
-    // - doc-failed-keep: stays failed, so the Failed pill always has something
-    // - doc-failed-demo: can be reprocessed live for the "watch it advance" step
-    Effect::new(move || {
-        if seeded_demo_fixtures.try_get().unwrap_or(true) {
-            return;
-        }
-
-        let counts = match status_counts.try_get().unwrap_or(LoadingState::Idle) {
-            LoadingState::Loaded(c) => c,
-            _ => return,
-        };
-
-        if counts.failed > 0 {
-            let _ = seeded_demo_fixtures.try_set(true);
-            return;
-        }
-
-        let _ = seeded_demo_fixtures.try_set(true);
-
-        #[cfg(target_arch = "wasm32")]
-        let set_refetch_trigger = set_refetch_trigger;
-        #[cfg(target_arch = "wasm32")]
-        let client_for_demo = Arc::clone(&_client);
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = client_for_demo;
-            let tenant_id = client
-                .me()
-                .await
-                .map(|me| me.tenant_id)
-                .unwrap_or_else(|_| "default".to_string());
-
-            let _ = client
-                .post::<_, Value>(
-                    "/testkit/create_document_fixture",
-                    &serde_json::json!({
-                        "tenant_id": tenant_id.clone(),
-                        "document_id": "doc-failed-keep",
-                        "status": "failed",
-                        "name": "Failed (keep)"
-                    }),
-                )
-                .await;
-
-            let _ = client
-                .post::<_, Value>(
-                    "/testkit/create_document_fixture",
-                    &serde_json::json!({
-                        "tenant_id": tenant_id,
-                        "document_id": "doc-failed-demo",
-                        "status": "failed",
-                        "name": "Failed (reprocess)"
-                    }),
-                )
-                .await;
-
-            // Refresh counts/list once seeded (no-op if testkit is disabled).
-            let _ = set_refetch_trigger.try_update(|t| *t += 1);
-        });
-    });
-
     let (documents, _) = use_api_resource(move |client: Arc<ApiClient>| {
         let status_val = status_filter.get();
         let status = if status_val.is_empty() {
@@ -233,9 +633,10 @@ pub fn Documents() -> impl IntoView {
         <PageScaffold
             title="Documents"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Data", "/documents"),
+                PageBreadcrumbItem::new("Training", "/documents"),
                 PageBreadcrumbItem::current("Documents"),
             ]
+            full_width=true
         >
             <PageScaffoldPrimaryAction slot>
                 <Button
@@ -474,6 +875,7 @@ fn DocumentsList(
                             let name = doc.name.clone();
                             let name_for_delete = name.clone();
                             let status = doc.status.clone();
+                            let status_label = status_display_label(&status);
                             let status_variant = status_badge_variant(&status);
                             let size = format_bytes(doc.size_bytes);
                             let chunks = doc.chunk_count.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
@@ -498,9 +900,11 @@ fn DocumentsList(
                                     </TableCell>
                                     <TableCell>
                                         <div class="space-y-1">
-                                            <Badge variant=status_variant>
-                                                {status}
-                                            </Badge>
+                                            <span title=status.clone()>
+                                                <Badge variant=status_variant>
+                                                    {status_label}
+                                                </Badge>
+                                            </span>
                                             {error
                                                 .clone()
                                                 .filter(|err| !err.is_empty())
@@ -606,7 +1010,7 @@ fn DocumentsList(
                                                 }
                                             })}
                                             {is_failed.then(|| {
-                                                let error_href = "/errors".to_string();
+                                                let error_href = "/runs".to_string();
                                                 view! {
                                                     <a
                                                         href=error_href
@@ -677,210 +1081,6 @@ mod tests {
     }
 }
 
-/// Document upload dialog with validation and progress.
-#[component]
-fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> impl IntoView {
-    let _client = use_api_client();
-    const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
-
-    #[cfg(target_arch = "wasm32")]
-    // Keep in sync with backend `detect_document_kind()` (.md and .markdown are both supported).
-    const SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".markdown"];
-
-    let uploading = RwSignal::new(false);
-    let error_msg = RwSignal::new(None::<String>);
-    let selected_file_name = RwSignal::new(None::<String>);
-    let selected_file_size = RwSignal::new(None::<u64>);
-
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = on_success;
-    let upload_status = RwSignal::new(None::<String>);
-    let uploaded_status = RwSignal::new(None::<String>);
-
-    #[cfg(target_arch = "wasm32")]
-    let file_ref: RwSignal<Option<SendWrapper<web_sys::File>>> = RwSignal::new(None);
-
-    // Reset state when dialog closes
-    Effect::new(move || {
-        if !open.try_get().unwrap_or(true) {
-            let _ = uploading.try_set(false);
-            let _ = error_msg.try_set(None);
-            let _ = selected_file_name.try_set(None);
-            let _ = selected_file_size.try_set(None);
-            let _ = upload_status.try_set(None);
-            let _ = uploaded_status.try_set(None);
-            #[cfg(target_arch = "wasm32")]
-            let _ = file_ref.try_set(None);
-        }
-    });
-
-    #[cfg(target_arch = "wasm32")]
-    let handle_file_change = {
-        move |ev: web_sys::Event| {
-            use wasm_bindgen::JsCast;
-            let Some(input) = ev
-                .target()
-                .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
-            else {
-                return;
-            };
-            let Some(files) = input.files() else {
-                return;
-            };
-            if let Some(file) = files.get(0) {
-                let size = file.size() as u64;
-                let name = file.name();
-                let name_lower = name.to_lowercase();
-
-                if size > MAX_FILE_SIZE {
-                    error_msg.set(Some(format!(
-                        "File too large. Maximum size is {} MB.",
-                        MAX_FILE_SIZE / 1024 / 1024
-                    )));
-                    selected_file_name.set(None);
-                    selected_file_size.set(None);
-                    file_ref.set(None);
-                    input.set_value("");
-                    return;
-                }
-
-                let ext_ok = SUPPORTED_EXTENSIONS
-                    .iter()
-                    .any(|ext| name_lower.ends_with(ext));
-                if !ext_ok {
-                    error_msg.set(Some(format!(
-                        "Unsupported file type. Supported: {}",
-                        SUPPORTED_EXTENSIONS.join(", ")
-                    )));
-                    selected_file_name.set(None);
-                    selected_file_size.set(None);
-                    file_ref.set(None);
-                    input.set_value("");
-                    return;
-                }
-
-                error_msg.set(None);
-                selected_file_name.set(Some(name));
-                selected_file_size.set(Some(size));
-                file_ref.set(Some(SendWrapper::new(file)));
-                input.set_value("");
-            }
-        }
-    };
-
-    #[cfg(not(target_arch = "wasm32"))]
-    let handle_file_change = |_ev: web_sys::Event| {};
-
-    let handle_upload = Callback::new(move |_| {
-        #[cfg(target_arch = "wasm32")]
-        {
-            let Some(file_wrapper) = file_ref.get() else {
-                error_msg.set(Some("Please select a file first.".into()));
-                return;
-            };
-            uploading.set(true);
-            error_msg.set(None);
-            upload_status.set(Some("Uploading document...".into()));
-            uploaded_status.set(None);
-
-            let file = file_wrapper.take();
-            let on_success = on_success;
-            let open = open;
-
-            let client = _client.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                match client.upload_document(&file).await {
-                    Ok(response) => {
-                        let _ = upload_status
-                            .try_set(Some("Upload complete. Indexing started.".into()));
-                        let _ = uploaded_status.try_set(Some(response.status.clone()));
-                        let _ = uploading.try_set(false);
-                        let _ = open.try_set(false);
-                        on_success.run(response.document_id);
-                    }
-                    Err(e) => {
-                        let _ = error_msg.try_set(Some(e.user_message()));
-                        let _ = upload_status.try_set(None);
-                        let _ = uploading.try_set(false);
-                    }
-                }
-            });
-        }
-    });
-
-    let upload_disabled = Signal::derive(move || {
-        uploading.try_get().unwrap_or(false) || selected_file_name.try_get().flatten().is_none()
-    });
-
-    view! {
-        <Dialog
-            open=open
-            title="Upload Document"
-            description="Upload a document to index for RAG retrieval."
-        >
-            <div class="space-y-4 py-2">
-                <div class="space-y-2">
-                    <label for="documents-upload-file" class="text-sm font-medium">"File"</label>
-                    <input
-                        id="documents-upload-file"
-                        type="file"
-                        accept=".pdf,.txt,.md,.markdown"
-                        class="block w-full text-sm"
-                        disabled=move || uploading.try_get().unwrap_or(false)
-                        on:change=handle_file_change
-                    />
-                    <p class="text-xs text-muted-foreground">
-                        "Supported: PDF, TXT, Markdown · Max 100 MB"
-                    </p>
-                    {move || selected_file_name.try_get().flatten().map(|name| {
-                        let size = selected_file_size.try_get().flatten().unwrap_or_default();
-                        view! {
-                            <div class="text-sm text-muted-foreground">
-                                {name} " · " {format_bytes(size as i64)}
-                            </div>
-                        }
-                    })}
-                </div>
-
-                {move || upload_status.try_get().flatten().map(|status| view! {
-                    <div class="text-sm text-muted-foreground">{status}</div>
-                })}
-
-                {move || uploaded_status.try_get().flatten().map(|status| view! {
-                    <div class="flex items-center gap-2 text-sm">
-                        <span class="text-muted-foreground">"Indexing Status"</span>
-                        <Badge variant=status_badge_variant(&status)>{status}</Badge>
-                    </div>
-                })}
-
-                {move || error_msg.try_get().flatten().map(|err| view! {
-                    <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
-                        {err}
-                    </div>
-                })}
-            </div>
-
-            <div class="flex justify-end gap-2">
-                <Button
-                    variant=ButtonVariant::Outline
-                    on_click=Callback::new(move |_| open.set(false))
-                    disabled=Signal::derive(move || uploading.try_get().unwrap_or(false))
-                >
-                    "Cancel"
-                </Button>
-                <Button
-                    variant=ButtonVariant::Primary
-                    loading=Signal::derive(move || uploading.try_get().unwrap_or(false))
-                    disabled=upload_disabled
-                    on_click=handle_upload
-                >
-                    "Upload"
-                </Button>
-            </div>
-        </Dialog>
-    }
-}
-
 /// Document detail page
 #[component]
 pub fn DocumentDetail() -> impl IntoView {
@@ -947,10 +1147,11 @@ pub fn DocumentDetail() -> impl IntoView {
         <PageScaffold
             title="Document Details"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Data", "/documents"),
+                PageBreadcrumbItem::new("Training", "/documents"),
                 PageBreadcrumbItem::new("Documents", "/documents"),
                 PageBreadcrumbItem::current(document_id.try_get().unwrap_or_default()),
             ]
+            full_width=true
         >
             <PageScaffoldActions slot>
                 <RefreshButton
@@ -1061,6 +1262,7 @@ fn DocumentDetailContent(
 
     let navigate = use_navigate();
     let status_variant = status_badge_variant(&document.status);
+    let status_label = status_display_label(&document.status);
     let doc_id = document.document_id.clone();
     let doc_id_for_delete = doc_id.clone();
     let doc_id_for_process = doc_id.clone();
@@ -1157,26 +1359,74 @@ fn DocumentDetailContent(
         }
     };
 
+    let talk_flow_state = RwSignal::new(DocumentTalkFlowState::idle(&document.status));
+    let talk_in_progress = RwSignal::new(false);
+
+    let talk_current_stage =
+        Signal::derive(move || talk_flow_stage_state(&talk_flow_state.get()).0);
+    let talk_completed_stages =
+        Signal::derive(move || talk_flow_stage_state(&talk_flow_state.get()).1);
+    let talk_error_stages = Signal::derive(move || talk_flow_stage_state(&talk_flow_state.get()).2);
+
+    let talk_to_this_action = {
+        let client = Arc::clone(&client);
+        let navigate = navigate.clone();
+        let document_for_flow = document.clone();
+        Callback::new(move |_| {
+            if talk_in_progress.get_untracked() {
+                return;
+            }
+
+            talk_in_progress.set(true);
+            set_action_error.set(None);
+            let _ = talk_flow_state.try_set(DocumentTalkFlowState::idle(&document_for_flow.status));
+
+            let client = Arc::clone(&client);
+            let navigate = navigate.clone();
+            let document = document_for_flow.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                match run_document_talk_flow(
+                    client,
+                    document,
+                    talk_flow_state.write_only(),
+                    refetch_trigger,
+                )
+                .await
+                {
+                    Ok(path) => {
+                        navigate(&path, Default::default());
+                    }
+                    Err(message) => {
+                        let _ = set_action_error.try_set(Some(message));
+                    }
+                }
+                let _ = talk_in_progress.try_set(false);
+            });
+        })
+    };
+
     let is_failed = document.status == "failed";
     let is_indexed = matches!(document.status.as_str(), "indexed" | "ready");
     let status_for_stages = document.status.clone();
-    let issue_error_message = document.error_message.clone();
-    let issue_error_code = document.error_code.clone();
+    let _issue_error_message = document.error_message.clone();
+    let _issue_error_code = document.error_code.clone();
     let status_for_eligibility = document.status.clone();
     let eligible_chunks = {
         let from_doc = document.chunk_count.unwrap_or(0);
         let from_chunks = chunks.as_ref().map(|c| c.total_chunks).unwrap_or(0);
         from_chunks.max(from_doc)
     };
-    let is_eligible_for_training = is_indexed && eligible_chunks > 0;
-    let not_eligible_reason = match status_for_eligibility.as_str() {
+    let _is_eligible_for_training = is_indexed && eligible_chunks > 0;
+    let _not_eligible_reason = match status_for_eligibility.as_str() {
         "failed" => "Document failed processing.",
         "processing" | "uploaded" | "chunked" | "embedded" => "Document is still processing.",
         "indexed" | "ready" => "No chunks available yet.",
         other => {
             // Keep the reason anchored to the backend status string.
             // This avoids inventing pipeline states not guaranteed by the API.
-            return view! { <span>{format!("Status: {}", other)}</span> }.into_any();
+            return view! { <span>{format!("Status: {}", status_display_with_raw(other))}</span> }
+                .into_any();
         }
     };
 
@@ -1211,9 +1461,11 @@ fn DocumentDetailContent(
             <Card title="Status".to_string()>
                 <div class="space-y-4">
                     <div class="flex items-center gap-2">
-                        <Badge variant=status_variant>
-                            {document.status.clone()}
-                        </Badge>
+                        <span title=document.status.clone()>
+                            <Badge variant=status_variant>
+                                {status_label}
+                            </Badge>
+                        </span>
                         {document.deduplicated.then(|| view! {
                             <Badge variant=BadgeVariant::Secondary>
                                 "Deduplicated"
@@ -1239,26 +1491,92 @@ fn DocumentDetailContent(
                         </div>
                     })}
 
-                    // Training entry point (unchanged behavior)
-                    {is_indexed.then(|| {
-                        let doc_id_for_train = doc_id.clone();
-                        let navigate = navigate.clone();
-                        view! {
-                            <div id="train-adapter-cta" class="pt-2">
+                    <div id="train-adapter-cta" class="pt-2 space-y-3">
+                        <Button
+                            variant=ButtonVariant::Primary
+                            size=ButtonSize::Sm
+                            disabled=Signal::derive(move || {
+                                talk_in_progress.get()
+                                    || processing.try_get().unwrap_or(false)
+                                    || deleting.try_get().unwrap_or(false)
+                                    || system_not_ready.get()
+                            })
+                            on_click=talk_to_this_action
+                        >
+                            {move || if talk_in_progress.get() { "Working..." } else { "Talk to this" }}
+                        </Button>
+
+                        <p class="text-sm text-muted-foreground">
+                            {move || {
+                                talk_flow_state
+                                    .try_get()
+                                    .and_then(|state| state.waiting_reason)
+                                    .unwrap_or_else(|| "Drop a document, then use this to land in chat with the right adapter.".to_string())
+                            }}
+                        </p>
+
+                        <ProgressStages
+                            stages=talk_flow_stages()
+                            current_stage=talk_current_stage
+                            completed_stages=talk_completed_stages
+                            error_stages=talk_error_stages
+                        />
+
+                        <details class="rounded-md border p-3">
+                            <summary class="cursor-pointer text-xs font-medium text-muted-foreground">
+                                "Advanced controls"
+                            </summary>
+                            <div class="mt-3 space-y-2">
                                 <Button
                                     variant=ButtonVariant::Secondary
                                     size=ButtonSize::Sm
-                                    on_click=Callback::new(move |_| {
-                                        let doc_id = doc_id_for_train.clone();
+                                    disabled=Signal::derive(move || !is_indexed)
+                                    on_click=Callback::new({
+                                        let doc_id_for_train = doc_id.clone();
                                         let navigate = navigate.clone();
-                                        navigate(&training_route_for_document(&doc_id), Default::default());
+                                        move |_| {
+                                            let route = training_route_for_document(&doc_id_for_train);
+                                            navigate(&route, Default::default());
+                                        }
                                     })
                                 >
-                                    "Train Adapter"
+                                    "Train adapter manually"
                                 </Button>
+                                {(!is_indexed).then(|| view! {
+                                    <p class="text-xs text-muted-foreground">
+                                        "Manual training opens once parsing is complete."
+                                    </p>
+                                })}
                             </div>
-                        }
-                    })}
+                        </details>
+
+                        <details class="rounded-md border p-3">
+                            <summary class="cursor-pointer text-xs font-medium text-muted-foreground">
+                                "Operator details"
+                            </summary>
+                            <div class="mt-3 space-y-1 text-xs text-muted-foreground font-mono">
+                                <div>
+                                    "document_status: "
+                                    {move || talk_flow_state.get().document_status}
+                                </div>
+                                {move || talk_flow_state.get().dataset_id.map(|id| view! {
+                                    <div>"dataset_id: "{id}</div>
+                                })}
+                                {move || talk_flow_state.get().training_job_id.map(|id| view! {
+                                    <div>"training_job_id: "{id}</div>
+                                })}
+                                {move || talk_flow_state.get().training_status.map(|status| view! {
+                                    <div>"training_status: "{status}</div>
+                                })}
+                                {move || talk_flow_state.get().adapter_id.map(|id| view! {
+                                    <div>"adapter_id: "{id}</div>
+                                })}
+                                {move || talk_flow_state.get().detail_message.map(|detail| view! {
+                                    <div class="font-sans text-muted-foreground">{detail}</div>
+                                })}
+                            </div>
+                        </details>
+                    </div>
 
                     // Recovery actions
                     <div class="pt-2 border-t">
@@ -1293,39 +1611,14 @@ fn DocumentDetailContent(
                                 {move || if deleting.try_get().unwrap_or(false) { "Deleting..." } else { "Delete" }}
                             </Button>
                             {is_failed.then(|| {
-                                // Current /errors UI does not expose a document-id filter, so keep this as a plain link.
                                 view! {
-                                    <a href="/errors" class="text-sm text-primary hover:underline self-center">
-                                        "View error context"
+                                    <a href="/runs" class="text-sm text-primary hover:underline self-center">
+                                        "View execution records"
                                     </a>
                                 }
                             })}
                         </div>
                     </div>
-                </div>
-            </Card>
-
-            // Eligibility (informational only; does not gate actions)
-            <Card title="Eligibility".to_string()>
-                <div class="space-y-2">
-                    {is_eligible_for_training.then(|| view! {
-                        <div class="flex items-center gap-2">
-                            <Badge variant=BadgeVariant::Success>"Eligible"</Badge>
-                            <span class="text-sm">"Eligible for training"</span>
-                        </div>
-                        <p class="text-sm text-muted-foreground">
-                            {format!("Chunks available: {}", eligible_chunks)}
-                        </p>
-                    })}
-                    {(!is_eligible_for_training).then(|| view! {
-                        <div class="flex items-center gap-2">
-                            <Badge variant=BadgeVariant::Secondary>"Not yet eligible"</Badge>
-                            <span class="text-sm">{not_eligible_reason}</span>
-                        </div>
-                        <p class="text-sm text-muted-foreground">
-                            {format!("Status: {}", status_for_eligibility)}
-                        </p>
-                    })}
                 </div>
             </Card>
 
@@ -1381,40 +1674,9 @@ fn DocumentDetailContent(
             }
         })}
 
-        // Issue section (shown when document processing failed)
-        {is_failed.then(|| {
-            view! {
-                <Card title="Issue".to_string() class="mt-6".to_string()>
-                    <div class="space-y-3">
-                        <div class="flex items-center gap-2">
-                            <Badge variant=BadgeVariant::Destructive>
-                                "Failed"
-                            </Badge>
-                        </div>
-                        {issue_error_message.clone().map(|msg| view! {
-                            <div>
-                                <p class="text-sm text-muted-foreground">"Error Message"</p>
-                                <p class="text-sm">{msg}</p>
-                            </div>
-                        })}
-                        {issue_error_code.clone().map(|code| view! {
-                            <div>
-                                <p class="text-sm text-muted-foreground">"Error Code"</p>
-                                <p class="font-mono text-sm">{code}</p>
-                            </div>
-                        })}
-                        <p class="text-sm text-muted-foreground">
-                            "Check the "
-                            <a href="/errors" class="text-primary hover:underline">"Errors page"</a>
-                            " for more details and investigation tools."
-                        </p>
-                    </div>
-                </Card>
-            }
-        })}
 
-        // File Details
-        <Card title="File Details".to_string() class="mt-6".to_string()>
+        // Document details and timestamps
+        <Card title="Document Details".to_string() class="mt-6".to_string()>
             <div class="grid gap-4 md:grid-cols-4">
                 <div>
                     <p class="text-sm text-muted-foreground">"Size"</p>
@@ -1429,30 +1691,8 @@ fn DocumentDetailContent(
                     <p class="font-medium">{document.chunk_count.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
                 <div>
-                    <p class="text-sm text-muted-foreground">"Storage Path"</p>
-                    <p class="font-mono text-sm truncate" title=document.storage_path.clone()>{document.storage_path.clone()}</p>
-                </div>
-            </div>
-        </Card>
-
-        // Timestamps
-        <Card title="Timestamps".to_string() class="mt-6".to_string()>
-            <div class="grid gap-4 md:grid-cols-4">
-                <div>
-                    <p class="text-sm text-muted-foreground">"Created At"</p>
+                    <p class="text-sm text-muted-foreground">"Created"</p>
                     <p class="font-medium">{format_datetime(&document.created_at)}</p>
-                </div>
-                <div>
-                    <p class="text-sm text-muted-foreground">"Updated At"</p>
-                    <p class="font-medium">{document.updated_at.as_deref().map(format_datetime).unwrap_or_else(|| "-".to_string())}</p>
-                </div>
-                <div>
-                    <p class="text-sm text-muted-foreground">"Processing Started"</p>
-                    <p class="font-medium">{document.processing_started_at.as_deref().map(format_datetime).unwrap_or_else(|| "-".to_string())}</p>
-                </div>
-                <div>
-                    <p class="text-sm text-muted-foreground">"Processing Completed"</p>
-                    <p class="font-medium">{document.processing_completed_at.as_deref().map(format_datetime).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
             </div>
         </Card>

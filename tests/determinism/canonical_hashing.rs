@@ -5,6 +5,9 @@
 //! deterministic, tamper-evident hashes for all data structures.
 
 use super::utils::*;
+use adapteros_core::receipt_digest::{
+    compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V7,
+};
 use adapteros_core::B3Hash;
 
 /// Test basic canonical JSON hashing
@@ -348,4 +351,80 @@ fn test_complex_nested_structures() {
 
     // Should be identical
     assert_eq!(hash1, hash2, "Complex nested structures should hash deterministically");
+}
+
+#[test]
+fn test_receipt_digest_decoder_q15_fields_are_canonicalized() {
+    let base = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 5, 95, 20, 20)
+        .with_decoder_config(
+            Some("sample".to_string()),
+            Some(16384),
+            Some(29490),
+            Some(40),
+            Some([4u8; 32]),
+            Some("mlx".to_string()),
+        );
+
+    let changed_temp = base.clone().with_decoder_config(
+        Some("sample".to_string()),
+        Some(16383),
+        Some(29490),
+        Some(40),
+        Some([4u8; 32]),
+        Some("mlx".to_string()),
+    );
+
+    let changed_top_p = base.clone().with_decoder_config(
+        Some("sample".to_string()),
+        Some(16384),
+        Some(29489),
+        Some(40),
+        Some([4u8; 32]),
+        Some("mlx".to_string()),
+    );
+
+    let baseline = compute_receipt_digest(&base, RECEIPT_SCHEMA_V7).unwrap();
+    let digest_temp = compute_receipt_digest(&changed_temp, RECEIPT_SCHEMA_V7).unwrap();
+    let digest_top_p = compute_receipt_digest(&changed_top_p, RECEIPT_SCHEMA_V7).unwrap();
+
+    assert_ne!(
+        baseline, digest_temp,
+        "temperature_q15 must be bound as canonical integer input"
+    );
+    assert_ne!(
+        baseline, digest_top_p,
+        "top_p_q15 must be bound as canonical integer input"
+    );
+}
+
+#[test]
+fn test_receipt_digest_optional_q15_fields_have_stable_none_sentinel() {
+    let with_none_q15 = ReceiptDigestInput::new([9u8; 32], [8u8; 32], [7u8; 32], 11, 1, 10, 3, 3)
+        .with_decoder_config(
+            Some("sample".to_string()),
+            None,
+            None,
+            Some(8),
+            Some([6u8; 32]),
+            Some("mlx".to_string()),
+        )
+        .with_stop_inputs(None, Some([5u8; 32]));
+
+    let with_explicit_q15 = ReceiptDigestInput::new([9u8; 32], [8u8; 32], [7u8; 32], 11, 1, 10, 3, 3)
+        .with_decoder_config(
+            Some("sample".to_string()),
+            Some(0),
+            Some(0),
+            Some(8),
+            Some([6u8; 32]),
+            Some("mlx".to_string()),
+        )
+        .with_stop_inputs(Some(0), Some([5u8; 32]));
+
+    let d_none = compute_receipt_digest(&with_none_q15, RECEIPT_SCHEMA_V7).unwrap();
+    let d_explicit = compute_receipt_digest(&with_explicit_q15, RECEIPT_SCHEMA_V7).unwrap();
+    assert_ne!(
+        d_none, d_explicit,
+        "None sentinel for optional Q15 fields must differ from explicit zero values"
+    );
 }

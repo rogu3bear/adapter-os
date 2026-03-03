@@ -610,7 +610,7 @@ mod tests {
             RouterWeights::new_with_dir_weights(0.3, 0.2, 0.15, 0.1, 0.1, 0.05, 0.05, 0.05);
         let resp = weights_to_response("t2".to_string(), &weights, false);
         assert!(!resp.is_default);
-        assert!((resp.language_weight - 0.3).abs() < f64::EPSILON);
+        assert!((resp.language_weight - 0.3).abs() < 1e-6);
         assert!((resp.total_weight - 1.0).abs() < 0.01);
     }
 }

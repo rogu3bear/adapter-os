@@ -217,7 +217,7 @@ fn serialize_safetensors_with_metadata(
         .collect();
 
     // Serialize
-    safetensors::tensor::serialize(&tensors_map, &Some(metadata))
+    safetensors::tensor::serialize(&tensors_map, Some(metadata))
         .map_err(|e| AosError::Serialization(format!("SafeTensors serialization failed: {}", e)))
 }
 

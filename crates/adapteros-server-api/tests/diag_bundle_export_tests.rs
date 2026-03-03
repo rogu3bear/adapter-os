@@ -61,7 +61,7 @@ async fn create_test_diag_run(
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind(format!("Test Tenant {}", tenant_id))
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     let now = Utc::now();
@@ -76,7 +76,7 @@ async fn create_test_diag_run(
     .bind(trace_id)
     .bind(now.timestamp_millis())
     .bind(now.to_rfc3339())
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Insert a few test events (using correct schema: no trace_id/span_id, payload_json not payload)
@@ -91,7 +91,7 @@ async fn create_test_diag_run(
         .bind(tenant_id)
         .bind(seq)
         .bind(seq * 1000)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     }
 
@@ -152,12 +152,12 @@ async fn test_tenant_isolation_bundle_export() -> anyhow::Result<()> {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_a)
         .bind("Tenant A")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_b)
         .bind("Tenant B")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     let run_id_a = Uuid::new_v4().to_string();
@@ -171,7 +171,7 @@ async fn test_tenant_isolation_bundle_export() -> anyhow::Result<()> {
     let runs_for_b: Vec<(String,)> =
         sqlx::query_as::<_, (String,)>("SELECT id FROM diag_runs WHERE tenant_id = ?")
             .bind(tenant_b)
-            .fetch_all(db.pool())
+            .fetch_all(db.pool_result()?)
             .await?;
 
     assert!(runs_for_b.is_empty(), "Tenant B should not see any runs");
@@ -180,7 +180,7 @@ async fn test_tenant_isolation_bundle_export() -> anyhow::Result<()> {
     let runs_for_a: Vec<(String,)> =
         sqlx::query_as::<_, (String,)>("SELECT id FROM diag_runs WHERE tenant_id = ?")
             .bind(tenant_a)
-            .fetch_all(db.pool())
+            .fetch_all(db.pool_result()?)
             .await?;
 
     assert_eq!(runs_for_a.len(), 1, "Tenant A should see their run");
@@ -335,7 +335,7 @@ async fn test_bundle_export_metadata_stored() -> anyhow::Result<()> {
     let table_exists = sqlx::query_scalar::<_, i32>(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='diag_bundle_exports'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert_eq!(table_exists, 1, "diag_bundle_exports table should exist");
@@ -350,7 +350,7 @@ async fn test_bundle_export_metadata_stored() -> anyhow::Result<()> {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind("Export Test Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Create diag_run (referenced by diag_bundle_exports)
@@ -366,7 +366,7 @@ async fn test_bundle_export_metadata_stored() -> anyhow::Result<()> {
     .bind(&trace_id)
     .bind(now.timestamp_millis())
     .bind(now.to_rfc3339())
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Insert a test export record
@@ -385,14 +385,14 @@ async fn test_bundle_export_metadata_stored() -> anyhow::Result<()> {
     .bind(tenant_id)
     .bind(&run_id)
     .bind(&trace_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Verify record was inserted
     let count =
         sqlx::query_scalar::<_, i32>("SELECT COUNT(*) FROM diag_bundle_exports WHERE id = ?")
             .bind(&export_id)
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result()?)
             .await?;
 
     assert_eq!(count, 1, "Export record should be stored");

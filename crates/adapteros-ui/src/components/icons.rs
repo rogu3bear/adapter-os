@@ -121,8 +121,7 @@ pub fn IconX(
 ) -> impl IntoView {
     view! {
         <BaseIcon class=class aria_label=aria_label>
-            <line x1="18" y1="6" x2="6" y2="18" stroke-linecap="round" stroke-linejoin="round"/>
-            <line x1="6" y1="6" x2="18" y2="18" stroke-linecap="round" stroke-linejoin="round"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17 7L7 17M7 7l10 10" />
         </BaseIcon>
     }
 }

@@ -215,7 +215,7 @@ fn test_mlx_determinism_attestation() {
     // Verify summary generation works
     let summary = attestation.summary();
     assert!(
-        summary.contains("Mlx"),
+        summary.to_ascii_lowercase().contains("mlx"),
         "Summary should mention Mlx backend"
     );
 }
@@ -278,7 +278,11 @@ fn test_mlx_run_step_stub() {
     );
 
     // Verify position was incremented
-    assert_eq!(io.position, 1, "Position should be incremented");
+    assert_eq!(
+        io.position,
+        io.input_ids.len(),
+        "Position should advance by input token count"
+    );
 
     // Verify output is not all zeros (stub produces meaningful pattern)
     let non_zero_count = io.output_logits.iter().filter(|&&x| x != 0.0).count();
@@ -327,7 +331,7 @@ fn test_mlx_run_step_with_adapters() {
 
     // Verify output was produced
     assert_eq!(io.output_logits.len(), 32000);
-    assert_eq!(io.position, 1);
+    assert_eq!(io.position, io.input_ids.len());
 }
 
 // ============================================================================
@@ -337,7 +341,7 @@ fn test_mlx_run_step_with_adapters() {
 #[test]
 fn test_mlx_adapter_registration() {
     // Test that adapters can be registered with the backend
-    let backend = create_test_backend();
+    let mut backend = create_test_backend();
 
     // Create test adapters
     let adapter1 = create_test_adapter("test-adapter-1", 4);
@@ -380,7 +384,7 @@ fn test_mlx_adapter_registration() {
 #[test]
 fn test_mlx_adapter_hot_swap() {
     // Test hot-swap adapter loading/unloading
-    let backend = create_test_backend();
+    let mut backend = create_test_backend();
 
     // Load adapter at runtime
     let adapter = create_test_adapter("hotswap-adapter", 4);
@@ -406,7 +410,7 @@ fn test_mlx_adapter_hot_swap() {
 #[test]
 fn test_mlx_adapter_memory_estimation() {
     // Test adapter memory usage estimation
-    let backend = create_test_backend();
+    let mut backend = create_test_backend();
 
     // Register adapter with known rank and modules
     let adapter = create_test_adapter("memory-test", 16);
@@ -687,7 +691,7 @@ fn test_mlx_router_ring_full_k() {
         .run_step(&ring, &mut io)
         .expect("Run with K=8 should succeed");
 
-    assert_eq!(io.position, 1);
+    assert_eq!(io.position, io.input_ids.len());
 }
 
 #[test]
@@ -741,7 +745,7 @@ fn create_dummy_safetensors_bytes() -> Vec<u8> {
 #[test]
 fn test_mlx_backend_clone() {
     // Test that backend can be cloned (shared state)
-    let backend = create_test_backend();
+    let mut backend = create_test_backend();
 
     // Register adapter
     let adapter = create_test_adapter("clone-test", 4);

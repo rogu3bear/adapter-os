@@ -28,6 +28,7 @@ use axum::{
     },
     Extension,
 };
+use chrono::{DateTime, NaiveDateTime, Utc};
 use futures_util::stream::{self, Stream};
 use futures_util::StreamExt as FuturesStreamExt;
 use serde::{Deserialize, Serialize};
@@ -70,6 +71,9 @@ const DEFAULT_DASHBOARD_CONFIG_JSON: &str = r#"{
     "time_range": "24h"
 }"#;
 
+const DETERMINISM_STATUS_STALE_AFTER_SECS: i64 = 60 * 60;
+const REPLAY_GUARD_STALE_AFTER_SECS: i64 = 15 * 60;
+
 fn default_dashboard_config() -> serde_json::Value {
     serde_json::from_str(DEFAULT_DASHBOARD_CONFIG_JSON).unwrap_or_else(|_| {
         json!({
@@ -93,6 +97,119 @@ fn parse_refresh_interval(config: &serde_json::Value, fallback: u64) -> u64 {
         .get("refresh_interval")
         .and_then(|v| v.as_u64())
         .unwrap_or(fallback)
+}
+
+fn parse_determinism_last_run(last_run: &str) -> Option<DateTime<Utc>> {
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(last_run) {
+        return Some(parsed.with_timezone(&Utc));
+    }
+
+    NaiveDateTime::parse_from_str(last_run, "%Y-%m-%d %H:%M:%S%.f")
+        .or_else(|_| NaiveDateTime::parse_from_str(last_run, "%Y-%m-%d %H:%M:%S"))
+        .ok()
+        .map(|parsed| DateTime::<Utc>::from_naive_utc_and_offset(parsed, Utc))
+}
+
+async fn determinism_guard_stream_status(state: &AppState) -> serde_json::Value {
+    let query_result = sqlx::query(
+        "SELECT last_run, result, runs, divergences
+         FROM determinism_checks
+         ORDER BY last_run DESC
+         LIMIT 1",
+    )
+    .fetch_optional(state.db.pool())
+    .await;
+
+    match query_result {
+        Ok(Some(row)) => {
+            let last_run: Option<String> = row.try_get("last_run").ok();
+            let raw_result: Option<String> = row.try_get("result").ok();
+            let runs: Option<i64> = row.try_get("runs").ok();
+            let divergences: Option<i64> = row.try_get("divergences").ok();
+            let normalized_result = raw_result.map(|value| value.trim().to_ascii_lowercase());
+
+            let now = Utc::now();
+            let (freshness_status, freshness_reason, freshness_age_seconds) = match last_run
+                .as_deref()
+            {
+                None => ("unknown", "missing_last_run", None),
+                Some(last_run_raw) => match parse_determinism_last_run(last_run_raw) {
+                    None => ("unknown", "invalid_last_run_format", None),
+                    Some(parsed_last_run) => {
+                        let age_seconds = now.signed_duration_since(parsed_last_run).num_seconds();
+                        if age_seconds < 0 {
+                            ("unknown", "future_last_run", None)
+                        } else if age_seconds <= DETERMINISM_STATUS_STALE_AFTER_SECS {
+                            ("fresh", "recent_run", Some(age_seconds))
+                        } else {
+                            ("stale", "stale_last_run", Some(age_seconds))
+                        }
+                    }
+                },
+            };
+
+            let (replay_guard_outcome, replay_guard_reason) = match normalized_result.as_deref() {
+                Some("pass")
+                    if freshness_status == "fresh"
+                        && freshness_age_seconds
+                            .map(|age| age <= REPLAY_GUARD_STALE_AFTER_SECS)
+                            .unwrap_or(false) =>
+                {
+                    ("pass", "latest_replay_guard_passed")
+                }
+                Some("pass") => ("unknown", "latest_pass_not_fresh_enough"),
+                Some("fail") => ("fail", "latest_replay_guard_failed"),
+                Some(_) => ("unknown", "unknown_replay_guard_result"),
+                None => ("unknown", "missing_replay_guard_result"),
+            };
+
+            json!({
+                "freshness_status": freshness_status,
+                "freshness_reason": freshness_reason,
+                "freshness_age_seconds": freshness_age_seconds,
+                "freshness_stale_after_seconds": DETERMINISM_STATUS_STALE_AFTER_SECS,
+                "replay_guard_outcome": replay_guard_outcome,
+                "replay_guard_reason": replay_guard_reason,
+                "replay_guard_stale_after_seconds": REPLAY_GUARD_STALE_AFTER_SECS,
+                "last_run": last_run,
+                "result": normalized_result,
+                "runs": runs,
+                "divergences": divergences,
+            })
+        }
+        Ok(None) => json!({
+            "freshness_status": "unknown",
+            "freshness_reason": "no_determinism_checks",
+            "freshness_age_seconds": serde_json::Value::Null,
+            "freshness_stale_after_seconds": DETERMINISM_STATUS_STALE_AFTER_SECS,
+            "replay_guard_outcome": "unknown",
+            "replay_guard_reason": "no_determinism_checks",
+            "replay_guard_stale_after_seconds": REPLAY_GUARD_STALE_AFTER_SECS,
+            "last_run": serde_json::Value::Null,
+            "result": serde_json::Value::Null,
+            "runs": serde_json::Value::Null,
+            "divergences": serde_json::Value::Null,
+        }),
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "Failed to query determinism status for SSE payload context"
+            );
+            json!({
+                "freshness_status": "unknown",
+                "freshness_reason": "query_error",
+                "freshness_age_seconds": serde_json::Value::Null,
+                "freshness_stale_after_seconds": DETERMINISM_STATUS_STALE_AFTER_SECS,
+                "replay_guard_outcome": "unknown",
+                "replay_guard_reason": "query_error",
+                "replay_guard_stale_after_seconds": REPLAY_GUARD_STALE_AFTER_SECS,
+                "last_run": serde_json::Value::Null,
+                "result": serde_json::Value::Null,
+                "runs": serde_json::Value::Null,
+                "divergences": serde_json::Value::Null,
+            })
+        }
+    }
 }
 
 fn widget_type_label(value: &str) -> String {
@@ -1053,6 +1170,11 @@ pub async fn workers_stream(
                         cache_pinned_entries: None,
                         cache_active_entries: None,
                         display_name,
+                        active_model_id: None,
+                        active_model_hash: None,
+                        model_generation: None,
+                        model_load_state: None,
+                        model_error: None,
                     }
                 })
                 .collect();
@@ -1501,71 +1623,106 @@ pub async fn training_stream(
 /// Pushes real-time alerts as they are created or updated with replay support
 pub async fn alerts_stream(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     headers: HeaderMap,
 ) -> SseResponse {
     let sse_manager = state.sse_manager.clone();
+    let tenant_id = claims.tenant_id;
 
     // Parse Last-Event-ID for replay
     let last_event_id = SseEventManager::parse_last_event_id(&headers);
 
     // Get replay events if reconnecting
-    let replay_events = if let Some(last_id) = last_event_id {
-        sse_manager
-            .get_replay_events(SseStreamType::Alerts, last_id)
-            .await
+    let replay_events: Vec<Result<Event, Infallible>> = if let Some(last_id) = last_event_id {
+        decode_tenant_scoped_replay_events_for_tenant(
+            sse_manager
+                .get_replay_events(SseStreamType::Alerts, last_id)
+                .await,
+            &tenant_id,
+        )
     } else {
         Vec::new()
     };
 
     // Create replay stream
-    let replay_stream = create_replay_stream(replay_events);
+    let replay_stream = stream::iter(replay_events);
 
-    let live_stream = stream::unfold(state.clone(), move |state| async move {
-        let mgr = state.sse_manager.clone();
+    let live_stream = stream::unfold(
+        (state.clone(), tenant_id),
+        move |(state, tenant_id)| async move {
+            let mgr = state.sse_manager.clone();
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
 
-        // Fetch recent alerts
-        let filters = adapteros_system_metrics::AlertFilters {
-            tenant_id: None,
-            worker_id: None,
-            status: None,
-            severity: None,
-            start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(5)),
-            end_time: None,
-            limit: Some(50),
-            offset: None,
-        };
+            // Fetch recent alerts
+            let filters = adapteros_system_metrics::AlertFilters {
+                tenant_id: Some(tenant_id.clone()),
+                worker_id: None,
+                status: None,
+                severity: None,
+                start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(5)),
+                end_time: None,
+                limit: Some(50),
+                offset: None,
+            };
 
-        let alerts =
-            match adapteros_system_metrics::ProcessAlert::list(state.db.pool(), filters).await {
+            let alerts = match adapteros_system_metrics::ProcessAlert::list(
+                state.db.pool(),
+                filters,
+            )
+            .await
+            {
                 Ok(alerts) => alerts,
                 Err(e) => {
                     tracing::warn!("Failed to fetch alerts for SSE: {}", e);
                     let event = mgr
                         .create_error_event(SseStreamType::Alerts, &e.to_string())
                         .await;
-                    return Some((Ok(SseEventManager::to_axum_event(&event)), state));
+                    return Some((
+                        Ok(SseEventManager::to_axum_event(&event)),
+                        (state, tenant_id),
+                    ));
                 }
             };
+            let determinism_guard = determinism_guard_stream_status(&state).await;
 
-        let alert_data = serde_json::json!({
-            "alerts": alerts.iter().map(|a| adapteros_system_metrics::AlertResponse::from(a.clone())).collect::<Vec<_>>(),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "count": alerts.len()
-        });
+            let alert_data = serde_json::json!({
+                "tenant_id": tenant_id.clone(),
+                "alerts": alerts.iter().map(|a| adapteros_system_metrics::AlertResponse::from(a.clone())).collect::<Vec<_>>(),
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "count": alerts.len(),
+                "determinism_guard": determinism_guard
+            });
+            let payload_json = alert_data.to_string();
+            let envelope_json =
+                match encode_tenant_scoped_envelope(&tenant_id, payload_json.clone()) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::warn!(
+                            tenant_id = %tenant_id,
+                            error = %error,
+                            "Failed to serialize alerts stream envelope"
+                        );
+                        let event = mgr
+                            .create_error_event(SseStreamType::Alerts, "serialization failed")
+                            .await;
+                        return Some((
+                            Ok(SseEventManager::to_axum_event(&event)),
+                            (state, tenant_id),
+                        ));
+                    }
+                };
 
-        let event = mgr
-            .create_event(
-                SseStreamType::Alerts,
-                "alerts",
-                serde_json::to_string(&alert_data).unwrap_or_else(|_| "{}".to_string()),
-            )
-            .await;
+            let event = mgr
+                .create_event(SseStreamType::Alerts, "alerts", envelope_json)
+                .await;
 
-        Some((Ok(SseEventManager::to_axum_event(&event)), state))
-    });
+            Some((
+                Ok(to_axum_event_with_payload(&event, payload_json)),
+                (state, tenant_id),
+            ))
+        },
+    );
 
     sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
 }
@@ -1574,76 +1731,121 @@ pub async fn alerts_stream(
 /// Pushes real-time anomaly detections with replay support
 pub async fn anomalies_stream(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     headers: HeaderMap,
 ) -> SseResponse {
     let sse_manager = state.sse_manager.clone();
+    let tenant_id = claims.tenant_id;
 
     // Parse Last-Event-ID for replay
     let last_event_id = SseEventManager::parse_last_event_id(&headers);
 
     // Get replay events if reconnecting
-    let replay_events = if let Some(last_id) = last_event_id {
-        sse_manager
-            .get_replay_events(SseStreamType::Anomalies, last_id)
-            .await
+    let replay_events: Vec<Result<Event, Infallible>> = if let Some(last_id) = last_event_id {
+        decode_tenant_scoped_replay_events_for_tenant(
+            sse_manager
+                .get_replay_events(SseStreamType::Anomalies, last_id)
+                .await,
+            &tenant_id,
+        )
     } else {
         Vec::new()
     };
 
     // Create replay stream
-    let replay_stream = create_replay_stream(replay_events);
+    let replay_stream = stream::iter(replay_events);
 
-    let live_stream = stream::unfold(state.clone(), move |state| async move {
-        let mgr = state.sse_manager.clone();
+    let live_stream = stream::unfold(
+        (state.clone(), tenant_id),
+        move |(state, tenant_id)| async move {
+            let mgr = state.sse_manager.clone();
 
-        tokio::time::sleep(Duration::from_secs(10)).await;
+            tokio::time::sleep(Duration::from_secs(10)).await;
 
-        // Fetch recent anomalies
-        let filters = adapteros_system_metrics::AnomalyFilters {
-            tenant_id: None,
-            worker_id: None,
-            status: None,
-            anomaly_type: None,
-            start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(10)),
-            end_time: None,
-            limit: Some(20),
-            offset: None,
-        };
+            // Fetch recent anomalies
+            let filters = adapteros_system_metrics::AnomalyFilters {
+                tenant_id: Some(tenant_id.clone()),
+                worker_id: None,
+                status: None,
+                anomaly_type: None,
+                start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(10)),
+                end_time: None,
+                limit: Some(20),
+                offset: None,
+            };
 
-        let anomalies =
-            match adapteros_system_metrics::ProcessAnomaly::list(state.db.pool(), filters).await {
+            let anomalies = match adapteros_system_metrics::ProcessAnomaly::list(
+                state.db.pool(),
+                filters,
+            )
+            .await
+            {
                 Ok(anomalies) => anomalies,
                 Err(e) => {
                     tracing::warn!("Failed to fetch anomalies for SSE: {}", e);
                     let event = mgr
                         .create_error_event(SseStreamType::Anomalies, &e.to_string())
                         .await;
-                    return Some((Ok(SseEventManager::to_axum_event(&event)), state));
+                    return Some((
+                        Ok(SseEventManager::to_axum_event(&event)),
+                        (state, tenant_id),
+                    ));
                 }
             };
+            let determinism_guard = determinism_guard_stream_status(&state).await;
 
-        let anomaly_data = serde_json::json!({
-            "anomalies": anomalies.iter().map(|a| adapteros_system_metrics::AnomalyResponse::from(a.clone())).collect::<Vec<_>>(),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "count": anomalies.len()
-        });
+            let anomaly_data = serde_json::json!({
+                "tenant_id": tenant_id.clone(),
+                "anomalies": anomalies.iter().map(|a| adapteros_system_metrics::AnomalyResponse::from(a.clone())).collect::<Vec<_>>(),
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "count": anomalies.len(),
+                "determinism_guard": determinism_guard
+            });
+            let payload_json = anomaly_data.to_string();
+            let envelope_json =
+                match encode_tenant_scoped_envelope(&tenant_id, payload_json.clone()) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::warn!(
+                            tenant_id = %tenant_id,
+                            error = %error,
+                            "Failed to serialize anomalies stream envelope"
+                        );
+                        let event = mgr
+                            .create_error_event(SseStreamType::Anomalies, "serialization failed")
+                            .await;
+                        return Some((
+                            Ok(SseEventManager::to_axum_event(&event)),
+                            (state, tenant_id),
+                        ));
+                    }
+                };
 
-        let event = mgr
-            .create_event(
-                SseStreamType::Anomalies,
-                "anomalies",
-                serde_json::to_string(&anomaly_data).unwrap_or_else(|_| "{}".to_string()),
-            )
-            .await;
+            let event = mgr
+                .create_event(SseStreamType::Anomalies, "anomalies", envelope_json)
+                .await;
 
-        Some((Ok(SseEventManager::to_axum_event(&event)), state))
-    });
+            Some((
+                Ok(to_axum_event_with_payload(&event, payload_json)),
+                (state, tenant_id),
+            ))
+        },
+    );
 
     sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
 }
 
 /// SSE stream for dashboard-specific metrics
+/// Pushes metrics tailored for dashboard widgets with replay support
+pub async fn dashboard_stream(
+    state: State<AppState>,
+    claims: Extension<Claims>,
+    headers: HeaderMap,
+) -> SseResponse {
+    dashboard_metrics_stream(state, claims, Path("default".to_string()), headers).await
+}
+
+/// SSE stream for dashboard-specific metrics by dashboard id
 /// Pushes metrics tailored for dashboard widgets with replay support
 pub async fn dashboard_metrics_stream(
     State(state): State<AppState>,
@@ -1657,16 +1859,19 @@ pub async fn dashboard_metrics_stream(
     let last_event_id = SseEventManager::parse_last_event_id(&headers);
 
     // Get replay events if reconnecting
-    let replay_events = if let Some(last_id) = last_event_id {
-        sse_manager
-            .get_replay_events(SseStreamType::Dashboard, last_id)
-            .await
+    let replay_events: Vec<Result<Event, Infallible>> = if let Some(last_id) = last_event_id {
+        decode_tenant_scoped_replay_events_for_tenant(
+            sse_manager
+                .get_replay_events(SseStreamType::Dashboard, last_id)
+                .await,
+            &claims.tenant_id,
+        )
     } else {
         Vec::new()
     };
 
     // Create replay stream
-    let replay_stream = create_replay_stream(replay_events);
+    let replay_stream = stream::iter(replay_events);
 
     let tenant_id = claims.tenant_id.clone();
     let user_id = claims.sub.clone();
@@ -1693,7 +1898,7 @@ pub async fn dashboard_metrics_stream(
 
                 let filters = adapteros_system_metrics::MetricFilters {
                     worker_id: None,
-                    tenant_id: None,
+                    tenant_id: Some(tenant_id.clone()),
                     metric_name: Some(metric_name.to_string()),
                     start_time: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
                     end_time: None,
@@ -1771,7 +1976,7 @@ pub async fn dashboard_metrics_stream(
                     }
                     "alert_list" => {
                         let alert_filters = adapteros_system_metrics::AlertFilters {
-                            tenant_id: None,
+                            tenant_id: Some(tenant_id.clone()),
                             worker_id: None,
                             status: Some(adapteros_system_metrics::AlertStatus::Active),
                             severity: None,
@@ -1831,25 +2036,43 @@ pub async fn dashboard_metrics_stream(
 
                 widget_data.push(widget_result);
             }
+            let determinism_guard = determinism_guard_stream_status(&state).await;
 
             let dashboard_data = serde_json::json!({
                 "dashboard_id": dashboard_id.clone(),
+                "tenant_id": tenant_id.clone(),
                 "widgets": widget_data,
                 "widget_config": widget_config,
                 "timestamp": chrono::Utc::now().to_rfc3339(),
-                "refresh_interval": refresh_interval
+                "refresh_interval": refresh_interval,
+                "determinism_guard": determinism_guard
             });
+            let payload_json = dashboard_data.to_string();
+            let envelope_json =
+                match encode_tenant_scoped_envelope(&tenant_id, payload_json.clone()) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::warn!(
+                            tenant_id = %tenant_id,
+                            error = %error,
+                            "Failed to serialize dashboard stream envelope"
+                        );
+                        let event = mgr
+                            .create_error_event(SseStreamType::Dashboard, "serialization failed")
+                            .await;
+                        return Some((
+                            Ok(SseEventManager::to_axum_event(&event)),
+                            (state, dashboard_id, tenant_id, user_id),
+                        ));
+                    }
+                };
 
             let event = mgr
-                .create_event(
-                    SseStreamType::Dashboard,
-                    "dashboard_metrics",
-                    serde_json::to_string(&dashboard_data).unwrap_or_else(|_| "{}".to_string()),
-                )
+                .create_event(SseStreamType::Dashboard, "dashboard_metrics", envelope_json)
                 .await;
 
             Some((
-                Ok(SseEventManager::to_axum_event(&event)),
+                Ok(to_axum_event_with_payload(&event, payload_json)),
                 (state, dashboard_id, tenant_id, user_id),
             ))
         },

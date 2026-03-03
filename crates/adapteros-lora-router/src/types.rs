@@ -584,7 +584,10 @@ pub struct AdapterInfo {
     /// provides a consistent tie-break key for reproducible routing decisions.
     ///
     /// # Determinism Invariant
-    /// When two adapters have equal scores, the one with lower stable_id is chosen.
+    /// In deterministic routing mode, when two adapters have equal scores,
+    /// the one with lower stable_id is chosen.
+    /// In adaptive mode, stable_id remains the deterministic fallback if seeded
+    /// tie-break values collide.
     /// This ensures identical selection across:
     /// - Policy mask filtering
     /// - Top-k selection

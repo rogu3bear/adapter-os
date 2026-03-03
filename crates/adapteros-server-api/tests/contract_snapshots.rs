@@ -8,6 +8,7 @@ use adapteros_server_api::{create_app, AppState};
 use axum::{
     body::{to_bytes, Body},
     http::{HeaderMap, Method, Request, StatusCode},
+    routing::get,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -174,6 +175,26 @@ impl ContractHarness {
 
         let state = common::setup_state(None).await.expect("state setup");
         let app = create_app(state.clone());
+        #[cfg(feature = "exclude-spoke-routes")]
+        let app = {
+            let health_routes = axum::Router::new()
+                .route("/healthz", get(adapteros_server_api::handlers::health))
+                .route("/readyz", get(adapteros_server_api::handlers::ready))
+                .with_state(state.clone());
+
+            let audit_routes = axum::Router::new()
+                .route(
+                    "/v1/audit/logs",
+                    get(adapteros_server_api::handlers::admin::query_audit_logs),
+                )
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    adapteros_server_api::middleware::auth_middleware,
+                ))
+                .with_state(state.clone());
+
+            health_routes.merge(audit_routes).merge(app)
+        };
         let harness = Self {
             app,
             state,
@@ -245,7 +266,7 @@ impl ContractHarness {
         sqlx::query("UPDATE audit_logs SET timestamp = ? WHERE id = ?")
             .bind("2025-01-01T00:00:00Z")
             .bind(audit_id)
-            .execute(self.state.db.pool())
+            .execute(self.state.db.pool_result().expect("db pool"))
             .await
             .expect("timestamp update");
     }

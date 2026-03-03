@@ -11,6 +11,7 @@ adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker", default-features = false }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+adapteros-inference-contract = { path = "../adapteros-inference-contract" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 axum = { workspace = true }

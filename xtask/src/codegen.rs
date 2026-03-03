@@ -261,7 +261,7 @@ async fn build_server_and_export_openapi(config: &CodegenConfig) -> Result<PathB
                     "description": "Stub spec - build system blocked (see PRD-02-BLOCKERS.md)"
                 },
                 "servers": [
-                    { "url": "http://localhost:8080", "description": "Local dev" }
+                    { "url": "http://localhost:18080", "description": "Local dev" }
                 ],
                 "paths": {}
             });

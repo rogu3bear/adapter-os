@@ -1,0 +1,95 @@
+{
+  "name": "gate_scoring_v1",
+  "description": "K-sparse LoRA router gate scoring dataset. Covers raw score computation via gate matrix projection, softmax normalization with temperature scaling, temperature regime effects (τ=0.01 through τ=10.0), and realistic production score distributions (power-law, bimodal, uniform, evolving). 1000 examples with worked numerical computations.",
+  "version": "1.0.0",
+  "category": "routing",
+  "scope": "system",
+  "tier": "critical",
+  "rank": 8,
+  "alpha": 16.0,
+  "target_modules": [
+    "gate_proj",
+    "q_proj",
+    "k_proj"
+  ],
+  "entries": [
+    {
+      "path": "gate-scoring.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "positive",
+      "notes": "1000 gate scoring examples across four subcategories: raw score computation (250), softmax normalization (250), temperature effects (250), score distributions (250)"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#k-sparse-lora-router",
+      "docs/architecture/MasterPlan.md#gate-scoring",
+      "AGENTS.md#router"
+    ],
+    "created_by": "gate-scoring-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Synthetic dataset with realistic floating-point gate scores and worked softmax computations. All numerical examples computed from first principles."
+  },
+  "evaluation_gates": [
+    "Raw score magnitude explanation references dot product and Cauchy-Schwarz bound",
+    "Softmax step-by-step includes log-sum-exp numerical stability trick",
+    "Temperature τ=0.01 outputs approach one-hot (max prob ≥ 0.99)",
+    "Temperature τ=10.0 outputs deviate from uniform by ≤ 0.05",
+    "Power-law distributions show top adapter capturing ≥ 50% probability mass",
+    "Evolving distributions show routing handoff across sequence positions",
+    "All probability vectors sum to 1.0 within floating-point tolerance"
+  ],
+  "intent": "Train the adapter to reason about K-sparse LoRA gate scoring mechanics: how raw scores emerge from linear projection, how softmax with temperature transforms them into routing probabilities, the behavioral consequences of different temperature regimes, and the statistical patterns that appear in production routing systems.",
+  "subcategory_breakdown": {
+    "raw_score_computation": {
+      "count": 250,
+      "subcategories": [
+        "raw_score_dot_product",
+        "raw_score_linear_projection",
+        "raw_score_interpretation",
+        "raw_score_per_token",
+        "raw_score_initialization"
+      ],
+      "adapter_counts": [4, 8, 16, 32]
+    },
+    "softmax_normalization": {
+      "count": 250,
+      "subcategories": [
+        "softmax_step_by_step",
+        "softmax_temperature_comparison",
+        "softmax_entropy",
+        "softmax_numerical_stability",
+        "softmax_topk_selection"
+      ],
+      "tau_values": [0.1, 0.3, 0.5, 1.0, 2.0]
+    },
+    "temperature_effects": {
+      "count": 250,
+      "subcategories": [
+        "temperature_near_zero",
+        "temperature_moderate",
+        "temperature_standard",
+        "temperature_high"
+      ],
+      "tau_values": [0.01, 0.1, 1.0, 10.0]
+    },
+    "score_distributions": {
+      "count": 250,
+      "subcategories": [
+        "distribution_power_law",
+        "distribution_bimodal",
+        "distribution_uniform",
+        "distribution_evolving"
+      ]
+    }
+  },
+  "statistics": {
+    "total_examples": 1000,
+    "adapter_counts_covered": [4, 8, 16, 32],
+    "temperature_values_covered": [0.01, 0.1, 0.3, 0.5, 1.0, 2.0, 5.0, 10.0],
+    "hidden_dims_covered": [64, 128, 256, 512, 768, 1024, 2048, 4096],
+    "avg_quality_score": 0.94
+  }
+}

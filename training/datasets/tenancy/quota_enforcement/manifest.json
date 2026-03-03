@@ -1,0 +1,135 @@
+{
+  "name": "tenant_quota_enforcement_v1",
+  "description": "Per-tenant resource quota enforcement dataset covering VRAM quota limits, adapter count caps, training job slot management, inference rate limiting, and quota capacity planning. 1500 examples with realistic multi-tenant scenarios grounded in adapterOS TenantKvQuotaManager, UMA pressure monitoring, and reservation-based quota tracking.",
+  "version": "1.0.0",
+  "category": "tenancy",
+  "subcategory": "quota_enforcement",
+  "scope": "system",
+  "tier": "production",
+  "rank": 6,
+  "alpha": 12.0,
+  "target_modules": ["gate_proj", "up_proj", "down_proj", "q_proj", "v_proj"],
+  "entries": [
+    {
+      "path": "quota-enforcement.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "positive",
+      "notes": "1500 quota enforcement examples across five subcategories: VRAM quota scenarios (300), adapter count limits (300), training job quotas (300), rate limiting (300), quota planning (300)"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "crates/adapteros-lora-worker/src/kv_quota.rs",
+      "crates/adapteros-lora-worker/src/memory.rs",
+      "crates/adapteros-lora-worker/src/kvcache.rs",
+      "crates/adapteros-lora-worker/src/adapter_hotswap.rs"
+    ],
+    "created_by": "tenant-quota-enforcement-dataset-task",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Comprehensive multi-tenant quota enforcement training data covering all resource dimensions. Grounded in TenantKvQuotaManager reservation model, UmaPressureMonitor thresholds, and HTTP 429 response semantics."
+  },
+  "evaluation_gates": [
+    "VRAM quota arithmetic correct within 1 MB tolerance",
+    "Soft limit warning at 80% identified correctly >= 98%",
+    "Hard limit rejection at 100% identified correctly >= 99%",
+    "HTTP 429 response with Retry-After header mentioned >= 97%",
+    "Token bucket rate limiting math correct >= 95%",
+    "Eviction ordering under VRAM pressure matches LRU-with-pinning policy >= 96%",
+    "Quota planning recommendations proportional to stated workload >= 94%",
+    "Training job queue ordering and wait time estimates reasonable >= 93%"
+  ],
+  "intent": "Train the model to reason precisely about per-tenant resource quotas in adapterOS: when quotas are approached (soft limit warnings at 80%), when they are exceeded (hard limit rejections at 100% with HTTP 429), how VRAM is partitioned across loaded adapters and KV cache, how training job slots queue, how token bucket rate limiting handles burst traffic, and how to recommend quota configurations for varying workload profiles.",
+  "enforcement_model": {
+    "soft_limit_pct": 80,
+    "hard_limit_pct": 100,
+    "rejection_status": 429,
+    "rejection_header": "Retry-After",
+    "reservation_timeout_secs": 300
+  },
+  "quota_dimensions": {
+    "vram_bytes": "Max VRAM for loaded adapters + KV cache per tenant",
+    "adapter_count": "Max registered adapters per tenant",
+    "loaded_adapter_count": "Max simultaneously loaded adapters per tenant",
+    "training_job_slots": "Max concurrent training jobs per tenant",
+    "dataset_storage_bytes": "Max total dataset storage per tenant",
+    "request_rate_rps": "Max inference requests per second per tenant",
+    "stack_count": "Max active stacks per tenant"
+  },
+  "subcategory_breakdown": {
+    "vram_quota_scenarios": {
+      "count": 300,
+      "description": "Tenant tries to load adapter that would exceed VRAM quota. Covers eviction to make room, reservation failures, KV cache pressure, and multi-adapter VRAM arithmetic.",
+      "subcategories": [
+        "vram_load_exceeds_quota",
+        "vram_eviction_to_fit",
+        "vram_kv_cache_pressure",
+        "vram_reservation_failure",
+        "vram_multi_adapter_arithmetic",
+        "vram_soft_limit_warning"
+      ]
+    },
+    "adapter_count_limits": {
+      "count": 300,
+      "description": "Registration rejected when at count limit. Covers hard cap enforcement, archive-to-register workflows, loaded vs registered distinction, and bulk operations at capacity.",
+      "subcategories": [
+        "count_hard_cap_rejection",
+        "count_archive_then_register",
+        "count_loaded_vs_registered",
+        "count_bulk_at_capacity",
+        "count_soft_limit_approaching",
+        "count_cleanup_strategies"
+      ]
+    },
+    "training_job_quotas": {
+      "count": 300,
+      "description": "Training job slot management when limit is reached. Covers queue behavior, priority ordering, estimated wait times, slot release, and preemption scenarios.",
+      "subcategories": [
+        "training_slot_exhaustion",
+        "training_queue_behavior",
+        "training_priority_ordering",
+        "training_wait_estimation",
+        "training_slot_release",
+        "training_preemption"
+      ]
+    },
+    "rate_limiting": {
+      "count": 300,
+      "description": "Inference rate limiting with token bucket algorithm. Covers burst allowance, bucket refill, throttle response, retry behavior, and sustained overload patterns.",
+      "subcategories": [
+        "rate_token_bucket_mechanics",
+        "rate_burst_allowance",
+        "rate_throttle_response",
+        "rate_retry_backoff",
+        "rate_sustained_overload",
+        "rate_bucket_refill"
+      ]
+    },
+    "quota_planning": {
+      "count": 300,
+      "description": "Capacity planning and quota recommendation. Given tenant workload characteristics, recommend quota values with justification.",
+      "subcategories": [
+        "planning_small_team",
+        "planning_enterprise",
+        "planning_burst_workload",
+        "planning_training_heavy",
+        "planning_inference_heavy",
+        "planning_cost_optimization"
+      ]
+    }
+  },
+  "statistics": {
+    "total_examples": 1500,
+    "quality_range": [0.89, 0.98],
+    "avg_quality_score": 0.94,
+    "label": "positive"
+  },
+  "format": {
+    "fields": ["input", "target", "metadata"],
+    "metadata_fields": ["quality", "label", "subcategory"],
+    "quality_range": [0.89, 0.98],
+    "label": "positive"
+  },
+  "created": "2026-02-26"
+}

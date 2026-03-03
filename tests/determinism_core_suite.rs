@@ -311,7 +311,7 @@ async fn run_reasoning_trace(
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-reasoning")
         .bind("Reasoning Determinism Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await?;
 
     let mut sink = SqlTraceSink::new(
@@ -435,7 +435,7 @@ async fn run_reasoning_trace(
         "SELECT token_index, selected_adapter_ids, kernel_version_id FROM inference_trace_tokens WHERE trace_id = ? ORDER BY token_index ASC",
     )
     .bind(trace_id)
-    .fetch_all(db.pool())
+    .fetch_all(db.pool_result().unwrap())
     .await?;
 
     let mut stored_adapter_sequences = Vec::with_capacity(stored_rows.len());
@@ -530,26 +530,28 @@ fn decode_adapter_ids(bytes: &[u8]) -> Result<Vec<String>> {
 }
 
 async fn ensure_base_only_column(db: &Db) {
+    let pool = db.pool_opt().expect("test requires SQL pool");
     let exists: Option<i64> = sqlx::query_scalar(
         "SELECT 1 FROM pragma_table_info('inference_replay_metadata') WHERE name = 'base_only'",
     )
-    .fetch_optional(db.pool())
+    .fetch_optional(pool)
     .await
     .expect("pragma table info should succeed");
 
     if exists.is_none() {
         sqlx::query("ALTER TABLE inference_replay_metadata ADD COLUMN base_only INTEGER")
-            .execute(db.pool())
+            .execute(pool)
             .await
             .expect("should be able to add base_only column in tests");
     }
 }
 
 async fn seed_tenant(db: &Db) {
+    let pool = db.pool_opt().expect("test requires SQL pool");
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-det")
         .bind("Determinism Tenant")
-        .execute(db.pool())
+        .execute(pool)
         .await
         .expect("tenant insert should succeed for FK constraints");
 }

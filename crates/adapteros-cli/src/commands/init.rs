@@ -44,12 +44,12 @@ pub struct InitArgs {
     #[arg(long)]
     pub skip_config: bool,
 
-    /// UI server URL (default: http://localhost:5173)
-    #[arg(long, default_value = "http://localhost:5173")]
+    /// UI server URL (default: http://localhost:18086)
+    #[arg(long, default_value = "http://localhost:18086")]
     pub ui_url: String,
 
-    /// API server URL (default: http://localhost:8080)
-    #[arg(long, default_value = "http://localhost:8080")]
+    /// API server URL (default: http://localhost:18080)
+    #[arg(long, default_value = "http://localhost:18080")]
     pub api_url: String,
 }
 
@@ -220,7 +220,7 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
         match Db::connect(&db_url).await {
             Ok(db) => {
                 let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-                    .fetch_one(db.pool())
+                    .fetch_one(db.pool_result()?)
                     .await
                     .unwrap_or(0);
 

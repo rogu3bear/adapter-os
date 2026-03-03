@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const INFER_API_PATH: &str = "/api/v1/infer";
+const INFER_API_PATH: &str = "/inference";
 
 pub(crate) fn uds_infer_url_string(socket_path: &Path) -> String {
     let socket_display = socket_path.display().to_string();
@@ -141,7 +141,7 @@ mod tests {
             parsed
         );
         assert!(
-            parsed.path().ends_with("/api/v1/infer"),
+            parsed.path().ends_with("/inference"),
             "expected infer path suffix, got: {}",
             parsed
         );

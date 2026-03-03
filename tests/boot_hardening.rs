@@ -37,7 +37,7 @@ fn invalid_env_value_uses_default() {
         .load(vec![], None)
         .expect("env fallback should succeed");
 
-    assert_eq!(config.get("server.port"), Some(&"8080".to_string()));
+    assert_eq!(config.get("server.port"), Some(&"18080".to_string()));
 
     if let Some(val) = original {
         std::env::set_var("AOS_SERVER_PORT", val);

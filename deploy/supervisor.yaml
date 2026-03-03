@@ -4,13 +4,13 @@
 
 server:
   host: "127.0.0.1"
-  port: 3301
+  port: 18082
   workers: 4
   max_connections: 1000
   timeout_seconds: 30
   cors_allowed_origins:
-    - "http://localhost:8080"
-    - "http://localhost:3300"
+    - "http://localhost:18080"
+    - "http://localhost:18081"
 
 services:
   service-panel:
@@ -19,7 +19,7 @@ services:
     command: "target/release/adapteros-service-supervisor"
     args: []
     environment: {}
-    port: 3301
+    port: 18082
     category: "management"
     essential: true
     dependencies: []
@@ -30,7 +30,7 @@ services:
     health_check:
       enabled: true
       check_type: "http"
-      endpoint: "http://localhost:3301/health"
+      endpoint: "http://localhost:18082/health"
       interval_seconds: 30
       timeout_seconds: 10
       max_failures: 3
@@ -49,7 +49,7 @@ services:
     args: ["run", "-p", "adapteros-server", "--bin", "adapteros-server", "--", "--config", "configs/cp.toml", "--skip-pf-check", "--single-writer"]
     working_directory: "."
     environment: {}
-    port: 3300
+    port: 18080
     category: "core"
     essential: true
     dependencies: []
@@ -60,7 +60,7 @@ services:
     health_check:
       enabled: true
       check_type: "http"
-      endpoint: "http://localhost:3300/healthz"
+      endpoint: "http://localhost:18080/healthz"
       interval_seconds: 30
       timeout_seconds: 10
       max_failures: 3
@@ -76,10 +76,10 @@ services:
     name: "UI Frontend"
     description: "Leptos WASM dashboard application"
     command: "trunk"
-    args: ["serve", "--address", "0.0.0.0", "--port", "8080"]
+    args: ["serve", "--address", "0.0.0.0", "--port", "18081"]
     working_directory: "crates/adapteros-ui"
     environment: {}
-    port: 8080
+    port: 18081
     category: "core"
     essential: false
     dependencies: []
@@ -90,7 +90,7 @@ services:
     health_check:
       enabled: true
       check_type: "http"
-      endpoint: "http://localhost:8080"
+      endpoint: "http://localhost:18081"
       interval_seconds: 30
       timeout_seconds: 10
       max_failures: 3
@@ -139,7 +139,7 @@ services:
     working_directory: "."
     environment:
       RUST_LOG: "adapteros_orchestrator=info"
-    port: 3302
+    port: 18093
     category: "core"
     essential: true
     dependencies: ["backend-server"]
@@ -150,7 +150,7 @@ services:
     health_check:
       enabled: true
       check_type: "http"
-      endpoint: "http://localhost:3302/health"
+      endpoint: "http://localhost:18093/health"
       interval_seconds: 30
       timeout_seconds: 10
       max_failures: 3
@@ -201,7 +201,7 @@ services:
     working_directory: "."
     environment:
       RUST_LOG: "adapteros_metrics_collector=info"
-    port: 9090
+    port: 18084
     category: "monitoring"
     essential: false
     dependencies: []
@@ -212,7 +212,7 @@ services:
     health_check:
       enabled: true
       check_type: "tcp"
-      endpoint: "localhost:9090"
+      endpoint: "localhost:18084"
       interval_seconds: 30
       timeout_seconds: 5
       max_failures: 3
@@ -262,7 +262,7 @@ services:
     working_directory: "."
     environment:
       RUST_LOG: "adapteros_node=info"
-    port: 3303
+    port: 18083
     category: "management"
     essential: false
     dependencies: ["backend-server"]
@@ -273,7 +273,7 @@ services:
     health_check:
       enabled: true
       check_type: "http"
-      endpoint: "http://localhost:3303/health"
+      endpoint: "http://localhost:18083/health"
       interval_seconds: 30
       timeout_seconds: 10
       max_failures: 3
@@ -295,4 +295,4 @@ monitoring:
   metrics_enabled: true
   health_check_interval_seconds: 30
   log_level: "info"
-  prometheus_port: 9091
+  prometheus_port: 18084

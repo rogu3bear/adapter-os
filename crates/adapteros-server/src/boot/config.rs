@@ -11,12 +11,15 @@
 //! - Boot timeout configuration
 
 use adapteros_boot::{ensure_runtime_dir, EXIT_CONFIG_ERROR};
-use adapteros_config::{path_resolver::PathSource, resolve_base_model_location};
+use adapteros_config::{
+    path_resolver::PathSource, resolve_base_model_location, StorageBackend as CfgStorageBackend,
+};
 use adapteros_core::{resolve_var_dir, time};
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
 use anyhow::Result;
 use serde_json::json;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::{error, info, instrument, warn};
@@ -172,6 +175,31 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
             if matches!(resolved.source, PathSource::Env(_)) {
                 cfg.db.path = resolved.path.to_string_lossy().to_string();
             }
+        }
+
+        // Storage backend: honor env override and canonicalize aliases so boot/database uses
+        // the intended mode instead of stale config file defaults.
+        if let Ok(raw_backend) =
+            std::env::var("AOS_STORAGE_BACKEND").or_else(|_| std::env::var("AOS_STORAGE_MODE"))
+        {
+            match CfgStorageBackend::from_str(raw_backend.trim()) {
+                Ok(parsed_backend) => {
+                    let canonical = parsed_backend.as_str().to_string();
+                    cfg.db.storage_mode = canonical.clone();
+                    std::env::set_var("AOS_STORAGE_BACKEND", &canonical);
+                    std::env::set_var("AOS_STORAGE_MODE", &canonical);
+                }
+                Err(_) => {
+                    eprintln!(
+                        "WARNING: Invalid storage backend '{raw_backend}'; using config file value '{}'",
+                        cfg.db.storage_mode
+                    );
+                }
+            }
+        } else {
+            // Publish the resolved config value for downstream crates that read env directly.
+            std::env::set_var("AOS_STORAGE_BACKEND", cfg.db.storage_mode.trim());
+            std::env::set_var("AOS_STORAGE_MODE", cfg.db.storage_mode.trim());
         }
     }
 

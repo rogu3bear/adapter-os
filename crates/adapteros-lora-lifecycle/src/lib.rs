@@ -180,7 +180,7 @@ pub struct LifecycleManager {
     /// Lifecycle policy
     policy: LifecyclePolicy,
     /// Adapter loader
-    loader: Arc<RwLock<AdapterLoader>>,
+    loader: Arc<AdapterLoader>,
     /// Telemetry writer
     telemetry: Option<TelemetryWriter>,
     /// Current K value for router
@@ -230,10 +230,7 @@ impl LifecycleManager {
         Self {
             states: Arc::new(RwLock::new(states)),
             policy: LifecyclePolicy::from_manifest(policies),
-            loader: Arc::new(RwLock::new(AdapterLoader::new(
-                adapters_base_path,
-                adapter_hashes,
-            ))),
+            loader: Arc::new(AdapterLoader::new(adapters_base_path, adapter_hashes)),
             telemetry,
             current_k: Arc::new(RwLock::new(initial_k)),
             category_policies: CategoryPolicyManager::new(),
@@ -252,7 +249,7 @@ impl LifecycleManager {
 
     /// Bind expected base model identity for loader-level validation.
     pub fn set_expected_base_model(&self, model_id: &str, model_hash: B3Hash) {
-        let mut loader = self.loader.write();
+        let loader = &self.loader;
         loader.set_expected_base_model(model_id.to_string(), Some(model_hash));
     }
 
@@ -282,10 +279,7 @@ impl LifecycleManager {
         Self {
             states: Arc::new(RwLock::new(states)),
             policy: LifecyclePolicy::from_manifest(policies),
-            loader: Arc::new(RwLock::new(AdapterLoader::new(
-                adapters_base_path,
-                adapter_hashes,
-            ))),
+            loader: Arc::new(AdapterLoader::new(adapters_base_path, adapter_hashes)),
             telemetry,
             current_k: Arc::new(RwLock::new(initial_k)),
             category_policies: CategoryPolicyManager::new(),
@@ -323,7 +317,7 @@ impl LifecycleManager {
     /// # Returns
     /// The adapter index assigned to this adapter
     pub fn register_adapter(
-        &mut self,
+        &self,
         adapter_id: String,
         hash: B3Hash,
         category: Option<String>,
@@ -337,7 +331,7 @@ impl LifecycleManager {
 
         // 2. Register hash with loader
         {
-            let mut loader = self.loader.write();
+            let loader = &self.loader;
             loader.register_hash(adapter_id.clone(), hash);
         }
 
@@ -728,7 +722,7 @@ impl LifecycleManager {
               AND last_loaded_at < datetime('now', '-5 minutes')
             "#,
         )
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
 
@@ -749,7 +743,7 @@ impl LifecycleManager {
                     "UPDATE adapters SET load_state = 'cold', current_state = 'unloaded', updated_at = datetime('now') WHERE adapter_id = ?",
                 )
                 .bind(&adapter_id)
-                .execute(db.pool())
+                .execute(db.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to update adapter state: {}", e)))?;
 
@@ -777,7 +771,7 @@ impl LifecycleManager {
 
         // 3. Verify adapter count consistency
         let db_adapter_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM adapters")
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to count adapters: {}", e)))?;
 
@@ -797,7 +791,7 @@ impl LifecycleManager {
         let reset_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM adapters WHERE activation_pct > 1.0 OR activation_pct < 0.0",
         )
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to query invalid activation_pct: {}", e))
@@ -810,7 +804,7 @@ impl LifecycleManager {
             );
 
             sqlx::query("UPDATE adapters SET activation_pct = 0.0 WHERE activation_pct > 1.0 OR activation_pct < 0.0")
-                .execute(db.pool())
+                .execute(db.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to reset activation_pct: {}", e)))?;
 
@@ -880,13 +874,20 @@ impl LifecycleManager {
             for (_, adapter_id, _, _, pct) in updates.iter().cloned() {
                 let db_clone = db.clone();
                 spawn_deterministic("Activation pct update".to_string(), async move {
+                    let pool = match db_clone.pool_result() {
+                        Ok(p) => p,
+                        Err(e) => {
+                            warn!("Pool not available for activation_pct update: {}", e);
+                            return;
+                        }
+                    };
                     if let Err(e) = sqlx::query(
                         "UPDATE adapters SET activation_pct = ?, updated_at = datetime('now') \
                          WHERE adapter_id = ?",
                     )
                     .bind(pct)
                     .bind(&adapter_id)
-                    .execute(db_clone.pool())
+                    .execute(pool)
                     .await
                     {
                         warn!("Failed to update activation_pct for {}: {}", adapter_id, e);
@@ -996,7 +997,7 @@ impl LifecycleManager {
             .bind(pinned_until_sql)
             .bind(reason_sql)
             .bind(pinned_by)
-            .execute(db.pool())
+            .execute(db.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to persist adapter pin: {}", e)))?;
 
@@ -1092,7 +1093,7 @@ impl LifecycleManager {
             sqlx::query("DELETE FROM pinned_adapters WHERE tenant_id = ? AND adapter_id = ?")
                 .bind(tenant_id)
                 .bind(&adapter_id_str)
-                .execute(db.pool())
+                .execute(db.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to remove adapter pin: {}", e)))?;
 
@@ -1463,7 +1464,7 @@ impl LifecycleManager {
                     }
 
                     // Unload from memory
-                    let mut loader = self.loader.write();
+                    let loader = &self.loader;
                     loader.unload_adapter(adapter_id)?;
 
                     // Note: DB behavior event logging skipped in sync context
@@ -1652,7 +1653,7 @@ impl LifecycleManager {
         // Find record by adapter_id
         if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
             if record.state == AdapterHeatState::Unloaded {
-                let mut loader = self.loader.write();
+                let loader = &self.loader;
                 let handle = match loader.load_adapter(record.adapter_idx, adapter_id) {
                     Ok(handle) => handle,
                     Err(err) => {
@@ -1680,13 +1681,13 @@ impl LifecycleManager {
     }
 
     /// Get or reload adapter with automatic reload on cache miss
-    pub fn get_or_reload(&mut self, adapter_id: &str) -> Result<()> {
+    pub fn get_or_reload(&self, adapter_id: &str) -> Result<()> {
         let mut states = self.states.write();
 
         // Find record by adapter_id
         if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
             if record.state == AdapterHeatState::Unloaded {
-                let mut loader = self.loader.write();
+                let loader = &self.loader;
                 let handle = match loader.load_adapter(record.adapter_idx, adapter_id) {
                     Ok(handle) => handle,
                     Err(err) => {
@@ -1698,6 +1699,43 @@ impl LifecycleManager {
                 record.state = AdapterHeatState::Cold;
 
                 info!("Auto-reloaded adapter {}", adapter_id);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get or reload adapter asynchronously to prevent blocking during model ingestion
+    pub async fn get_or_reload_async(&self, adapter_id: &str) -> Result<()> {
+        let (needs_load, adapter_idx) = {
+            let states = self.states.read();
+            if let Some(record) = states.values().find(|r| r.adapter_id == adapter_id) {
+                (
+                    record.state == AdapterHeatState::Unloaded,
+                    record.adapter_idx,
+                )
+            } else {
+                return Ok(());
+            }
+        };
+
+        if needs_load {
+            let loader = &self.loader;
+            match loader.load_adapter_async(adapter_idx, adapter_id).await {
+                Ok(_) => {
+                    let mut states = self.states.write();
+                    if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
+                        // Use CAS-like logic: only promote if still Unloaded
+                        if record.state == AdapterHeatState::Unloaded {
+                            record.state = AdapterHeatState::Cold;
+                            info!("Auto-reloaded adapter {} (async)", adapter_id);
+                        }
+                    }
+                }
+                Err(err) => {
+                    self.report_adapter_hash_mismatch(adapter_id, adapter_idx, &err);
+                    return Err(err);
+                }
             }
         }
 
@@ -1919,7 +1957,7 @@ impl LifecycleManager {
             )
             .bind(activation_count as i64)
             .bind(&adapter_id_clone)
-            .execute(db_clone.pool())
+            .execute(db_clone.pool_result()?)
             .await
             {
                 warn!(
@@ -2059,7 +2097,7 @@ impl LifecycleManager {
                 // FIX 1: Unload from loader BEFORE changing state, while still holding states lock
                 // This prevents race where adapter could be pinned after check but before unload
                 {
-                    let mut loader = self.loader.write();
+                    let loader = &self.loader;
                     if let Err(e) = loader.unload_adapter(adapter_id) {
                         // Allow eviction to continue when adapter was never loaded
                         if !e.to_string().contains("not loaded") {
@@ -2319,7 +2357,7 @@ impl LifecycleManager {
             "#,
         )
         .bind(stack_id)
-        .fetch_optional(db.pool())
+        .fetch_optional(db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?
         .ok_or_else(|| AosError::NotFound(format!("Stack {} not found", stack_id)))?;
@@ -2348,7 +2386,7 @@ impl LifecycleManager {
                 "SELECT workflow_type FROM adapter_stacks WHERE name = ?",
             )
             .bind(&stack_name)
-            .fetch_optional(db.pool())
+            .fetch_optional(db.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to fetch workflow type: {}", e)))?;
 
@@ -2451,7 +2489,7 @@ impl LifecycleManager {
             sqlx::query("UPDATE adapters SET last_heartbeat = ? WHERE id = ?")
                 .bind(now)
                 .bind(adapter_id)
-                .execute(db.pool())
+                .execute(db.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to update heartbeat: {}", e)))?;
 
@@ -2478,7 +2516,7 @@ impl LifecycleManager {
                    AND load_state NOT IN ('unloaded', 'unloading')",
             )
             .bind(cutoff)
-            .fetch_all(db.pool())
+            .fetch_all(db.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
 
@@ -2532,7 +2570,7 @@ impl LifecycleManager {
                      WHERE id = ?",
                 )
                 .bind(&adapter_id)
-                .execute(db.pool())
+                .execute(db.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to reset stale adapter: {}", e)))?;
 
@@ -2622,7 +2660,7 @@ impl LifecycleManager {
             }
         }
 
-        let loader = self.loader.read();
+        let loader = &self.loader;
         let base_path = loader.adapters_base_path();
         let adapter_path = base_path.join(format!("{}.aos", model_id));
         if adapteros_core::is_forbidden_tmp_path(&adapter_path) {

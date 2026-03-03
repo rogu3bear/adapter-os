@@ -205,7 +205,7 @@ mod tests {
                 .unwrap(),
             ),
         ];
-        let serialized = serialize(tensors, &Default::default()).unwrap();
+        let serialized = serialize(tensors, Default::default()).unwrap();
 
         let weights = load_telemetry_lora(&serialized, TelemetryTask::Control).unwrap();
         assert_eq!(Arc::as_ref(&weights.weights)[2], 3.0);

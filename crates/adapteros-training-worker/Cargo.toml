@@ -15,6 +15,8 @@ tracing.workspace = true
 chrono.workspace = true
 adapteros-client = { path = "../adapteros-client" }
 adapteros-config = { path = "../adapteros-config" }
+adapteros-core = { path = "../adapteros-core" }
+adapteros-db = { path = "../adapteros-db" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 
 [[bin]]

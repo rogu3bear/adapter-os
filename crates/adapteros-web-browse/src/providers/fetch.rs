@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use crate::{
     error::{WebBrowseError, WebBrowseResult},
     evidence::{EvidenceBuilder, EvidenceType, Freshness, SourceRecord},
-    retry::{calculate_retry_delay, parse_retry_after, resolve_redirect_url, HttpRetryConfig},
+    retry::{parse_retry_after, resolve_redirect_url, HttpRetryConfig},
     service::{PageFetchRequest, PageFetchResponse, PageImage},
     streaming::{stream_response_body, StreamingConfig},
     TenantId,
@@ -202,57 +202,66 @@ impl PageFetcher {
         Ok(())
     }
 
-    /// Fetch with retry logic
+    /// Fetch with retry logic using adapteros Core RecoveryOrchestrator
     async fn fetch_with_retry(
         &self,
         url: &str,
     ) -> WebBrowseResult<(reqwest::Response, FetchMetadata)> {
+        use adapteros_core::recovery::{RecoveryError, RecoveryOrchestratorBuilder};
+        use adapteros_core::retry_policy::RetryPolicy;
+        use std::time::Duration;
+
         let retry_config = &self.config.retry_config;
-        let mut attempts = 0u32;
-        let mut last_error: Option<WebBrowseError> = None;
+        let policy = RetryPolicy {
+            max_attempts: retry_config.max_retries + 1, // max_attempts in RecoveryOrchestrator includes the first try
+            base_delay: Duration::from_millis(retry_config.base_delay_ms),
+            max_delay: Duration::from_millis(retry_config.max_delay_ms),
+            backoff_factor: retry_config.backoff_multiplier,
+            jitter: retry_config.jitter_factor > 0.0,
+            ..RetryPolicy::network("page-fetch")
+        };
 
-        loop {
-            attempts += 1;
+        let orchestrator = RecoveryOrchestratorBuilder::new("page-fetch")
+            .with_retry_policy(policy)
+            .build();
 
-            match self.single_fetch(url).await {
-                Ok((response, metadata)) => {
-                    return Ok((
-                        response,
-                        FetchMetadata {
-                            original_url: url.to_string(),
-                            final_url: metadata.final_url,
-                            redirect_chain: metadata.redirect_chain,
-                            redirect_count: metadata.redirect_count,
-                            was_truncated: false,
-                            original_size_bytes: None,
-                            retry_attempts: attempts - 1,
-                        },
-                    ));
-                }
-                Err(e) if e.is_retriable() && attempts <= retry_config.max_retries => {
-                    let delay = calculate_retry_delay(&e, attempts, retry_config);
-                    tracing::warn!(
-                        url = %url,
-                        attempt = attempts,
-                        max_retries = retry_config.max_retries,
-                        delay_ms = delay.as_millis() as u64,
-                        error = %e,
-                        "Retriable error, backing off"
-                    );
-                    last_error = Some(e);
-                    tokio::time::sleep(delay).await;
-                }
-                Err(e) => {
-                    if attempts > 1 {
-                        return Err(WebBrowseError::RetryExhausted {
-                            url: url.to_string(),
-                            attempts,
-                            last_error: last_error
-                                .map(|le| le.to_string())
-                                .unwrap_or_else(|| e.to_string()),
-                        });
-                    }
-                    return Err(e);
+        let url_owned = url.to_string();
+        let outcome = orchestrator
+            .execute(|| async {
+                let (response, metadata) = self.single_fetch(&url_owned).await?;
+                Ok::<_, WebBrowseError>((
+                    response,
+                    FetchMetadata {
+                        original_url: url_owned.clone(),
+                        final_url: metadata.final_url,
+                        redirect_chain: metadata.redirect_chain,
+                        redirect_count: metadata.redirect_count,
+                        was_truncated: false,
+                        original_size_bytes: None,
+                        retry_attempts: 0, // Filled in below
+                    },
+                ))
+            })
+            .await;
+
+        match outcome.result {
+            Ok(mut val) => {
+                val.1.retry_attempts = outcome.stats.retry_attempts.saturating_sub(1);
+                Ok(val)
+            }
+            Err(RecoveryError::Exhausted { attempts, source }) => {
+                Err(WebBrowseError::RetryExhausted {
+                    url: url.to_string(),
+                    attempts,
+                    last_error: source.to_string(),
+                })
+            }
+            Err(e) => {
+                let err_msg = e.to_string();
+                if let Some(source) = e.into_source() {
+                    Err(source)
+                } else {
+                    Err(WebBrowseError::NetworkError(err_msg))
                 }
             }
         }

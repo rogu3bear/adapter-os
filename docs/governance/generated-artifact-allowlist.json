@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "description": "Allowed committed generated artifacts.",
+  "generated_artifacts": [
+    "docs/api/openapi.json",
+    "docs/generated/api-route-inventory.json",
+    "docs/generated/ui-route-inventory.json",
+    "docs/generated/middleware-chain.json",
+    "docs/generated/api-surface-matrix.json"
+  ]
+}

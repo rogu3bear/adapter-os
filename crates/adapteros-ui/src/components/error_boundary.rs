@@ -135,7 +135,7 @@ fn ErrorRecoveryPanel(
                             variant=ButtonVariant::Secondary
                             on_click=Callback::new(on_go_home)
                         >
-                            "Go to Dashboard"
+                            "Go to Home"
                         </Button>
                     </div>
 

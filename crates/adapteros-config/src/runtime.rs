@@ -666,7 +666,7 @@ mod tests {
         let config = RuntimeConfig::from_env().unwrap();
 
         // Check defaults are applied
-        assert_eq!(config.server_port(), 8080);
+        assert_eq!(config.server_port(), 18080);
         assert_eq!(config.server_host(), "127.0.0.1");
         assert_eq!(config.log_level(), "info");
         assert_eq!(config.runtime_mode(), "development");

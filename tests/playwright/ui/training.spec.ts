@@ -4,7 +4,7 @@ import { gotoAndBootstrap, seeded } from './utils';
 test('training list shows seeded job', { tag: ['@smoke'] }, async ({ page }) => {
   await gotoAndBootstrap(page, '/training', { mode: 'ui-only' });
   await expect(
-    page.getByRole('heading', { name: 'Training Jobs', level: 1, exact: true })
+    page.getByRole('heading', { name: /^(Training Jobs|Build)$/, level: 1 })
   ).toBeVisible();
   await expect(page.getByText(seeded.adapterName)).toBeVisible();
 });

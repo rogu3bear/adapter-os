@@ -236,7 +236,7 @@ impl AnomalyDetector {
             limit: None,
         };
 
-        let metrics = ProcessHealthMetric::query(self.db.pool(), filters).await?;
+        let metrics = ProcessHealthMetric::query(self.db.pool_result()?, filters).await?;
         let values: Vec<f64> = metrics.iter().map(|m| m.metric_value).collect();
 
         if values.is_empty() {
@@ -504,7 +504,7 @@ impl AnomalyDetector {
             status: AnomalyStatus::Detected,
         };
 
-        let anomaly_id = ProcessAnomaly::insert(self.db.pool(), anomaly_request).await?;
+        let anomaly_id = ProcessAnomaly::insert(self.db.pool_result()?, anomaly_request).await?;
 
         // Log anomaly to telemetry
         if let Err(e) = self.telemetry_writer.log(
@@ -554,7 +554,7 @@ impl AnomalyDetector {
             limit: Some(1000), // Get last 1000 metrics
         };
 
-        ProcessHealthMetric::query(self.db.pool(), filters).await
+        ProcessHealthMetric::query(self.db.pool_result()?, filters).await
     }
 
     /// Get recent metric values for rate of change calculation
@@ -573,7 +573,7 @@ impl AnomalyDetector {
             limit: Some(limit),
         };
 
-        let metrics = ProcessHealthMetric::query(self.db.pool(), filters).await?;
+        let metrics = ProcessHealthMetric::query(self.db.pool_result()?, filters).await?;
         Ok(metrics.iter().map(|m| m.metric_value).collect())
     }
 
@@ -617,7 +617,7 @@ impl AnomalyDetector {
     /// Get active tenants
     async fn get_active_tenants(&self) -> Result<Vec<TenantInfo>> {
         let rows = sqlx::query("SELECT id FROM tenants")
-            .fetch_all(self.db.pool())
+            .fetch_all(self.db.pool_result()?)
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!("Failed to get tenants: {}", e))
@@ -640,7 +640,7 @@ impl AnomalyDetector {
     async fn get_active_workers_for_tenant(&self, tenant_id: &str) -> Result<Vec<WorkerInfo>> {
         let rows = sqlx::query("SELECT id FROM workers WHERE tenant_id = ? AND status = 'active'")
             .bind(tenant_id)
-            .fetch_all(self.db.pool())
+            .fetch_all(self.db.pool_result()?)
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!("Failed to get workers: {}", e))

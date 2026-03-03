@@ -32,7 +32,7 @@ pub enum ScenarioSubcommand {
         name: String,
 
         /// Server URL for readiness polling
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
         server_url: String,
 
         /// Maximum seconds to wait for /system/ready
@@ -78,7 +78,7 @@ pub enum ScenarioSubcommand {
         skip_migrations: bool,
 
         /// Server URL for readiness polling
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
         server_url: String,
 
         /// Run a 1-token inference probe
@@ -104,7 +104,7 @@ pub enum ScenarioSubcommand {
         record: PathBuf,
 
         /// Server URL for the chat call
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
         server_url: String,
 
         /// Override scenario directory (default: configs/scenarios)
@@ -137,7 +137,7 @@ pub enum ScenarioSubcommand {
         name: String,
 
         /// Server URL for chat call
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
         server_url: String,
 
         /// Override scenario directory (default: configs/scenarios)

@@ -202,7 +202,6 @@ criterion_main!(benches);
 mod tests {
     use std::time::{Duration, Instant};
 
-    #[allow(dead_code)]
     fn bench_manual_timing() -> Vec<(&'static str, Duration)> {
         let mut results = Vec::new();
 

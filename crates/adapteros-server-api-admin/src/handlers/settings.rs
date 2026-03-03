@@ -61,7 +61,7 @@ pub async fn get_settings<S: AdminAppState>(
                 .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string()),
         },
         server: ServerSettings {
-            http_port: config.server.http_port.unwrap_or(8080),
+            http_port: config.server.http_port.unwrap_or(18080),
             https_port: config.server.https_port,
             uds_socket_path: config.server.uds_socket.clone(),
             production_mode: config.server.production_mode,
@@ -83,6 +83,10 @@ pub async fn get_settings<S: AdminAppState>(
             memory_threshold_pct: config.performance.memory_threshold_pct.unwrap_or(0.85),
             cache_size_mb: config.performance.cache_size_mb.unwrap_or(1024) as u64,
         },
+        effective_source: None,
+        applied_at: None,
+        restart_required_fields: Vec::new(),
+        pending_restart_fields: Vec::new(),
     };
 
     Ok(Json(settings))
@@ -188,6 +192,12 @@ pub async fn update_settings<S: AdminAppState>(
         success: true,
         restart_required,
         message,
+        applied_live: Vec::new(),
+        queued_for_restart: Vec::new(),
+        rejected: Vec::new(),
+        effective_source: None,
+        applied_at: None,
+        pending_restart_fields: Vec::new(),
     }))
 }
 

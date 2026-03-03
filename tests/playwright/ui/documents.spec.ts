@@ -4,13 +4,13 @@ import { gotoAndBootstrap, seeded } from './utils';
 test('documents list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) => {
   await gotoAndBootstrap(page, '/documents', { mode: 'ui-only' });
   await expect(
-    page.getByRole('heading', { name: 'Documents', level: 1, exact: true })
+    page.getByRole('heading', { name: /^(Documents|Files)$/, level: 1 })
   ).toBeVisible();
   await expect(page.getByText('Fixture Document')).toBeVisible();
 
   await gotoAndBootstrap(page, `/documents/${seeded.documentId}`, { mode: 'ui-only' });
   await expect(
-    page.getByRole('heading', { name: 'Document Details', level: 1, exact: true })
+    page.getByRole('heading', { name: /^(Document Details|File Details)$/, level: 1 })
   ).toBeVisible();
   await expect(page.getByText('Basic Information')).toBeVisible();
 });

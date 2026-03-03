@@ -76,24 +76,6 @@ impl Db {
         })
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn kv_bundle_from_record(bundle: &TelemetryBundle) -> TelemetryBundleKv {
-        TelemetryBundleKv {
-            id: bundle.id.clone(),
-            tenant_id: bundle.tenant_id.clone(),
-            cpid: bundle.cpid.clone(),
-            path: bundle.path.clone(),
-            merkle_root_b3: bundle.merkle_root_b3.clone(),
-            start_seq: bundle.start_seq,
-            end_seq: bundle.end_seq,
-            event_count: bundle.event_count,
-            created_at: bundle.created_at.clone(),
-            signature_b64: None,
-            chunk_count: None,
-            chunk_size_bytes: None,
-        }
-    }
-
     pub(crate) fn kv_bundle_to_record(bundle: TelemetryBundleKv) -> TelemetryBundle {
         TelemetryBundle {
             id: bundle.id,
@@ -109,7 +91,6 @@ impl Db {
     }
 }
 
-#[allow(dead_code)]
 pub fn telemetry_drift_count() -> u64 {
     TELEMETRY_DRIFT_COUNTER.load(Ordering::Relaxed)
 }

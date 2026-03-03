@@ -65,7 +65,10 @@ impl RequestContext {
         }
     }
 
-    /// Get the tenant ID from claims, or "system" if not authenticated
+    /// Get the tenant ID from claims, or "default" if not authenticated.
+    ///
+    /// We intentionally avoid defaulting unauthenticated requests to the
+    /// privileged `system` tenant.
     pub fn tenant_id(&self) -> &str {
         if let Some(principal) = &self.principal {
             principal.tenant_id.as_str()
@@ -73,7 +76,7 @@ impl RequestContext {
             self.claims
                 .as_ref()
                 .map(|c| c.tenant_id.as_str())
-                .unwrap_or("system")
+                .unwrap_or("default")
         }
     }
 
@@ -316,7 +319,7 @@ mod tests {
             client_ip: "127.0.0.1".to_string(),
         };
         assert_eq!(ctx.user_id(), "anonymous");
-        assert_eq!(ctx.tenant_id(), "system");
+        assert_eq!(ctx.tenant_id(), "default");
         assert!(!ctx.is_authenticated());
     }
 }

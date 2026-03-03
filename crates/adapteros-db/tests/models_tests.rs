@@ -32,7 +32,7 @@ async fn create_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(format!("Tenant {}", tenant_id))
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create tenant: {}", e)))?;
     Ok(())
@@ -43,7 +43,7 @@ async fn set_model_tenant(db: &Db, model_id: &str, tenant_id: Option<&str>) -> R
     sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
         .bind(tenant_id)
         .bind(model_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to set model tenant: {}", e)))?;
     Ok(())
@@ -54,7 +54,7 @@ async fn set_model_created_at(db: &Db, model_id: &str, created_at: &str) -> Resu
     sqlx::query("UPDATE models SET created_at = ? WHERE id = ?")
         .bind(created_at)
         .bind(model_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to set model created_at: {}", e)))?;
     Ok(())
@@ -677,7 +677,7 @@ async fn update_base_model_status_updates_existing_record() -> Result<()> {
     db.update_base_model_status("tenant-a", &model_id, "loading", None, None)
         .await?;
 
-    // Update to loaded with memory usage
+    // Update to ready with memory usage
     db.update_base_model_status("tenant-a", &model_id, "loaded", None, Some(4096))
         .await?;
 
@@ -686,7 +686,7 @@ async fn update_base_model_status_updates_existing_record() -> Result<()> {
         .await?
         .expect("status should exist");
 
-    assert_eq!(status.status, "loaded");
+    assert_eq!(status.status, "ready");
     assert_eq!(status.memory_usage_mb, Some(4096));
 
     Ok(())
@@ -702,9 +702,9 @@ async fn update_base_model_status_normalizes_legacy_statuses() -> Result<()> {
 
     // Test legacy status normalization
     let test_cases = vec![
-        ("ready", "loaded"),
-        ("no-model", "unloaded"),
-        ("none", "unloaded"),
+        ("ready", "ready"),
+        ("no-model", "no-model"),
+        ("none", "no-model"),
         ("checking", "loading"),
     ];
 

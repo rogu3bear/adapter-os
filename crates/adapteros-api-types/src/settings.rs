@@ -15,6 +15,14 @@ pub struct SystemSettings {
     pub server: ServerSettings,
     pub security: SecuritySettings,
     pub performance: PerformanceSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restart_required_fields: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_restart_fields: Vec<String>,
 }
 
 /// General system settings
@@ -82,4 +90,54 @@ pub struct SettingsUpdateResponse {
     pub success: bool,
     pub restart_required: bool,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub applied_live: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued_for_restart: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rejected: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_restart_fields: Vec<String>,
+}
+
+/// Effective source entry for a managed key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct EffectiveSettingsEntry {
+    pub key: String,
+    pub value: serde_json::Value,
+    pub effective_source: String,
+}
+
+/// Effective settings response with source metadata for managed keys.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct EffectiveSettingsResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub entries: Vec<EffectiveSettingsEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub managed_keys: Vec<String>,
+}
+
+/// Reconcile response for runtime config file/DB dual-write state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct SettingsReconcileResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub success: bool,
+    pub status: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_at: Option<String>,
 }

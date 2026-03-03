@@ -31,7 +31,7 @@ use agent::NodeAgent;
 #[command(about = "adapterOS Node Agent", long_about = None)]
 struct Cli {
     /// Agent listen port (ignored in production mode)
-    #[arg(short, long, default_value = "9443")]
+    #[arg(short, long, default_value = "18083")]
     port: u16,
 
     /// Enable production mode (requires UDS binding, no TCP)
@@ -104,6 +104,38 @@ struct SpawnWorkerResponse {
 #[derive(Debug, Serialize, Deserialize)]
 struct ErrorResponse {
     error: String,
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::warn!(error = %e, "Failed to install Ctrl+C handler");
+            std::future::pending::<()>().await;
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to install SIGTERM handler");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    tracing::info!("shutdown signal received");
 }
 
 #[tokio::main]
@@ -185,7 +217,7 @@ async fn main() -> Result<()> {
         .layer(middleware::from_fn(
             adapteros_telemetry::middleware::api_logger_middleware,
         ))
-        .with_state(state);
+        .with_state(state.clone());
 
     // Start server based on mode
     if cli.production_mode {
@@ -205,7 +237,21 @@ async fn main() -> Result<()> {
         let listener = UnixListener::bind(&cli.uds_path)?;
         info!("Node agent listening on UDS: {}", cli.uds_path);
 
-        axum::serve(listener, app).await?;
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
+
+        info!("Server stopped, cleaning up workers");
+        state.agent.shutdown_all_workers().await;
+
+        // Clean up UDS socket
+        if std::path::Path::new(&cli.uds_path).exists() {
+            if let Err(e) = std::fs::remove_file(&cli.uds_path) {
+                warn!(error = %e, path = %cli.uds_path, "failed to remove UDS socket on shutdown");
+            } else {
+                info!(path = %cli.uds_path, "removed UDS socket");
+            }
+        }
     } else {
         // Development mode: TCP binding allowed
         warn!(
@@ -228,7 +274,12 @@ async fn main() -> Result<()> {
 
         info!("Node agent listening on TCP: {}", addr);
 
-        axum::serve(listener, app).await?;
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
+
+        info!("Server stopped, cleaning up workers");
+        state.agent.shutdown_all_workers().await;
     }
 
     Ok(())

@@ -13,7 +13,7 @@
 //! let port_var = schema.get_variable("AOS_SERVER_PORT").unwrap();
 //!
 //! // Valid value
-//! assert!(validate_value(&port_var, "8080").is_ok());
+//! assert!(validate_value(&port_var, "18080").is_ok());
 //!
 //! // Invalid value (out of range)
 //! assert!(validate_value(&port_var, "99999").is_err());
@@ -1991,11 +1991,22 @@ pub fn default_schema() -> ConfigSchema {
     schema.add_variable(
         ConfigVariable::new("AOS_MODEL_SERVER_ADDR")
             .config_type(ConfigType::String)
-            .default_value("http://127.0.0.1:50051")
-            .description("Model Server gRPC address (e.g., http://127.0.0.1:50051). Used for containerized deployments.")
+            .default_value("http://127.0.0.1:18085")
+            .description("Model Server gRPC address (e.g., http://127.0.0.1:18085). Used for containerized deployments.")
             .category("MODEL_SERVER")
             .config_key("model_server.server_addr")
             .toml_key("model_server.server_addr")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_MODEL_SERVER_SOCKET_PATH")
+            .config_type(ConfigType::String)
+            .default_value("var/run/aos-model-srv.sock")
+            .description("Model Server Unix domain socket path (preferred for hardened UDS-first deployments).")
+            .category("MODEL_SERVER")
+            .config_key("model_server.socket_path")
+            .toml_key("model_server.socket_path")
             .build(),
     );
 
@@ -2043,6 +2054,137 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    // =========================================================================
+    // INSTANCE - Instance identity (from manifest)
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_INSTANCE_NAME")
+            .config_type(ConfigType::String)
+            .default_value("default")
+            .description("Human-readable instance name")
+            .category("INSTANCE")
+            .config_key("instance.name")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_INSTANCE_PROFILE")
+            .config_type(ConfigType::Enum {
+                values: vec![
+                    "dev".to_string(),
+                    "production".to_string(),
+                    "reference".to_string(),
+                ],
+            })
+            .default_value("dev")
+            .description("Instance profile (dev, production, reference)")
+            .category("INSTANCE")
+            .config_key("instance.profile")
+            .build(),
+    );
+
+    // =========================================================================
+    // SERVICES - Service toggles (from manifest)
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_SERVICES_WORKER")
+            .config_type(ConfigType::Bool)
+            .default_value("true")
+            .description("Start the LoRA worker process")
+            .category("SERVICES")
+            .config_key("services.worker")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_SERVICES_SECD")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Start the Secure Enclave Daemon")
+            .category("SERVICES")
+            .config_key("services.secd")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_SERVICES_NODE")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Start the Node Agent")
+            .category("SERVICES")
+            .config_key("services.node")
+            .build(),
+    );
+
+    // =========================================================================
+    // BOOT - Boot behavior (from manifest)
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_BOOT_LOG_PROFILE")
+            .config_type(ConfigType::Enum {
+                values: vec![
+                    "json".to_string(),
+                    "plain".to_string(),
+                    "debug".to_string(),
+                    "trace".to_string(),
+                ],
+            })
+            .default_value("json")
+            .description("Boot logging profile")
+            .category("BOOT")
+            .config_key("boot.log_profile")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_BOOT_HEALTH_TIMEOUT_SECS")
+            .config_type(ConfigType::Integer {
+                min: Some(5),
+                max: Some(300),
+            })
+            .default_value("15")
+            .description("Health endpoint timeout in seconds during boot")
+            .category("BOOT")
+            .config_key("boot.health_timeout_secs")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_BOOT_READYZ_TIMEOUT_SECS")
+            .config_type(ConfigType::Integer {
+                min: Some(10),
+                max: Some(600),
+            })
+            .default_value("30")
+            .description("Readiness endpoint timeout in seconds during boot")
+            .category("BOOT")
+            .config_key("boot.readyz_timeout_secs")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_BOOT_AUTO_SEED_MODEL")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Auto-seed model into database on boot")
+            .category("BOOT")
+            .config_key("boot.auto_seed_model")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_BOOT_VERIFY_CHAT")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Verify chat response after readiness")
+            .category("BOOT")
+            .config_key("boot.verify_chat")
+            .build(),
+    );
+
     schema
 }
 
@@ -2078,6 +2220,9 @@ mod tests {
         assert!(categories.contains(&"BUILD"));
         assert!(categories.contains(&"CIRCUIT_BREAKER"));
         assert!(categories.contains(&"MODEL_SERVER"));
+        assert!(categories.contains(&"INSTANCE"));
+        assert!(categories.contains(&"SERVICES"));
+        assert!(categories.contains(&"BOOT"));
     }
 
     #[test]
@@ -2089,7 +2234,7 @@ mod tests {
             })
             .build();
 
-        assert!(validate_value(&var, "8080").is_ok());
+        assert!(validate_value(&var, "18080").is_ok());
         assert!(validate_value(&var, "1").is_ok());
         assert!(validate_value(&var, "65535").is_ok());
     }
@@ -2118,7 +2263,7 @@ mod tests {
             .build();
 
         assert!(validate_value(&var, "not_a_number").is_err());
-        assert!(validate_value(&var, "8080.5").is_err());
+        assert!(validate_value(&var, "18080.5").is_err());
     }
 
     #[test]
@@ -2194,7 +2339,7 @@ mod tests {
             .build();
 
         assert!(validate_value(&var, "sqlite://test.db").is_ok());
-        assert!(validate_value(&var, "http://localhost:8080").is_ok());
+        assert!(validate_value(&var, "http://localhost:18080").is_ok());
         assert!(validate_value(&var, "https://example.com").is_ok());
         assert!(validate_value(&var, "file:///path/to/file").is_ok());
         assert!(validate_value(&var, "invalid://test").is_err());
@@ -2273,7 +2418,7 @@ mod tests {
         assert_eq!(var.display_value("my-secret"), "***REDACTED***");
 
         let non_sensitive = ConfigVariable::new("AOS_SERVER_PORT").build();
-        assert_eq!(non_sensitive.display_value("8080"), "8080");
+        assert_eq!(non_sensitive.display_value("18080"), "18080");
     }
 
     #[test]
@@ -2323,7 +2468,7 @@ mod tests {
         let schema = default_schema();
 
         let mut values = HashMap::new();
-        values.insert("AOS_SERVER_PORT".to_string(), "8080".to_string());
+        values.insert("AOS_SERVER_PORT".to_string(), "18080".to_string());
         values.insert("AOS_MODEL_BACKEND".to_string(), "coreml".to_string());
 
         assert!(schema.validate_all(&values).is_ok());

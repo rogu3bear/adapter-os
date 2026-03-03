@@ -16,7 +16,7 @@ fi
 mkdir -p "$TMP_ROOT"
 
 OPENAPI_DOC="$PROJECT_ROOT/docs/api.md"
-SERVER_URL="${SERVER_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}"
+SERVER_URL="${SERVER_URL:-http://localhost:${AOS_SERVER_PORT:-18080}}"
 
 echo "🔍 Validating OpenAPI documentation for adapterOS Server API..."
 echo "📍 API docs file: $OPENAPI_DOC"

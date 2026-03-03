@@ -520,7 +520,7 @@ pub struct UdsTrainingStartRequest {
 pub struct UdsTrainingStartResponse {
     /// Control-plane job id echoed from request.
     pub job_id: String,
-    /// Worker-local job id when worker executes via local TrainingService.
+    /// Worker execution job id (typically identical to the control-plane job id).
     pub worker_job_id: Option<String>,
     /// Dispatch status ("accepted" on success).
     pub status: String,

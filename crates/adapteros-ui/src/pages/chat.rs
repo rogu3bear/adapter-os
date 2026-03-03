@@ -4,6 +4,17 @@
 //! the global chat state from signals/chat.rs for unified state management
 //! with the dock panel.
 //!
+//! Page status: PRIMARY — default landing surface.
+//!
+//! ## Test-contracted IDs (do not rename without updating Playwright)
+//! `chat-input`, `chat-send`, `chat-loading-state`, `chat-empty-state`,
+//! `chat-unavailable-state`, `chat-unavailable-reason`, `chat-unavailable-action`,
+//! `chat-run-link`, `chat-receipt-link`, `chat-replay-link`,
+//! `chat-adapter-chips`, `chat-citation-chips`, `chat-trace-links`,
+//! `chat-header`, `chat-conversation-empty`, `chat-stream-status`,
+//! `chat-session-state-pending`, `chat-session-state-not-found`,
+//! `chat-session-state-transient`, `chat-session-confirm-retry`.
+//!
 //! ## Performance Characteristics
 //!
 //! Streaming updates flow through:
@@ -17,26 +28,34 @@
 //!
 //! Enable `show_telemetry_overlay` in settings for perf timing.
 
-use crate::api::types::{
-    AssignTagsRequest, CreateChatTagRequest, ForkSessionRequest, ShareSessionRequest,
-};
-use crate::api::{api_base_url, report_error_with_toast, ApiClient};
+use crate::api::{api_base_url, report_error_with_toast, ApiClient, ApiError};
 use crate::components::inference_guidance::{guidance_for, primary_blocker};
+use crate::components::layout::nav_group_label_for_route;
 use crate::components::status_center::use_status_center;
 use crate::components::{
     use_is_tablet_or_smaller, AdapterHeat, AdapterMagnet, AlertBanner, Badge, BadgeVariant,
     BannerVariant, Button, ButtonLink, ButtonSize, ButtonType, ButtonVariant, ChatAdaptersRegion,
-    Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Markdown, MarkdownStream,
-    Spinner, SuggestedAdapterView, Textarea, TraceButton, TracePanel,
+    Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog, IconX, Input, Markdown,
+    MarkdownStream, PageBreadcrumbItem, PageScaffold, PageScaffoldStatus, Spinner,
+    SuggestedAdapterView, Textarea, TraceButton, TracePanel,
 };
 use crate::hooks::{use_system_status, LoadingState};
 use crate::signals::{
-    use_chat, use_settings, ChatSessionMeta, ChatSessionsManager, ChatTarget, StreamNoticeTone,
+    use_chat, use_settings, use_ui_profile, ChatSessionMeta, ChatSessionsManager, ChatTarget,
+    StreamNoticeTone,
+};
+#[cfg(target_arch = "wasm32")]
+use crate::utils::status_display_with_raw;
+use adapteros_api_types::inference::{
+    AdapterAttachReason, AdapterAttachment, DegradedNotice, DegradedNoticeKind, DegradedNoticeLevel,
 };
 use adapteros_api_types::training::ChatMessageInput;
 use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
-use leptos_router::hooks::{use_navigate, use_params_map};
+use leptos_router::hooks::use_navigate;
+#[cfg(target_arch = "wasm32")]
+use leptos_router::hooks::use_params_map;
+use std::collections::BTreeSet;
 use wasm_bindgen::JsCast;
 
 /// Maximum prompt length for URL-embedded prompts (bytes).
@@ -49,6 +68,8 @@ const DOCUMENT_UPLOAD_MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 const DOCUMENT_UPLOAD_SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".markdown"];
 const MAX_CHAT_DATASET_MESSAGES: usize = 10_000;
 const CHAT_SCROLL_BOTTOM_THRESHOLD_PX: i32 = 24;
+#[cfg(target_arch = "wasm32")]
+const SESSION_CONFIRM_NOT_FOUND_GRACE_MS: u32 = 1200;
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum AttachMode {
@@ -58,10 +79,54 @@ enum AttachMode {
     Chat,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum SessionConfirmationState {
+    #[default]
+    Confirmed,
+    PendingConfirm,
+    NotFound,
+    TransientError,
+}
+
+fn map_session_confirmation_error(error: &ApiError) -> SessionConfirmationState {
+    if error.is_not_found() {
+        SessionConfirmationState::NotFound
+    } else {
+        SessionConfirmationState::TransientError
+    }
+}
+
 /// Chat landing page - redirects to the most recent session or shows empty state.
 /// Route: /chat
+#[cfg(not(target_arch = "wasm32"))]
 #[component]
 pub fn Chat() -> impl IntoView {
+    let nav_label =
+        nav_group_label_for_route(use_ui_profile().get_untracked(), "/chat").unwrap_or("Chat");
+    view! {
+        <PageScaffold
+            title="Chat"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new(nav_label, "/chat"),
+                PageBreadcrumbItem::current("Chat"),
+            ]
+            full_width=true
+        >
+            <PageScaffoldStatus slot>
+                <Badge variant=BadgeVariant::Outline>"Loading"</Badge>
+            </PageScaffoldStatus>
+            <div class="chat-loading-placeholder flex items-center justify-center h-full opacity-50" data-testid="chat-ssr-fallback">
+                <Spinner />
+            </div>
+        </PageScaffold>
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[component]
+pub fn Chat() -> impl IntoView {
+    let nav_label =
+        nav_group_label_for_route(use_ui_profile().get_untracked(), "/chat").unwrap_or("Chat");
     let navigate = use_navigate();
     let sessions = ChatSessionsManager::load_sessions();
     let recent_session_id = sessions.first().map(|session| session.id.clone());
@@ -123,8 +188,24 @@ pub fn Chat() -> impl IntoView {
     .forget();
 
     view! {
-        <>
-            <h1 class="sr-only">"Chat"</h1>
+        <PageScaffold
+            title="Chat"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new(nav_label, "/chat"),
+                PageBreadcrumbItem::current("Chat"),
+            ]
+            full_width=true
+        >
+            <PageScaffoldStatus slot>
+                <Badge variant=BadgeVariant::Outline>
+                    {move || match system_status.try_get().unwrap_or(LoadingState::Idle) {
+                        LoadingState::Loaded(status) if matches!(status.inference_ready, InferenceReadyState::True) => "Ready".to_string(),
+                        LoadingState::Loaded(_) => "Blocked".to_string(),
+                        LoadingState::Error(_) => "Unavailable".to_string(),
+                        LoadingState::Idle | LoadingState::Loading => "Checking".to_string(),
+                    }}
+                </Badge>
+            </PageScaffoldStatus>
             <Show when=move || mounted.try_get().unwrap_or(false) fallback=move || view! {
                 <div
                     class="chat-loading-placeholder flex items-center justify-center h-full opacity-50"
@@ -177,7 +258,7 @@ pub fn Chat() -> impl IntoView {
                     }
                 }}
             </Show>
-        </>
+        </PageScaffold>
     }
     .into_any()
 }
@@ -189,8 +270,36 @@ pub fn Chat() -> impl IntoView {
 /// the full ChatWorkspace on the next tick. This avoids a wasm-bindgen-futures
 /// RefCell re-entrancy panic (#2562) that occurs when Leptos builds the complex
 /// ChatWorkspace component tree inside the task queue during SPA navigation.
+#[cfg(not(target_arch = "wasm32"))]
 #[component]
 pub fn ChatSession() -> impl IntoView {
+    let nav_label =
+        nav_group_label_for_route(use_ui_profile().get_untracked(), "/chat").unwrap_or("Chat");
+    view! {
+        <PageScaffold
+            title="Chat Session"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new(nav_label, "/chat"),
+                PageBreadcrumbItem::new("Chat", "/chat"),
+                PageBreadcrumbItem::current("Session"),
+            ]
+            full_width=true
+        >
+            <PageScaffoldStatus slot>
+                <Badge variant=BadgeVariant::Outline>"Session"</Badge>
+            </PageScaffoldStatus>
+            <div class="chat-loading-placeholder flex items-center justify-center h-full opacity-50" data-testid="chat-session-ssr-fallback">
+                <Spinner />
+            </div>
+        </PageScaffold>
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[component]
+pub fn ChatSession() -> impl IntoView {
+    let nav_label =
+        nav_group_label_for_route(use_ui_profile().get_untracked(), "/chat").unwrap_or("Chat");
     let params = use_params_map();
     let selected_id = Signal::derive(move || {
         let id = params
@@ -214,8 +323,18 @@ pub fn ChatSession() -> impl IntoView {
     .forget();
 
     view! {
-        <>
-            <h1 class="sr-only">"Prompt Studio"</h1>
+        <PageScaffold
+            title="Chat Session"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new(nav_label, "/chat"),
+                PageBreadcrumbItem::new("Chat", "/chat"),
+                PageBreadcrumbItem::current("Session"),
+            ]
+            full_width=true
+        >
+            <PageScaffoldStatus slot>
+                <Badge variant=BadgeVariant::Outline>"Session"</Badge>
+            </PageScaffoldStatus>
             <Show when=move || mounted.try_get().unwrap_or(false) fallback=move || view! {
                 <div
                     class="chat-loading-placeholder flex items-center justify-center h-full opacity-50"
@@ -226,7 +345,7 @@ pub fn ChatSession() -> impl IntoView {
             }>
                 <ChatWorkspace selected_session_id=selected_id handle_query_params=true />
             </Show>
-        </>
+        </PageScaffold>
     }
 }
 
@@ -236,6 +355,7 @@ pub fn ChatSession() -> impl IntoView {
 
 /// Chat workspace with session list sidebar (desktop) and conversation panel.
 /// On mobile, session list is available via a slide-out overlay.
+#[allow(dead_code)]
 #[component]
 fn ChatWorkspace(
     /// The currently selected session ID. None means no session selected.
@@ -251,10 +371,12 @@ fn ChatWorkspace(
     let (_, chat_action) = use_chat();
     let sessions = RwSignal::new(ChatSessionsManager::load_sessions());
     let archived_sessions = RwSignal::new(ChatSessionsManager::load_archived_sessions());
+    let session_index_epoch = RwSignal::new(0_u64);
     let refresh_sessions = {
         Callback::new(move |_: ()| {
             sessions.set(ChatSessionsManager::load_sessions());
             archived_sessions.set(ChatSessionsManager::load_archived_sessions());
+            session_index_epoch.update(|epoch| *epoch = epoch.wrapping_add(1));
         })
     };
 
@@ -265,8 +387,7 @@ fn ChatWorkspace(
             match chat_action.list_backend_sessions().await {
                 Ok(backend_sessions) => {
                     if ChatSessionsManager::merge_backend_sessions(&backend_sessions) {
-                        sessions.set(ChatSessionsManager::load_sessions());
-                        archived_sessions.set(ChatSessionsManager::load_archived_sessions());
+                        refresh_sessions.run(());
                     }
                 }
                 Err(e) => {
@@ -282,6 +403,8 @@ fn ChatWorkspace(
     // Derive a non-optional session ID for the conversation panel
     let session_id_for_panel =
         Signal::derive(move || selected_session_id.try_get().flatten().unwrap_or_default());
+    let session_index_epoch_signal =
+        Signal::derive(move || session_index_epoch.try_get().unwrap_or(0));
     let has_selection = Signal::derive(move || {
         selected_session_id
             .try_get()
@@ -297,8 +420,7 @@ fn ChatWorkspace(
             if let Some(id) = selected.clone() {
                 show_archived.set(ChatSessionsManager::is_session_archived(&id));
             }
-            sessions.set(ChatSessionsManager::load_sessions());
-            archived_sessions.set(ChatSessionsManager::load_archived_sessions());
+            refresh_sessions.run(());
         });
     }
 
@@ -307,8 +429,7 @@ fn ChatWorkspace(
         let navigate = navigate.clone();
         Callback::new(move |deleted_id: String| {
             ChatSessionsManager::delete_session(&deleted_id);
-            sessions.set(ChatSessionsManager::load_sessions());
-            archived_sessions.set(ChatSessionsManager::load_archived_sessions());
+            refresh_sessions.run(());
             // If deleted session was selected, go to /chat to auto-select next
             if selected_session_id.get_untracked().as_deref() == Some(deleted_id.as_str()) {
                 navigate("/chat", Default::default());
@@ -350,8 +471,7 @@ fn ChatWorkspace(
 
                 if apply_local {
                     ChatSessionsManager::archive_session(&session_id);
-                    sessions.set(ChatSessionsManager::load_sessions());
-                    archived_sessions.set(ChatSessionsManager::load_archived_sessions());
+                    refresh_sessions.run(());
                     if selected_session_id.get_untracked().as_deref() == Some(session_id.as_str()) {
                         navigate("/chat", Default::default());
                     }
@@ -391,8 +511,7 @@ fn ChatWorkspace(
 
                 if apply_local {
                     ChatSessionsManager::unarchive_session(&session_id);
-                    sessions.set(ChatSessionsManager::load_sessions());
-                    archived_sessions.set(ChatSessionsManager::load_archived_sessions());
+                    refresh_sessions.run(());
                     if selected_session_id.get_untracked().as_deref() == Some(session_id.as_str()) {
                         navigate("/chat", Default::default());
                     }
@@ -415,7 +534,7 @@ fn ChatWorkspace(
             {move || {
                 if !is_compact.try_get().unwrap_or(false) {
                     Some(view! {
-                        <div class="w-72 xl:w-80 border-r border-border flex-shrink-0 flex flex-col h-full overflow-hidden">
+                        <div class="chat-session-sidebar border-r border-border flex-shrink-0 flex flex-col h-full overflow-hidden">
                             <SessionListPanel
                                 selected_id=selected_session_id
                                 sessions=sessions
@@ -451,7 +570,7 @@ fn ChatWorkspace(
                                 </a>
                                 <span class="text-xs text-muted-foreground/50">"/"</span>
                                 <button
-                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted/50 transition-colors"
+                                    class="btn btn-outline btn-sm inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted/50 transition-colors"
                                     on:click=move |_| show_mobile_sessions.update(|v| *v = !*v)
                                     aria-label="Toggle session list"
                                 >
@@ -479,6 +598,7 @@ fn ChatWorkspace(
                     >
                         <ChatConversationPanel
                             session_id_signal=session_id_for_panel
+                            session_index_epoch=session_index_epoch_signal
                             handle_query_params=handle_query_params
                             refresh_sessions=refresh_sessions
                         />
@@ -498,13 +618,11 @@ fn ChatWorkspace(
                             <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
                                 <h2 class="text-sm font-semibold">"Sessions"</h2>
                                 <button
-                                    class="p-1.5 rounded hover:bg-muted/50 text-muted-foreground"
+                                    class="btn btn-ghost btn-icon-sm p-1.5 rounded hover:bg-muted/50 text-muted-foreground"
                                     on:click=move |_| show_mobile_sessions.set(false)
                                     aria-label="Close session list"
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
+                                    <IconX class="h-4 w-4"/>
                                 </button>
                             </div>
                             <SessionListPanel
@@ -534,14 +652,18 @@ fn ChatEmptyWorkspace() -> impl IntoView {
     let create_session = {
         let navigate = navigate.clone();
         let action = chat_action.clone();
-        Callback::new(move |_: ()| {
+        Callback::new(move |open_add_files: bool| {
             let navigate = navigate.clone();
             let action = action.clone();
             // Optimistic navigation: make the URL/session stable immediately, then swap to the
             // server-issued session id once created. This prevents "New Chat" from appearing
             // non-responsive during cold starts or transient backend delays.
             let placeholder_id = format!("ses-{}", uuid::Uuid::new_v4().simple());
-            let placeholder_path = format!("/chat/{}", placeholder_id);
+            let placeholder_path = if open_add_files {
+                format!("/chat/{}?add_files=1", placeholder_id)
+            } else {
+                format!("/chat/{}", placeholder_id)
+            };
             navigate(&placeholder_path, Default::default());
             wasm_bindgen_futures::spawn_local(async move {
                 // Create the session in the backend first; inference streaming requires
@@ -554,7 +676,11 @@ fn ChatEmptyWorkspace() -> impl IntoView {
                     Ok(session_id) => {
                         // Clean up placeholder (if untouched) before switching to the real id.
                         ChatSessionsManager::prune_placeholder_session(&placeholder_id);
-                        let path = format!("/chat/{}", session_id);
+                        let path = if open_add_files {
+                            format!("/chat/{}?add_files=1", session_id)
+                        } else {
+                            format!("/chat/{}", session_id)
+                        };
                         navigate(
                             &path,
                             leptos_router::NavigateOptions {
@@ -583,16 +709,8 @@ fn ChatEmptyWorkspace() -> impl IntoView {
             });
         })
     };
-    let go_to_training = {
-        let navigate = navigate.clone();
-        Callback::new(move |_: ()| {
-            navigate(
-                "/training?open_wizard=1&return_to=/chat",
-                Default::default(),
-            );
-        })
-    };
-
+    let start_chat = { Callback::new(move |_: ()| create_session.run(false)) };
+    let add_files = { Callback::new(move |_: ()| create_session.run(true)) };
     let go_to_adapters = {
         Callback::new(move |_: ()| {
             navigate("/adapters", Default::default());
@@ -600,27 +718,27 @@ fn ChatEmptyWorkspace() -> impl IntoView {
     };
 
     view! {
-        <div class="flex h-full items-center justify-center p-6" data-testid="chat-empty-state">
-            <div class="text-center space-y-4 max-w-md">
+        <div class="chat-empty-state-panel" data-testid="chat-empty-state">
+            <div class="chat-empty-state-content">
                 <div class="mx-auto w-14 h-14 shrink-0 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-sm">
                     <svg xmlns="http://www.w3.org/2000/svg" class="text-primary shrink-0" width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                     </svg>
                 </div>
-                <h3 class="heading-3">"Start a conversation"</h3>
+                <h3 class="heading-3">"Start Chat"</h3>
                 <p class="text-sm text-muted-foreground leading-relaxed">
-                    "Open a guided conversation, apply the right skills automatically, and keep every response auditable."
+                    "Chat can help you build adapters and produce proof. Start a chat or add files to begin."
                 </p>
                 <div class="flex items-center justify-center gap-3">
-                    <Button on_click=create_session data_testid="chat-empty-new-chat".to_string()>
-                        "New Conversation"
+                    <Button on_click=start_chat data_testid="chat-empty-new-chat".to_string()>
+                        "Start Chat"
                     </Button>
                     <Button
-                        variant=ButtonVariant::Secondary
-                        on_click=go_to_training
-                        data_testid="chat-empty-create-adapter".to_string()
+                        variant=ButtonVariant::Outline
+                        on_click=add_files
+                        data_testid="chat-empty-add-files".to_string()
                     >
-                        "Create Adapter"
+                        "Add Files"
                     </Button>
                 </div>
                 <p class="text-xs text-muted-foreground">
@@ -634,7 +752,7 @@ fn ChatEmptyWorkspace() -> impl IntoView {
                             go_to_adapters.run(());
                         }
                     >
-                        "browse skill library"
+                        "Browse Adapters (Library)"
                     </a>
                 </p>
             </div>
@@ -642,6 +760,7 @@ fn ChatEmptyWorkspace() -> impl IntoView {
     }
 }
 
+#[allow(dead_code)]
 #[component]
 fn ChatUnavailableEntry(
     reason: String,
@@ -650,6 +769,28 @@ fn ChatUnavailableEntry(
     on_retry: Callback<()>,
 ) -> impl IntoView {
     let status_center = use_status_center();
+    let (chat_state, chat_action) = use_chat();
+    let (system_status, _) = use_system_status();
+    let queued_message = RwSignal::new(String::new());
+
+    let queue_disabled = Signal::derive(move || {
+        queued_message
+            .try_get()
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+    });
+    let queue_submit = {
+        let action = chat_action.clone();
+        Callback::new(move |_: ()| {
+            let content = queued_message.try_get().unwrap_or_default();
+            if content.trim().is_empty() {
+                return;
+            }
+            action.queue_message(content);
+            queued_message.set(String::new());
+        })
+    };
 
     view! {
         <div class="flex h-full items-center justify-center p-6" data-testid="chat-unavailable-state">
@@ -658,6 +799,25 @@ fn ChatUnavailableEntry(
                     <h2 class="heading-3">"Conversation unavailable"</h2>
                     <p class="text-sm text-muted-foreground" data-testid="chat-unavailable-reason">
                         {reason}"."
+                    </p>
+                    <p class="text-xs text-muted-foreground" data-testid="chat-unavailable-summary">
+                        {move || match system_status.try_get().unwrap_or(LoadingState::Idle) {
+                            LoadingState::Loaded(status) => {
+                                let boot_phase = status.boot.as_ref()
+                                    .map(|b| b.phase.as_str())
+                                    .unwrap_or("unknown");
+                                let workers = match status.readiness.checks.workers.status {
+                                    adapteros_api_types::StatusIndicator::Ready => "ready",
+                                    adapteros_api_types::StatusIndicator::NotReady => "not ready",
+                                    adapteros_api_types::StatusIndicator::Unknown => "unknown",
+                                };
+                                let blocker = primary_blocker(&status.inference_blockers)
+                                    .map(|b| format!("{:?}", b))
+                                    .unwrap_or_else(|| "none".to_string());
+                                format!("Boot: {} · Workers: {} · Primary blocker: {}", boot_phase, workers, blocker)
+                            }
+                            _ => "Boot: unknown · Workers: unknown · Primary blocker: status pending".to_string(),
+                        }}
                     </p>
                 </div>
                 <div class="mt-5 flex flex-wrap items-center gap-2">
@@ -679,12 +839,36 @@ fn ChatUnavailableEntry(
                     </Button>
                     {status_center.map(|ctx| view! {
                         <button
-                            class="text-xs text-muted-foreground hover:text-foreground"
+                            class="btn btn-link btn-xs text-xs text-muted-foreground hover:text-foreground"
                             on:click=move |_| ctx.open()
                         >
                             "Why?"
                         </button>
                     })}
+                </div>
+                <div class="mt-4 space-y-2">
+                    <label class="text-xs uppercase tracking-wide text-muted-foreground">
+                        "Queue a message for when inference is ready"
+                    </label>
+                    <Textarea
+                        value=queued_message
+                        placeholder="Ask your question now; it will send automatically once ready..."
+                        rows=3
+                    />
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-xs text-muted-foreground">
+                            {move || format!("Queued: {}", chat_state.try_get().unwrap_or_default().queued_count())}
+                        </span>
+                        <Button
+                            variant=ButtonVariant::Primary
+                            size=ButtonSize::Sm
+                            disabled=queue_disabled
+                            on_click=queue_submit
+                            data_testid="chat-unavailable-queue".to_string()
+                        >
+                            "Queue message"
+                        </Button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -718,38 +902,6 @@ fn SessionListPanel(
     let navigate = use_navigate();
     let search_query = RwSignal::new(String::new());
     let (chat_state, chat_action) = use_chat();
-
-    // Shared tab state
-    let show_shared = RwSignal::new(false);
-    let shared_sessions = RwSignal::new(Vec::<crate::api::types::SharedSessionInfo>::new());
-    let shared_loading = RwSignal::new(false);
-
-    // Fetch shared sessions when the shared tab becomes active
-    {
-        Effect::new(move |_| {
-            if !show_shared.try_get().unwrap_or(false) {
-                return;
-            }
-            shared_loading.set(true);
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::with_base_url(api_base_url());
-                match client.get_shared_with_me().await {
-                    Ok(resp) => {
-                        shared_sessions.set(resp.sessions);
-                    }
-                    Err(e) => {
-                        report_error_with_toast(
-                            &e,
-                            "Failed to load shared sessions",
-                            Some("/chat"),
-                            false,
-                        );
-                    }
-                }
-                shared_loading.set(false);
-            });
-        });
-    }
 
     // Filtered sessions based on search
     let filtered_sessions = Memo::new(move |_| {
@@ -1060,7 +1212,7 @@ fn SessionListPanel(
                 <div class="flex items-center justify-between">
                     <h2 class="text-sm font-semibold">"Conversations"</h2>
                     <button
-                        class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                        class="btn btn-primary btn-sm inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                         on:click=move |_| create_session.run(())
                         title="New conversation"
                         aria-label="New Conversation"
@@ -1072,17 +1224,17 @@ fn SessionListPanel(
                         "New Conversation"
                     </button>
                 </div>
-                <div class="grid grid-cols-3 gap-1 rounded-lg bg-muted/40 p-1">
+                <div class="grid grid-cols-2 gap-1 rounded-lg bg-muted/40 p-1">
                     <button
                         class=move || format!(
-                            "px-2 py-1 text-xs font-medium rounded-md transition-colors {}",
-                            if !show_archived.try_get().unwrap_or(false) && !show_shared.try_get().unwrap_or(false) {
+                            "btn btn-ghost btn-sm px-2 py-1 text-xs font-medium rounded-md transition-colors {}",
+                            if !show_archived.try_get().unwrap_or(false) {
                                 "bg-background text-foreground shadow-sm"
                             } else {
                                 "text-muted-foreground hover:text-foreground"
                             }
                         )
-                        on:click=move |_| { show_archived.set(false); show_shared.set(false); }
+                        on:click=move |_| { show_archived.set(false); }
                         aria-label="Show active sessions"
                         data-testid="chat-sidebar-toggle-active"
                     >
@@ -1090,39 +1242,24 @@ fn SessionListPanel(
                     </button>
                     <button
                         class=move || format!(
-                            "px-2 py-1 text-xs font-medium rounded-md transition-colors {}",
+                            "btn btn-ghost btn-sm px-2 py-1 text-xs font-medium rounded-md transition-colors {}",
                             if show_archived.try_get().unwrap_or(false) {
                                 "bg-background text-foreground shadow-sm"
                             } else {
                                 "text-muted-foreground hover:text-foreground"
                             }
                         )
-                        on:click=move |_| { show_archived.set(true); show_shared.set(false); }
+                        on:click=move |_| { show_archived.set(true); }
                         aria-label="Show archived sessions"
                         data-testid="chat-sidebar-toggle-archived"
                     >
                         {move || format!("Archived ({})", archived_count.try_get().unwrap_or(0))}
                     </button>
-                    <button
-                        class=move || format!(
-                            "px-2 py-1 text-xs font-medium rounded-md transition-colors {}",
-                            if show_shared.try_get().unwrap_or(false) {
-                                "bg-background text-foreground shadow-sm"
-                            } else {
-                                "text-muted-foreground hover:text-foreground"
-                            }
-                        )
-                        on:click=move |_| { show_shared.set(true); show_archived.set(false); }
-                        aria-label="Show shared sessions"
-                        data-testid="chat-sidebar-toggle-shared"
-                    >
-                        "Shared"
-                    </button>
                 </div>
                 <div class="space-y-1.5">
                     <button
                         class=move || format!(
-                            "w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors {}",
+                            "btn btn-outline btn-sm w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors {}",
                             if creating_training_dataset.try_get().unwrap_or(false)
                                 || selected_training_count.try_get().unwrap_or(0) == 0
                             {
@@ -1136,8 +1273,8 @@ fn SessionListPanel(
                                 || selected_training_count.try_get().unwrap_or(0) == 0
                         }
                         on:click=move |_| learn_and_generate_adapter.run(())
-                        title="Create a new skill from selected conversations"
-                        aria-label="Teach Skill From Selected Conversations"
+                        title="Create an adapter from selected conversations"
+                        aria-label="Create Adapter From Selected Conversations"
                         data-testid="chat-sidebar-learn"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1147,7 +1284,7 @@ fn SessionListPanel(
                             if creating_training_dataset.try_get().unwrap_or(false) {
                                 "Preparing training data..."
                             } else {
-                                "Teach Skill from Selection"
+                                "Create Adapter from Selection"
                             }
                         }}
                     </button>
@@ -1163,7 +1300,7 @@ fn SessionListPanel(
                             }}
                         </span>
                         <button
-                            class="underline decoration-dotted hover:text-foreground disabled:no-underline disabled:cursor-not-allowed"
+                            class="btn btn-link btn-xs underline decoration-dotted hover:text-foreground disabled:no-underline disabled:cursor-not-allowed"
                             disabled=move || selected_training_count.try_get().unwrap_or(0) == 0
                             on:click=move |_| clear_training_selection.run(())
                             data-testid="chat-sidebar-learn-clear"
@@ -1203,7 +1340,7 @@ fn SessionListPanel(
                                     </p>
                                 </div>
                                 <button
-                                    class="shrink-0 px-2 py-1 text-xs font-medium rounded border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
+                                    class="btn btn-outline btn-sm shrink-0 px-2 py-1 text-xs font-medium rounded border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
                                     on:click=move |_| save_dock_and_navigate.run(())
                                     data-testid="chat-sidebar-continue"
                                 >
@@ -1220,63 +1357,6 @@ fn SessionListPanel(
             // Session list (scrollable)
             <div class="flex-1 overflow-y-auto">
                 {move || {
-                    // Shared sessions tab
-                    if show_shared.try_get().unwrap_or(false) {
-                        let is_loading = shared_loading.try_get().unwrap_or(false);
-                        let items = shared_sessions.try_get().unwrap_or_default();
-                        if is_loading {
-                            return view! {
-                                <div class="p-6 flex items-center justify-center">
-                                    <Spinner />
-                                </div>
-                            }.into_any();
-                        }
-                        if items.is_empty() {
-                            let create_session_shared = create_session;
-                            return view! {
-                                <div class="p-6 text-center space-y-2">
-                                    <p class="text-xs text-muted-foreground">"No shared conversations yet"</p>
-                                    <div class="flex items-center justify-center gap-2">
-                                        <Button
-                                            variant=ButtonVariant::Ghost
-                                            size=ButtonSize::Sm
-                                            on_click=Callback::new(move |_| {
-                                                show_shared.set(false);
-                                                show_archived.set(false);
-                                            })
-                                        >
-                                            "View active sessions"
-                                        </Button>
-                                        <Button
-                                            variant=ButtonVariant::Secondary
-                                            size=ButtonSize::Sm
-                                            on_click=Callback::new(move |_| create_session_shared.run(()))
-                                        >
-                                            "New conversation"
-                                        </Button>
-                                    </div>
-                                </div>
-                            }.into_any();
-                        }
-                        return view! {
-                            <div class="divide-y divide-border">
-                                {items.into_iter().map(|shared| {
-                                    let href = format!("/chat/{}", shared.session_id);
-                                    view! {
-                                        <a href=href class="block px-3 py-2 hover:bg-muted/50 transition-colors min-w-0">
-                                            <h3 class="text-sm font-medium truncate min-w-0" title=shared.name.clone()>{shared.name.clone()}</h3>
-                                            <div class="flex items-center gap-2 mt-0.5 text-2xs text-muted-foreground">
-                                                <span>{format!("from {}", shared.shared_by)}</span>
-                                                <span>"·"</span>
-                                                <Badge variant=BadgeVariant::Outline>{shared.permission.clone()}</Badge>
-                                            </div>
-                                        </a>
-                                    }
-                                }).collect::<Vec<_>>()}
-                            </div>
-                        }.into_any();
-                    }
-
                     let showing_archived = show_archived.try_get().unwrap_or(false);
                     let list = filtered_sessions.try_get().unwrap_or_default();
                     if list.is_empty() {
@@ -1309,7 +1389,6 @@ fn SessionListPanel(
                                             size=ButtonSize::Sm
                                             on_click=Callback::new(move |_| {
                                                 show_archived.set(false);
-                                                show_shared.set(false);
                                             })
                                         >
                                             "View active sessions"
@@ -1422,7 +1501,7 @@ fn SessionListItem(
     /// Whether this session is currently selected
     #[prop(into)]
     selected: Signal<bool>,
-    /// Whether this session is selected for "Teach Skill from Selection"
+    /// Whether this session is selected for "Create Adapter from Selection"
     #[prop(into)]
     training_selected: Signal<bool>,
     /// Callback for selecting this session as training input
@@ -1441,7 +1520,7 @@ fn SessionListItem(
     let message_count = session.message_count;
     let session_title = session.title.clone();
     let session_preview = session.preview.clone();
-    let training_aria_label = format!("Select '{}' for skill teaching", session_title.clone());
+    let training_aria_label = format!("Select '{}' to create an adapter", session_title.clone());
     let archive_action = on_archive;
     let unarchive_action = on_unarchive;
 
@@ -1449,18 +1528,8 @@ fn SessionListItem(
     let show_overflow = RwSignal::new(false);
     let overflow_trigger_ref = NodeRef::<leptos::html::Button>::new();
     let overflow_menu_ref = NodeRef::<leptos::html::Div>::new();
-    let show_share_dialog = RwSignal::new(false);
-    let show_tags_dialog = RwSignal::new(false);
-    let show_fork_dialog = RwSignal::new(false);
-    let show_provenance_panel = RwSignal::new(false);
     let show_permanent_delete_confirm = RwSignal::new(false);
-    let share_session_id = id.clone();
-    let tags_session_id = id.clone();
-    let fork_session_id = id.clone();
-    let provenance_session_id = id.clone();
     let hard_delete_session_id = id.clone();
-
-    let navigate = use_navigate();
 
     // Focus first menu item whenever overflow menu opens.
     {
@@ -1468,7 +1537,6 @@ fn SessionListItem(
             if !show_overflow.try_get().unwrap_or(false) {
                 return;
             }
-            let overflow_menu_ref = overflow_menu_ref;
             gloo_timers::callback::Timeout::new(0, move || {
                 if let Some(menu) = overflow_menu_ref.get() {
                     if let Ok(Some(first_item)) = menu.query_selector(r#"[role="menuitem"]"#) {
@@ -1483,7 +1551,9 @@ fn SessionListItem(
     }
 
     let handle_overflow_keydown = Callback::new({
+        #[allow(clippy::redundant_locals)]
         let overflow_menu_ref = overflow_menu_ref;
+        #[allow(clippy::redundant_locals)]
         let overflow_trigger_ref = overflow_trigger_ref;
         move |ev: web_sys::KeyboardEvent| match ev.key().as_str() {
             "Escape" => {
@@ -1612,7 +1682,7 @@ fn SessionListItem(
             <div class="chat-session-row-actions">
                 {archive_action.map(|archive| view! {
                     <button
-                        class="chat-session-row-action"
+                        class="btn btn-ghost btn-icon-sm chat-session-row-action"
                         on:click=move |ev: web_sys::MouseEvent| {
                             ev.prevent_default();
                             ev.stop_propagation();
@@ -1629,7 +1699,7 @@ fn SessionListItem(
                 })}
                 {unarchive_action.map(|unarchive| view! {
                     <button
-                        class="chat-session-row-action"
+                        class="btn btn-ghost btn-icon-sm chat-session-row-action"
                         on:click=move |ev: web_sys::MouseEvent| {
                             ev.prevent_default();
                             ev.stop_propagation();
@@ -1645,7 +1715,7 @@ fn SessionListItem(
                     </button>
                 })}
                 <button
-                    class="chat-session-row-action chat-session-row-action--destructive"
+                    class="btn btn-ghost btn-icon-sm chat-session-row-action chat-session-row-action--destructive"
                     on:click=move |ev: web_sys::MouseEvent| {
                         ev.prevent_default();
                         ev.stop_propagation();
@@ -1663,7 +1733,7 @@ fn SessionListItem(
                 <div class="relative">
                     <button
                         node_ref=overflow_trigger_ref
-                        class="chat-session-row-action chat-session-row-action--muted"
+                        class="btn btn-ghost btn-icon-sm chat-session-row-action chat-session-row-action--muted"
                         on:click=move |ev: web_sys::MouseEvent| {
                             ev.prevent_default();
                             ev.stop_propagation();
@@ -1701,54 +1771,10 @@ fn SessionListItem(
                                 role="menu"
                                 on:keydown=move |ev| handle_overflow_keydown.run(ev)
                             >
-                                <button
-                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 transition-colors"
-                                    role="menuitem"
-                                    on:click=move |ev: web_sys::MouseEvent| {
-                                        ev.stop_propagation();
-                                        show_overflow.set(false);
-                                        show_share_dialog.set(true);
-                                    }
-                                >
-                                    "Share"
-                                </button>
-                                <button
-                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 transition-colors"
-                                    role="menuitem"
-                                    on:click=move |ev: web_sys::MouseEvent| {
-                                        ev.stop_propagation();
-                                        show_overflow.set(false);
-                                        show_tags_dialog.set(true);
-                                    }
-                                >
-                                    "Tags"
-                                </button>
-                                <button
-                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 transition-colors"
-                                    role="menuitem"
-                                    on:click=move |ev: web_sys::MouseEvent| {
-                                        ev.stop_propagation();
-                                        show_overflow.set(false);
-                                        show_fork_dialog.set(true);
-                                    }
-                                >
-                                    "Fork"
-                                </button>
-                                <button
-                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 transition-colors"
-                                    role="menuitem"
-                                    on:click=move |ev: web_sys::MouseEvent| {
-                                        ev.stop_propagation();
-                                        show_overflow.set(false);
-                                        show_provenance_panel.set(true);
-                                    }
-                                >
-                                    "Evidence"
-                                </button>
                                 {is_archived.then(|| view! {
                                     <div class="border-t border-border my-1" role="separator" />
                                     <button
-                                        class="w-full text-left px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 transition-colors"
+                                        class="btn btn-ghost btn-sm w-full text-left px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 transition-colors"
                                         role="menuitem"
                                         on:click=move |ev: web_sys::MouseEvent| {
                                             ev.stop_propagation();
@@ -1765,53 +1791,6 @@ fn SessionListItem(
                 </div>
             </div>
 
-            // Collaboration dialogs (rendered inside the item for correct session context)
-            {move || {
-                if show_share_dialog.try_get().unwrap_or(false) {
-                    Some(view! {
-                        <ShareSessionDialog
-                            session_id=share_session_id.clone()
-                            on_close=Callback::new(move |_| show_share_dialog.set(false))
-                        />
-                    })
-                } else { None }
-            }}
-            {move || {
-                if show_tags_dialog.try_get().unwrap_or(false) {
-                    Some(view! {
-                        <TagsDialog
-                            session_id=tags_session_id.clone()
-                            on_close=Callback::new(move |_| show_tags_dialog.set(false))
-                        />
-                    })
-                } else { None }
-            }}
-            {move || {
-                if show_fork_dialog.try_get().unwrap_or(false) {
-                    let navigate = navigate.clone();
-                    Some(view! {
-                        <ForkSessionDialog
-                            session_id=fork_session_id.clone()
-                            on_close=Callback::new(move |_| show_fork_dialog.set(false))
-                            on_forked=Callback::new(move |new_id: String| {
-                                show_fork_dialog.set(false);
-                                let path = format!("/chat/{}", new_id);
-                                navigate(&path, Default::default());
-                            })
-                        />
-                    })
-                } else { None }
-            }}
-            {move || {
-                if show_provenance_panel.try_get().unwrap_or(false) {
-                    Some(view! {
-                        <ProvenancePanel
-                            session_id=provenance_session_id.clone()
-                            on_close=Callback::new(move |_| show_provenance_panel.set(false))
-                        />
-                    })
-                } else { None }
-            }}
             {move || {
                 if show_permanent_delete_confirm.try_get().unwrap_or(false) {
                     let delete_id = hard_delete_session_id.clone();
@@ -1845,7 +1824,7 @@ fn SessionListItem(
     }
 }
 
-use crate::utils::{format_relative_time, humanize};
+use crate::utils::format_relative_time;
 
 fn generate_readable_id(_prefix: &str, _slug_source: &str) -> String {
     adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string()
@@ -1857,6 +1836,7 @@ fn ChatConversationMessageItem(
     active_trace: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let (chat_state, _) = use_chat();
+    let compact_layout = use_is_tablet_or_smaller();
     let lookup_id = msg_id.clone();
 
     let message = Memo::new(move |_| {
@@ -1882,35 +1862,101 @@ fn ChatConversationMessageItem(
         {move || {
             message.try_get().flatten().map(|msg| {
                 let is_user = msg.role == "user";
+                let is_system = msg.role == "system";
                 let is_streaming = msg.is_streaming;
                 let trace_id = msg.trace_id.clone();
                 let latency_ms = msg.latency_ms;
                 let token_count = msg.token_count;
                 let prompt_tokens = msg.prompt_tokens;
                 let completion_tokens = msg.completion_tokens;
-                let role_label = if is_user { "You" } else { "Assistant" };
+                let citations = msg.citations.clone().unwrap_or_default();
+                let document_links = msg.document_links.clone().unwrap_or_default();
+                let adapters_used = msg.adapters_used.clone().unwrap_or_default();
+                let unavailable_pinned_adapters =
+                    msg.unavailable_pinned_adapters.clone().unwrap_or_default();
+                let pinned_routing_fallback = msg.pinned_routing_fallback.clone();
+                let fallback_triggered = msg.fallback_triggered;
+                let fallback_backend = msg.fallback_backend.clone();
+                let adapter_attachments = msg.adapter_attachments.clone();
+                let degraded_notices = msg.degraded_notices.clone();
+                let citation_count = citations.len();
+                let document_link_count = document_links.len();
+                let has_trust_details = !adapter_attachments.is_empty()
+                    || !degraded_notices.is_empty()
+                    || !unavailable_pinned_adapters.is_empty()
+                    || pinned_routing_fallback.is_some()
+                    || fallback_triggered
+                    || citation_count > 0
+                    || document_link_count > 0
+                    || !adapters_used.is_empty();
+                let critical_notices: Vec<DegradedNotice> = degraded_notices
+                    .iter()
+                    .filter(|notice| {
+                        notice.meaning_changed && notice.level == DegradedNoticeLevel::Critical
+                    })
+                    .cloned()
+                    .collect();
+                let trust_state = if citation_count > 0 || document_link_count > 0 {
+                    "chat-provenance-cited"
+                } else {
+                    "chat-provenance-none"
+                };
+                let role_label = if is_user {
+                    "You"
+                } else if is_system {
+                    "System"
+                } else {
+                    "Assistant"
+                };
 
                 view! {
                     <div class=format!(
                         "flex {}",
-                        if is_user { "justify-end" } else { "justify-start" }
+                        if is_user {
+                            "justify-end"
+                        } else if is_system {
+                            "justify-center"
+                        } else {
+                            "justify-start"
+                        }
                     )>
                         <div class=format!(
                             "flex flex-col gap-1.5 max-w-[80%] {}",
-                            if is_user { "items-end" } else { "items-start" }
+                            if is_user {
+                                "items-end"
+                            } else if is_system {
+                                "items-center max-w-full"
+                            } else {
+                                "items-start"
+                            }
                         )>
-                            <span class="text-2xs uppercase tracking-wider font-medium text-muted-foreground px-1">
-                                {role_label}
-                            </span>
+                            {if is_system {
+                                None
+                            } else {
+                                Some(view! {
+                                    <span class="text-2xs uppercase tracking-wider font-medium text-muted-foreground px-1">
+                                        {role_label}
+                                    </span>
+                                })
+                            }}
                             <div class=format!(
-                                "rounded-lg px-4 py-3 {} {}",
+                                "rounded-lg {} {} {} {} chat-message-bubble {}",
+                                if is_system && compact_layout.try_get().unwrap_or(false) {
+                                    "px-0 py-0"
+                                } else {
+                                    "px-4 py-3"
+                                },
                                 if is_user {
                                     "bg-primary text-primary-foreground shadow-sm"
+                                } else if is_system {
+                                    "bg-transparent border-0 text-muted-foreground text-xs"
                                 } else {
-                                    "bg-muted/50 border border-border"
+                                    "bg-muted/50 border border-border chat-message--assistant"
                                 },
                                 // Add min-height during streaming to prevent layout jump
-                                if is_streaming { "min-h-[2.5rem]" } else { "" }
+                                if is_streaming { "min-h-[2.5rem]" } else { "" },
+                                if is_system { "chat-message-system" } else { "" },
+                                trust_state
                             )>
                                 {if is_user {
                                     view! {
@@ -1948,13 +1994,43 @@ fn ChatConversationMessageItem(
                                 }}
                             </div>
                             // Run/Receipt links for assistant messages (placeholder if trace unavailable)
-                            {if !is_user && !is_streaming {
+                            {if !is_user && !is_system && !is_streaming {
                                 let latency = latency_ms.unwrap_or(0);
                                 let trace = trace_id.clone();
                                 let run_overview_url = trace.clone().map(|tid| format!("/runs/{}", tid));
                                 let run_receipt_url = trace.clone().map(|tid| format!("/runs/{}?tab=receipt", tid));
                                 let run_replay_url = trace.clone().map(|tid| format!("/runs/{}?tab=replay", tid));
                                 Some(view! {
+                                    {if !critical_notices.is_empty() {
+                                        let title = prominent_degraded_title(&critical_notices).to_string();
+                                        let alert_messages: Vec<String> = critical_notices
+                                            .iter()
+                                            .map(|notice| notice.message.clone())
+                                            .collect::<BTreeSet<_>>()
+                                            .into_iter()
+                                            .collect();
+                                        Some(view! {
+                                            <div
+                                                class="w-full rounded-lg border-2 border-destructive/60 bg-destructive/10 px-3 py-2 mb-1"
+                                                data-testid="chat-meaning-change-alert"
+                                            >
+                                                <p class="text-xs font-semibold uppercase tracking-wide text-destructive">
+                                                    {title}
+                                                </p>
+                                                <div class="mt-1 space-y-0.5">
+                                                    {alert_messages.into_iter().map(|message| {
+                                                        view! {
+                                                            <p class="text-xs text-foreground leading-relaxed">
+                                                                {message}
+                                                            </p>
+                                                        }
+                                                    }).collect::<Vec<_>>()}
+                                                </div>
+                                            </div>
+                                        })
+                                    } else {
+                                        None
+                                    }}
                                     <div class="flex items-center gap-3 mt-1 px-1 flex-wrap" data-testid="chat-trace-links">
                                         {trace.clone().map(|tid| view! {
                                             <TraceButton
@@ -1971,18 +2047,18 @@ fn ChatConversationMessageItem(
                                                 <a
                                                     href=url
                                                     class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
-                                                    title="View Restore Point"
+                                                    title="View Execution Record"
                                                     data-testid="chat-run-link"
                                                 >
-                                                    "Restore Point"
+                                                    "Execution Record"
                                                 </a>
                                             }.into_any()).unwrap_or_else(|| view! {
                                                 <span
                                                     class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
-                                                    title="Restore point unavailable"
+                                                    title="Execution record unavailable"
                                                     data-testid="chat-run-link"
                                                 >
-                                                    "Restore Point"
+                                                    "Execution Record"
                                                 </span>
                                             }.into_any())}
                                             <span class="text-muted-foreground/50">"·"</span>
@@ -1990,22 +2066,22 @@ fn ChatConversationMessageItem(
                                                 <a
                                                     href=url
                                                     class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
-                                                    title="View Signed System Log"
+                                                    title="View Execution Receipt (signed log / proof)"
                                                     data-testid="chat-receipt-link"
                                                 >
-                                                    "Signed Log"
+                                                    "Execution Receipt"
                                                 </a>
                                             }.into_any()).unwrap_or_else(|| view! {
                                                 <span
                                                     class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
-                                                    title="Signed system log unavailable"
+                                                    title="Execution receipt unavailable (signed log / proof unavailable)"
                                                     data-testid="chat-receipt-link"
                                                 >
-                                                    "Signed Log"
+                                                    "Execution Receipt"
                                                 </span>
                                             }.into_any())}
                                             <span class="text-muted-foreground/50">"·"</span>
-                                            {run_replay_url.map(|url| view! {
+                                            {run_replay_url.clone().map(|url| view! {
                                                 <a
                                                     href=url
                                                     class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
@@ -2032,6 +2108,35 @@ fn ChatConversationMessageItem(
                                                 </span>
                                             }
                                         })}
+                                        {if has_trust_details {
+                                            let summary = trust_summary_label(
+                                                citation_count,
+                                                document_link_count,
+                                                &adapter_attachments,
+                                                &adapters_used,
+                                                degraded_notices.len(),
+                                            );
+                                            Some(view! {
+                                                <div class="flex items-start gap-1.5 w-full flex-col" data-testid="chat-adapter-chips">
+                                                    <span class="text-2xs text-muted-foreground" data-testid="chat-citation-chips">
+                                                        {summary}
+                                                    </span>
+                                                    <ChatTrustPanel
+                                                        citations=citations
+                                                        document_links=document_links
+                                                        adapters_used=adapters_used
+                                                        adapter_attachments=adapter_attachments
+                                                        degraded_notices=degraded_notices
+                                                        unavailable_pinned_adapters=unavailable_pinned_adapters
+                                                        pinned_routing_fallback=pinned_routing_fallback
+                                                        fallback_triggered=fallback_triggered
+                                                        fallback_backend=fallback_backend
+                                                    />
+                                                </div>
+                                            })
+                                        } else {
+                                            None
+                                        }}
                                     </div>
                                 })
                             } else {
@@ -2045,12 +2150,299 @@ fn ChatConversationMessageItem(
     }
 }
 
+#[component]
+fn ChatTrustPanel(
+    citations: Vec<crate::signals::chat::ChatCitation>,
+    document_links: Vec<crate::signals::chat::ChatDocumentLink>,
+    adapters_used: Vec<String>,
+    adapter_attachments: Vec<AdapterAttachment>,
+    degraded_notices: Vec<DegradedNotice>,
+    unavailable_pinned_adapters: Vec<String>,
+    pinned_routing_fallback: Option<String>,
+    fallback_triggered: bool,
+    fallback_backend: Option<String>,
+) -> impl IntoView {
+    let dataset_versions: Vec<String> = document_links
+        .iter()
+        .filter_map(|link| link.dataset_version_id.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+
+    let mut effective_notices = degraded_notices;
+
+    if !unavailable_pinned_adapters.is_empty()
+        && !effective_notices
+            .iter()
+            .any(|notice| notice.kind == DegradedNoticeKind::BlockedPins)
+    {
+        effective_notices.push(DegradedNotice {
+            kind: DegradedNoticeKind::BlockedPins,
+            level: DegradedNoticeLevel::Warning,
+            message: format!(
+                "{} pinned adapter(s) were unavailable.",
+                unavailable_pinned_adapters.len()
+            ),
+            meaning_changed: true,
+        });
+    }
+
+    if let Some(mode) = pinned_routing_fallback.clone() {
+        if !effective_notices
+            .iter()
+            .any(|notice| notice.kind == DegradedNoticeKind::RoutingOverride)
+        {
+            effective_notices.push(DegradedNotice {
+                kind: DegradedNoticeKind::RoutingOverride,
+                level: DegradedNoticeLevel::Warning,
+                message: format!("Routing override applied with mode: {mode}."),
+                meaning_changed: true,
+            });
+        }
+    }
+
+    if fallback_triggered
+        && !effective_notices
+            .iter()
+            .any(|notice| notice.kind == DegradedNoticeKind::WorkerSemanticFallback)
+    {
+        let backend_label = fallback_backend
+            .clone()
+            .unwrap_or_else(|| "another backend".to_string());
+        effective_notices.push(DegradedNotice {
+            kind: DegradedNoticeKind::WorkerSemanticFallback,
+            level: DegradedNoticeLevel::Critical,
+            message: format!("Worker fallback changed execution backend to {backend_label}."),
+            meaning_changed: true,
+        });
+    }
+
+    view! {
+        <details class="w-full rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 mt-0.5" data-testid="chat-trust-panel">
+            <summary class="cursor-pointer select-none text-2xs font-medium text-muted-foreground">
+                "Trust details"
+            </summary>
+            <div class="mt-2 space-y-3">
+                {if !adapter_attachments.is_empty() || !adapters_used.is_empty() {
+                    Some(view! {
+                        <div class="space-y-1" data-testid="chat-trust-adapters">
+                            <p class="text-2xs uppercase tracking-wide text-muted-foreground">
+                                "Why adapters were used"
+                            </p>
+                            {if !adapter_attachments.is_empty() {
+                                adapter_attachments.into_iter().map(|attachment| {
+                                    let display_name = attachment
+                                        .adapter_label
+                                        .clone()
+                                        .unwrap_or_else(|| short_adapter_label(&attachment.adapter_id));
+                                    let reason_label = attach_reason_label(&attachment.attach_reason);
+                                    let reason_detail = attach_reason_detail(&attachment.attach_reason);
+                                    view! {
+                                        <div class="rounded-md border border-border/50 bg-background/70 px-2 py-1.5">
+                                            <div class="flex items-center justify-between gap-2 flex-wrap">
+                                                <span class="text-xs font-medium text-foreground">{display_name}</span>
+                                                <span class="text-2xs uppercase tracking-wide text-muted-foreground">
+                                                    {reason_label}
+                                                </span>
+                                            </div>
+                                            <p class="text-2xs text-muted-foreground leading-relaxed">
+                                                {reason_detail}
+                                            </p>
+                                            <p class="text-[11px] text-muted-foreground mt-1">
+                                                "Version: "
+                                                <span class="font-mono">
+                                                    {attachment
+                                                        .adapter_version_id
+                                                        .clone()
+                                                        .unwrap_or_else(|| "not pinned".to_string())}
+                                                </span>
+                                            </p>
+                                            <p class="text-[10px] text-muted-foreground/80 mt-0.5">
+                                                "ID: "
+                                                <span class="font-mono">{attachment.adapter_id.clone()}</span>
+                                            </p>
+                                        </div>
+                                    }
+                                    .into_any()
+                                }).collect::<Vec<_>>()
+                            } else {
+                                adapters_used.into_iter().map(|adapter_id| {
+                                    view! {
+                                        <div class="rounded-md border border-border/50 bg-background/70 px-2 py-1.5">
+                                            <div class="flex items-center justify-between gap-2 flex-wrap">
+                                                <span class="text-xs font-medium text-foreground">
+                                                    {short_adapter_label(&adapter_id)}
+                                                </span>
+                                                <span class="text-2xs uppercase tracking-wide text-muted-foreground">
+                                                    "used"
+                                                </span>
+                                            </div>
+                                            <p class="text-[10px] text-muted-foreground/80 mt-0.5">
+                                                "ID: "
+                                                <span class="font-mono">{adapter_id}</span>
+                                            </p>
+                                        </div>
+                                    }
+                                    .into_any()
+                                }).collect::<Vec<_>>()
+                            }}
+                        </div>
+                    })
+                } else {
+                    None
+                }}
+
+                {if !effective_notices.is_empty() {
+                    Some(view! {
+                        <div class="space-y-1" data-testid="chat-trust-degraded">
+                            <p class="text-2xs uppercase tracking-wide text-muted-foreground">
+                                "Degraded or failed states"
+                            </p>
+                            {effective_notices.into_iter().map(|notice| {
+                                let level_class = degraded_level_class(&notice.level);
+                                view! {
+                                    <div class=format!(
+                                        "rounded-md border px-2 py-1.5 {}",
+                                        level_class
+                                    )>
+                                        <div class="flex items-center justify-between gap-2 flex-wrap">
+                                            <span class="text-xs font-medium text-foreground">
+                                                {degraded_kind_label(&notice.kind)}
+                                            </span>
+                                            <span class="text-2xs uppercase tracking-wide text-muted-foreground">
+                                                {degraded_level_label(&notice.level)}
+                                            </span>
+                                        </div>
+                                        <p class="text-2xs text-muted-foreground leading-relaxed">
+                                            {notice.message}
+                                        </p>
+                                        {if notice.meaning_changed {
+                                            Some(view! {
+                                                <p class="text-[11px] text-warning-foreground mt-1">
+                                                    "Meaning changed from the requested path."
+                                                </p>
+                                            })
+                                        } else {
+                                            None
+                                        }}
+                                    </div>
+                                }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                    })
+                } else {
+                    None
+                }}
+
+                {if !document_links.is_empty() {
+                    Some(view! {
+                        <div class="space-y-1" data-testid="chat-trust-documents">
+                            <p class="text-2xs uppercase tracking-wide text-muted-foreground">
+                                "Source documents"
+                            </p>
+                            {if !dataset_versions.is_empty() {
+                                Some(view! {
+                                    <div class="flex flex-wrap items-center gap-1">
+                                        {dataset_versions.into_iter().map(|dataset_version| {
+                                            view! {
+                                                <span class="text-2xs rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
+                                                    "Dataset version "
+                                                    <span class="font-mono">{dataset_version}</span>
+                                                </span>
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    </div>
+                                })
+                            } else {
+                                None
+                            }}
+                            <div class="flex flex-col gap-1" data-testid="chat-document-links">
+                                {document_links.into_iter().map(|link| {
+                                    let document_name = link.document_name.clone();
+                                    let download_url = link.download_url.clone();
+                                    let dataset_version = link.dataset_version_id.clone();
+                                    let source_file = link.source_file.clone();
+                                    view! {
+                                        <div class="rounded-md border border-border/50 bg-background/70 px-2 py-1.5">
+                                            <a
+                                                href=download_url
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                class="text-xs text-primary hover:underline"
+                                                title="Open source document"
+                                            >
+                                                {document_name}
+                                            </a>
+                                            <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                                                {dataset_version.map(|dataset_version| view! {
+                                                    <span class="text-[11px] text-muted-foreground">
+                                                        "Dataset version: "
+                                                        <span class="font-mono">{dataset_version}</span>
+                                                    </span>
+                                                })}
+                                                {source_file.map(|source_file| view! {
+                                                    <span class="text-[11px] text-muted-foreground">
+                                                        "Source file: "
+                                                        <span>{source_file}</span>
+                                                    </span>
+                                                })}
+                                            </div>
+                                        </div>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        </div>
+                    })
+                } else {
+                    None
+                }}
+
+                {if !citations.is_empty() {
+                    Some(view! {
+                        <div class="space-y-1" data-testid="chat-trust-citations">
+                            <p class="text-2xs uppercase tracking-wide text-muted-foreground">
+                                "Citation spans"
+                            </p>
+                            <div class="flex flex-col gap-1">
+                                {citations.into_iter().map(|citation| {
+                                    view! {
+                                        <div class="rounded-md border border-border/50 bg-background/70 px-2 py-1.5">
+                                            <div class="flex items-center justify-between gap-2 flex-wrap">
+                                                <span class="text-xs text-foreground">
+                                                    {citation_page_span_label(&citation)}
+                                                </span>
+                                                {citation.rank.map(|rank| view! {
+                                                    <span class="text-2xs text-muted-foreground">
+                                                        "Rank "
+                                                        {rank}
+                                                    </span>
+                                                })}
+                                            </div>
+                                            <p class="text-[11px] text-muted-foreground mt-0.5 truncate">
+                                                {citation.file_path}
+                                            </p>
+                                        </div>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        </div>
+                    })
+                } else {
+                    None
+                }}
+            </div>
+        </details>
+    }
+}
+
 /// Chat conversation panel - renders the full conversation experience for a session.
 /// Used by both /chat and /chat/:session_id routes through the ChatWorkspace layout.
 #[component]
 fn ChatConversationPanel(
     /// Reactive session ID signal
     session_id_signal: Signal<String>,
+    /// Monotonic epoch for local session index changes.
+    session_index_epoch: Signal<u64>,
     /// Whether to process ?prompt= and ?adapter= query parameters
     #[prop(default = false)]
     handle_query_params: bool,
@@ -2069,15 +2461,22 @@ fn ChatConversationPanel(
 
     // Use global chat state
     let (chat_state, chat_action) = use_chat();
+    let settings = use_settings();
     let (system_status, _refetch_status) = use_system_status();
     let status_center = use_status_center();
+    let is_compact_view = use_is_tablet_or_smaller();
+    let show_mobile_config_details = RwSignal::new(false);
 
     // Local state for input and trace panel
     let message = RwSignal::new(String::new());
     let active_trace = RwSignal::new(Option::<String>::None);
     let session_loaded = RwSignal::new(false);
     let current_session_id = RwSignal::new(String::new());
-    let session_error = RwSignal::new(Option::<String>::None);
+    let session_confirmation_state = RwSignal::new(SessionConfirmationState::Confirmed);
+    let session_inline_notice = RwSignal::new(Option::<String>::None);
+    let session_confirmation_nonce = RwSignal::new(0_u64);
+    let session_confirmation_retry_epoch = RwSignal::new(0_u64);
+    let session_confirmation_attempt = RwSignal::new(0_u64);
     // Guard so deep-link query params are processed once per session ID.
     // This fixes in-app navigations like `/chat/<newid>?adapter=...` while already on /chat.
     let query_params_consumed_for_session = RwSignal::new(Option::<String>::None);
@@ -2094,6 +2493,18 @@ fn ChatConversationPanel(
     }
     let verified_mode =
         Signal::derive(move || chat_state.try_get().unwrap_or_default().verified_mode);
+    let bit_identical_mode_blocked = Signal::derive(move || {
+        chat_state
+            .try_get()
+            .unwrap_or_default()
+            .bit_identical_mode_blocked
+    });
+    let bit_identical_mode_degraded = Signal::derive(move || {
+        chat_state
+            .try_get()
+            .unwrap_or_default()
+            .bit_identical_mode_degraded
+    });
     let show_attach_dialog = RwSignal::new(false);
     let attach_mode = RwSignal::new(AttachMode::Upload);
     let selected_file_name = RwSignal::new(Option::<String>::None);
@@ -2109,12 +2520,26 @@ fn ChatConversationPanel(
     #[cfg(target_arch = "wasm32")]
     let navigate = use_navigate();
 
-    // Load session from localStorage when session ID changes
-    // Tracks session_id() reactively to handle navigation between sessions
+    // Load session from localStorage when session ID or local session index changes.
     {
         let action = chat_action.clone();
-        Effect::new(move |prev_session_id: Option<String>| {
+        Effect::new(move |prev_effect_key: Option<(String, u64, u64)>| {
             let id = session_id();
+            let observe_session_epoch = matches!(
+                session_confirmation_state
+                    .try_get()
+                    .unwrap_or(SessionConfirmationState::Confirmed),
+                SessionConfirmationState::PendingConfirm
+                    | SessionConfirmationState::TransientError
+                    | SessionConfirmationState::NotFound
+            );
+            let session_epoch = if observe_session_epoch {
+                session_index_epoch.try_get().unwrap_or(0)
+            } else {
+                0
+            };
+            let retry_epoch = session_confirmation_retry_epoch.try_get().unwrap_or(0);
+            let effect_key = (id.clone(), session_epoch, retry_epoch);
 
             // Handle empty/invalid session ID - redirect to landing page
             if id.is_empty() {
@@ -2124,16 +2549,21 @@ fn ChatConversationPanel(
                 if let Some(window) = web_sys::window() {
                     let _ = window.location().set_href("/chat");
                 }
-                return id;
+                return effect_key;
             }
 
-            // Skip if same session (effect re-ran for other reasons)
-            if prev_session_id.as_ref() == Some(&id) {
-                return id;
+            // Skip if both session and trigger epochs are unchanged.
+            if prev_effect_key.as_ref() == Some(&effect_key) {
+                return effect_key;
             }
+
+            let session_changed = prev_effect_key
+                .as_ref()
+                .map(|(prev_id, _, _)| prev_id != &id)
+                .unwrap_or(true);
 
             // Clear any existing messages from a different session before loading
-            if let Some(ref prev) = prev_session_id {
+            if let Some((ref prev, _, _)) = prev_effect_key {
                 if !prev.is_empty() && prev != &id {
                     // Auto-prune untouched placeholder sessions when leaving.
                     ChatSessionsManager::prune_placeholder_session(prev);
@@ -2159,22 +2589,25 @@ fn ChatConversationPanel(
                         ..Default::default()
                     },
                 );
-                return id;
+                return effect_key;
             }
 
             current_session_id.set(id.clone());
             action.set_session_id(Some(id.clone()));
-            session_loaded.set(false); // Reset for new session
+            if session_changed {
+                session_loaded.set(false);
+                session_inline_notice.set(None);
+            }
 
             // Try to load session from localStorage
             if let Some(stored) = ChatSessionsManager::load_session(&id) {
                 let msg_count = stored.messages.len();
                 let is_stub = msg_count == 0 && !stored.placeholder;
                 action.restore_session(stored);
-                session_error.set(None);
-                web_sys::console::log_1(
-                    &format!("[Chat] Restored session {} with {} messages", id, msg_count).into(),
-                );
+                session_confirmation_state.set(SessionConfirmationState::Confirmed);
+                session_inline_notice.set(None);
+                session_confirmation_nonce.update(|nonce| *nonce = nonce.wrapping_add(1));
+                crate::debug_log!("[Chat] Restored session {} with {} messages", id, msg_count);
                 // If this is a server-recovered stub with no local messages,
                 // fetch messages from the backend and restore them.
                 if is_stub {
@@ -2208,12 +2641,108 @@ fn ChatConversationPanel(
                 // This keeps URL navigation stable without creating phantom sessions.
                 let placeholder = ChatSessionsManager::create_placeholder_session(&id);
                 action.restore_session(placeholder);
-                session_error.set(Some(
-                    "Local draft session (not confirmed by server yet).".to_string(),
-                ));
+                session_confirmation_state.set(SessionConfirmationState::PendingConfirm);
+                session_inline_notice.set(None);
+                let nonce = session_confirmation_nonce
+                    .try_get_untracked()
+                    .unwrap_or(0)
+                    .wrapping_add(1);
+                session_confirmation_nonce.set(nonce);
+                let attempt = session_confirmation_attempt
+                    .try_get_untracked()
+                    .unwrap_or(0)
+                    .wrapping_add(1);
+                session_confirmation_attempt.set(attempt);
+                crate::debug_log!(
+                    "[ChatSessionConfirm] state=pending session={} attempt={} source=local_miss",
+                    id,
+                    attempt
+                );
+
+                let action = action.clone();
+                let id = id.clone();
+                let current_session_id = current_session_id;
+                let session_confirmation_nonce = session_confirmation_nonce;
+                let session_confirmation_state = session_confirmation_state;
+                let session_inline_notice = session_inline_notice;
+                wasm_bindgen_futures::spawn_local(async move {
+                    #[cfg(target_arch = "wasm32")]
+                    gloo_timers::future::TimeoutFuture::new(SESSION_CONFIRM_NOT_FOUND_GRACE_MS)
+                        .await;
+
+                    let still_current = current_session_id.try_get_untracked().unwrap_or_default()
+                        == id
+                        && session_confirmation_nonce.try_get_untracked().unwrap_or(0) == nonce;
+                    if !still_current {
+                        return;
+                    }
+
+                    if let Some(stored_after_grace) = ChatSessionsManager::load_session(&id) {
+                        action.restore_session(stored_after_grace);
+                        session_confirmation_state.set(SessionConfirmationState::Confirmed);
+                        session_inline_notice.set(None);
+                        crate::debug_log!(
+                            "[ChatSessionConfirm] state=confirmed session={} attempt={} source=local_after_grace",
+                            id,
+                            attempt
+                        );
+                        return;
+                    }
+
+                    match action.get_backend_session(&id).await {
+                        Ok(backend_session) => {
+                            let still_current =
+                                current_session_id.try_get_untracked().unwrap_or_default() == id
+                                    && session_confirmation_nonce.try_get_untracked().unwrap_or(0)
+                                        == nonce;
+                            if !still_current {
+                                return;
+                            }
+                            let _ = ChatSessionsManager::merge_backend_sessions(
+                                std::slice::from_ref(&backend_session),
+                            );
+                            refresh_sessions.run(());
+                            if let Some(restored) = ChatSessionsManager::load_session(&id) {
+                                action.restore_session(restored);
+                            }
+                            session_confirmation_state.set(SessionConfirmationState::Confirmed);
+                            session_inline_notice.set(None);
+                            crate::debug_log!(
+                                "[ChatSessionConfirm] state=confirmed session={} attempt={} source=backend_probe",
+                                id,
+                                attempt
+                            );
+                        }
+                        Err(e) => {
+                            let still_current =
+                                current_session_id.try_get_untracked().unwrap_or_default() == id
+                                    && session_confirmation_nonce.try_get_untracked().unwrap_or(0)
+                                        == nonce;
+                            if !still_current {
+                                return;
+                            }
+                            let mapped = map_session_confirmation_error(&e);
+                            session_confirmation_state.set(mapped);
+                            session_inline_notice.set(None);
+                            let outcome = match mapped {
+                                SessionConfirmationState::NotFound => "not_found",
+                                SessionConfirmationState::TransientError => "transient",
+                                SessionConfirmationState::Confirmed => "confirmed",
+                                SessionConfirmationState::PendingConfirm => "pending",
+                            };
+                            crate::debug_log!(
+                                "[ChatSessionConfirm] state={} session={} attempt={} error={}",
+                                outcome,
+                                id,
+                                attempt,
+                                e
+                            );
+                        }
+                    }
+                });
             }
 
-            // Check for ?prompt= and ?adapter= query parameters once per session ID.
+            // Check for ?prompt=, ?adapter=, and ?add_files=1 query parameters once per session ID.
             if handle_query_params
                 && query_params_consumed_for_session
                     .try_get_untracked()
@@ -2238,7 +2767,7 @@ fn ChatConversationPanel(
                                     action.set_session_pinned_adapters(vec![adapter.clone()]);
                                     // Also set one-shot selected adapter so the first send definitely uses it.
                                     let Some(state) = chat_state.try_get_untracked() else {
-                                        return id;
+                                        return effect_key.clone();
                                     };
                                     if state.selected_adapter.as_deref() != Some(adapter.as_str()) {
                                         action.select_next_adapter(&adapter);
@@ -2261,15 +2790,23 @@ fn ChatConversationPanel(
                                     web_sys::console::warn_1(
                                         &format!("Prompt parameter too long ({} bytes), rejecting for security", decoded.len()).into()
                                     );
-                                    session_error.set(Some(format!(
+                                    session_inline_notice.set(Some(format!(
                                         "Prompt too long ({} characters). Maximum is {} characters.",
                                         decoded.len(),
                                         MAX_URL_PROMPT_LENGTH
                                     )));
-                                    return id;
+                                    return effect_key;
                                 }
                                 if !decoded.is_empty() {
                                     action.send_message_streaming(decoded);
+                                    consumed_any = true;
+                                }
+                            }
+
+                            // Handle ?add_files=1 parameter
+                            if let Some(add_files) = params.get("add_files") {
+                                if add_files == "1" || add_files.eq_ignore_ascii_case("true") {
+                                    show_attach_dialog.set(true);
                                     consumed_any = true;
                                 }
                             }
@@ -2278,7 +2815,7 @@ fn ChatConversationPanel(
                 }
                 if consumed_any {
                     query_params_consumed_for_session.set(Some(id.clone()));
-                    // If a prompt was consumed, drop it from the URL to avoid accidental re-send
+                    // Drop one-shot params (`prompt`, `add_files`) from the URL to avoid accidental re-run
                     // on refresh/back-button. Keep ?adapter= so a reload can re-apply session-only pins.
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -2302,7 +2839,7 @@ fn ChatConversationPanel(
             }
 
             session_loaded.set(true);
-            id
+            effect_key
         });
     }
 
@@ -2331,13 +2868,16 @@ fn ChatConversationPanel(
                         || (was_streaming && !is_streaming)
                         || verified_mode != prev_verified
                     {
-                        session_error.set(None);
+                        session_confirmation_state.set(SessionConfirmationState::Confirmed);
+                        session_inline_notice.set(None);
+                        session_confirmation_nonce.update(|nonce| *nonce = nonce.wrapping_add(1));
                         let session = ChatSessionsManager::session_from_state(&id, &state);
                         ChatSessionsManager::save_session(&session);
                         refresh_sessions.run(());
-                        web_sys::console::log_1(
-                            &format!("[Chat] Auto-saved session {} ({} messages)", id, msg_count)
-                                .into(),
+                        crate::debug_log!(
+                            "[Chat] Auto-saved session {} ({} messages)",
+                            id,
+                            msg_count
                         );
                     }
                 }
@@ -2393,6 +2933,9 @@ fn ChatConversationPanel(
         let (loading, streaming, _, _) = chat_snapshot.try_get().unwrap_or_default();
         loading || streaming
     });
+    // TODO(chat-session-confirmation): Optionally gate send on `Confirmed` only if product
+    // decides to enforce strict server-confirmed sessions. Kept permissive for now to avoid
+    // behavior regressions in optimistic/new-session flows.
     let can_send = Memo::new(move |_| {
         !message.try_get().unwrap_or_default().trim().is_empty()
             && !is_busy.try_get().unwrap_or(false)
@@ -2425,6 +2968,76 @@ fn ChatConversationPanel(
                     .unwrap_or_else(|| "Auto".to_string()),
             },
         );
+    let base_model_badge = Signal::derive(move || {
+        format!(
+            "Base model: {}",
+            base_model_label.try_get().unwrap_or_default()
+        )
+    });
+    let context_model_label = Signal::derive(move || {
+        let model = base_model_label
+            .try_get()
+            .unwrap_or_else(|| "Auto".to_string());
+        if model.chars().count() > 20 {
+            format!("{}…", model.chars().take(20).collect::<String>())
+        } else {
+            model
+        }
+    });
+    let context_adapter_label = Signal::derive(move || {
+        let state = chat_state.try_get().unwrap_or_default();
+        let mut pinned = state.pinned_adapters.clone();
+        for id in &state.session_pinned_adapters {
+            if !pinned.contains(id) {
+                pinned.push(id.clone());
+            }
+        }
+
+        let primary = if state.verified_mode {
+            pinned.first().cloned()
+        } else {
+            state
+                .selected_adapter
+                .clone()
+                .or_else(|| pinned.first().cloned())
+        };
+        let compact = primary.map(|value| {
+            if value.chars().count() > 18 {
+                format!("{}…", value.chars().take(18).collect::<String>())
+            } else {
+                value
+            }
+        });
+
+        if state.verified_mode {
+            match compact {
+                Some(label) => format!("{label} (pinned)"),
+                None => "No pinned adapter".to_string(),
+            }
+        } else {
+            compact.unwrap_or_else(|| "Auto".to_string())
+        }
+    });
+    let context_mode_label = Signal::derive(move || {
+        let state = chat_state.try_get().unwrap_or_default();
+        if !state.verified_mode {
+            "Best-Effort".to_string()
+        } else if state.bit_identical_mode_blocked || state.bit_identical_mode_degraded {
+            "Strict-Replayable".to_string()
+        } else {
+            "Bit-Identical".to_string()
+        }
+    });
+    let context_mode_variant = Signal::derive(move || {
+        let state = chat_state.try_get().unwrap_or_default();
+        if !state.verified_mode {
+            BadgeVariant::Secondary
+        } else if state.bit_identical_mode_blocked || state.bit_identical_mode_degraded {
+            BadgeVariant::Warning
+        } else {
+            BadgeVariant::Success
+        }
+    });
 
     // Convert active_adapters to AdapterMagnets for the AdapterBar
     let adapter_magnets = Memo::new(move |_| {
@@ -2557,7 +3170,6 @@ fn ChatConversationPanel(
     });
 
     {
-        let message_log_ref = message_log_ref;
         Effect::new(move |_| {
             let _ = message_tail_signature.try_get();
             if !is_at_bottom.try_get().unwrap_or(true) {
@@ -2640,6 +3252,32 @@ fn ChatConversationPanel(
             }
         }
     };
+    let retry_session_confirmation = {
+        Callback::new(move |_: ()| {
+            let id = current_session_id.try_get_untracked().unwrap_or_default();
+            if id.is_empty() {
+                return;
+            }
+            session_confirmation_state.set(SessionConfirmationState::PendingConfirm);
+            session_inline_notice.set(None);
+            session_confirmation_retry_epoch.update(|epoch| *epoch = epoch.wrapping_add(1));
+            crate::debug_log!(
+                "[ChatSessionConfirm] state=pending session={} source=manual_retry",
+                id
+            );
+        })
+    };
+
+    // Keep persistent knowledge collection from user settings in chat state.
+    {
+        let action = chat_action.clone();
+        Effect::new(move || {
+            let knowledge = settings
+                .try_get()
+                .and_then(|s| s.knowledge_collection_id.clone());
+            action.set_knowledge_collection_id(knowledge);
+        });
+    }
 
     // Keyboard handler for Enter-to-send (without Shift for newlines)
     let handle_keydown = {
@@ -2673,9 +3311,15 @@ fn ChatConversationPanel(
     let create_draft = {
         #[cfg(target_arch = "wasm32")]
         let navigate = navigate.clone();
+        #[cfg(target_arch = "wasm32")]
+        let chat_action = chat_action.clone();
         Callback::new(move |_: ()| {
             attach_error.set(None);
             let mode = attach_mode.try_get().unwrap_or(AttachMode::Upload);
+            #[cfg(target_arch = "wasm32")]
+            let knowledge_collection_id = chat_state
+                .try_get()
+                .and_then(|s| s.knowledge_collection_id.clone());
             #[cfg(target_arch = "wasm32")]
             let base_model_param = {
                 let base_model_id = match chat_state.try_get().unwrap_or_default().target.clone() {
@@ -2714,12 +3358,13 @@ fn ChatConversationPanel(
 
                     #[cfg(target_arch = "wasm32")]
                     {
-                        let navigate = navigate.clone();
+                        let chat_action = chat_action.clone();
                         let attach_status = attach_status;
                         let attach_error = attach_error;
                         let attach_busy = attach_busy;
                         let show_attach_dialog = show_attach_dialog;
-                        let base_model_param = base_model_param.clone();
+                        let _base_model_param = base_model_param.clone();
+                        let knowledge_collection_id = knowledge_collection_id.clone();
 
                         wasm_bindgen_futures::spawn_local(async move {
                             // Check cancellation before starting
@@ -2771,18 +3416,93 @@ fn ChatConversationPanel(
                                                     if let Some(count) = status.chunk_count {
                                                         chunk_count = count as usize;
                                                     }
-                                                    let encoded_name =
-                                                        js_sys::encode_uri_component(&file_name)
-                                                            .as_string()
-                                                            .unwrap_or_else(|| file_name.clone());
-                                                    let path = format!(
-                                                        "/datasets/draft?source=file&items={}&name={}&document_id={}{}",
-                                                        chunk_count,
-                                                        encoded_name,
-                                                        doc_id,
-                                                        base_model_param
-                                                    );
-                                                    navigate(&path, Default::default());
+                                                    attach_status.set(Some(
+                                                        "Creating chat collection...".to_string(),
+                                                    ));
+                                                    let collection_name =
+                                                        if knowledge_collection_id.is_some() {
+                                                            format!("Chat: {} (merged)", file_name)
+                                                        } else {
+                                                            format!("Chat: {}", file_name)
+                                                        };
+                                                    match client
+                                                        .create_collection(&crate::api::types::CreateCollectionRequest {
+                                                            name: collection_name,
+                                                            description: Some("Auto-created from chat attachment".to_string()),
+                                                        })
+                                                        .await
+                                                    {
+                                                        Ok(collection) => {
+                                                            if let Some(knowledge_id) = &knowledge_collection_id {
+                                                                attach_status.set(Some("Merging knowledge sources...".to_string()));
+                                                                if let Ok(knowledge) = client.get_collection(knowledge_id).await {
+                                                                    for source_doc in knowledge.documents {
+                                                                        let _ = client
+                                                                            .add_document_to_collection(
+                                                                                &collection.collection_id,
+                                                                                &source_doc.document_id,
+                                                                            )
+                                                                            .await;
+                                                                    }
+                                                                }
+                                                            }
+                                                            if let Err(e) = client
+                                                                .add_document_to_collection(&collection.collection_id, &doc_id)
+                                                                .await
+                                                            {
+                                                                attach_error.set(Some(format!(
+                                                                    "Collection created but failed to attach document: {}",
+                                                                    e
+                                                                )));
+                                                                attach_busy.set(false);
+                                                                attach_status.set(None);
+                                                                return;
+                                                            }
+                                                            chat_action.set_active_collection_id(Some(collection.collection_id.clone()));
+                                                            let system_message = crate::signals::ChatMessage {
+                                                                id: format!("sys-{}", uuid::Uuid::new_v4().simple()),
+                                                                role: "system".to_string(),
+                                                                content: format!(
+                                                                    "📎 {} added ({} chunks). I can now answer questions about this document.",
+                                                                    file_name, chunk_count
+                                                                ),
+                                                                timestamp: crate::utils::now_utc(),
+                                                                is_streaming: false,
+                                                                status: crate::signals::MessageStatus::Complete,
+                                                                queued_at: None,
+                                                                pending_phase: crate::signals::PendingPhase::Calm,
+                                                                pending_reason: None,
+                                                                trace_id: None,
+                                                                latency_ms: None,
+                                                                token_count: None,
+                                                                prompt_tokens: None,
+                                                                completion_tokens: None,
+                                                                backend_used: None,
+                                                                citations: None,
+                                                                document_links: None,
+                                                                has_citations: false,
+                                                                adapters_used: None,
+                                                                unavailable_pinned_adapters: None,
+                                                                pinned_routing_fallback: None,
+                                                                fallback_triggered: false,
+                                                                fallback_backend: None,
+                                                                adapter_attachments: Vec::new(),
+                                                                degraded_notices: Vec::new(),
+                                                                replay_status: None,
+                                                                policy_warnings: Vec::new(),
+                                                            };
+                                                            chat_action.append_message(system_message);
+                                                        }
+                                                        Err(e) => {
+                                                            attach_error.set(Some(format!(
+                                                                "Failed to create collection for chat RAG: {}",
+                                                                e
+                                                            )));
+                                                            attach_busy.set(false);
+                                                            attach_status.set(None);
+                                                            return;
+                                                        }
+                                                    }
                                                     show_attach_dialog.set(false);
                                                     attach_busy.set(false);
                                                     attach_status.set(None);
@@ -2812,7 +3532,7 @@ fn ChatConversationPanel(
                                                     }
                                                     attach_status.set(Some(format!(
                                                         "Processing document ({})...",
-                                                        status.status
+                                                        status_display_with_raw(&status.status)
                                                     )));
                                                 }
                                             },
@@ -2906,7 +3626,7 @@ fn ChatConversationPanel(
                                         return;
                                     }
                                     let path = format!(
-                                        "/datasets/draft?dataset_id={}{}",
+                                        "/training?open_wizard=1&dataset_id={}{}",
                                         resp.dataset_id, base_model_param
                                     );
                                     navigate(&path, Default::default());
@@ -2929,8 +3649,9 @@ fn ChatConversationPanel(
 
                     #[cfg(not(target_arch = "wasm32"))]
                     {
-                        attach_error
-                            .set(Some("Text processing is only available in the web UI.".to_string()));
+                        attach_error.set(Some(
+                            "Text processing is only available in the web UI.".to_string(),
+                        ));
                         attach_busy.set(false);
                         attach_status.set(None);
                     }
@@ -3001,7 +3722,7 @@ fn ChatConversationPanel(
                                         return;
                                     }
                                     let path = format!(
-                                        "/datasets/draft?dataset_id={}{}",
+                                        "/training?open_wizard=1&dataset_id={}{}",
                                         resp.dataset_id, base_model_param
                                     );
                                     navigate(&path, Default::default());
@@ -3027,8 +3748,9 @@ fn ChatConversationPanel(
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         let _ = (chat_messages, session_id);
-                        attach_error
-                            .set(Some("Chat processing is only available in the web UI.".to_string()));
+                        attach_error.set(Some(
+                            "Chat processing is only available in the web UI.".to_string(),
+                        ));
                         attach_busy.set(false);
                         attach_status.set(None);
                     }
@@ -3037,82 +3759,51 @@ fn ChatConversationPanel(
         })
     };
 
-    // Collaboration UI state
-    let show_header_share = RwSignal::new(false);
-    let show_header_tags = RwSignal::new(false);
-    let show_header_fork = RwSignal::new(false);
-    let show_header_provenance = RwSignal::new(false);
-
-    // Tags loaded for badge display in header
-    let session_tags = RwSignal::new(Vec::<crate::api::types::ChatTagResponse>::new());
-    {
-        Effect::new(move |_| {
-            let id = session_id();
-            if id.is_empty() {
-                session_tags.set(Vec::new());
-                return;
-            }
-            // Placeholder sessions are local drafts that are not guaranteed to exist on the server.
-            // Skip tag fetches until the session is confirmed to avoid noisy 404s.
-            let is_server_confirmed = ChatSessionsManager::load_session(&id)
-                .map(|session| !session.placeholder)
-                .unwrap_or(false);
-            if !is_server_confirmed {
-                session_tags.set(Vec::new());
-                return;
-            }
-            let id = id.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::with_base_url(api_base_url());
-                match client.get_session_tags(&id).await {
-                    Ok(resp) => session_tags.set(resp.tags),
-                    Err(_) => session_tags.set(Vec::new()),
-                }
-            });
-        });
-    }
-
     view! {
-        <div class="p-6 flex h-full min-h-0 flex-col gap-4">
+        <div class="p-4 flex h-full min-h-0 flex-col gap-3">
             // Header
             <div
-                class="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4"
+                class="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3"
                 data-testid="chat-header"
             >
-                <div class="space-y-1">
-                    <h2 class="heading-3">"Prompt Studio"</h2>
-                    <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span class="uppercase tracking-wider text-2xs font-medium">"Session"</span>
-                        <span
-                            class="font-mono bg-muted/30 px-1.5 py-0.5 rounded text-2xs"
-                            data-testid="chat-session-id-label"
-                        >
-                            {session_label}
-                        </span>
-                    </div>
+                <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span class="uppercase tracking-wider text-2xs font-medium">"Session"</span>
+                    <span
+                        class="font-mono bg-muted/30 px-1.5 py-0.5 rounded text-2xs"
+                        data-testid="chat-session-id-label"
+                    >
+                        {session_label}
+                    </span>
                 </div>
-                <div class="flex items-center gap-3">
+                <div class="chat-header-controls">
                     // Target selector for choosing model, stack, or policy pack
-                    <crate::components::chat_dock::ChatTargetSelector inline=true/>
-                    <Badge variant=BadgeVariant::Outline>
-                        {move || format!("Base model: {}", base_model_label.try_get().unwrap_or_default())}
+                    <div class="chat-header-target">
+                        <ChatTargetSelector inline=true/>
+                    </div>
+                    <Badge variant=BadgeVariant::Outline class="chat-header-base-model">
+                        <span
+                            class="chat-header-base-model-label"
+                            title=move || base_model_badge.try_get().unwrap_or_default()
+                        >
+                            {move || base_model_badge.try_get().unwrap_or_default()}
+                        </span>
                     </Badge>
-                    <div class="flex items-center rounded-full border border-border bg-muted/30 p-0.5 text-xs">
+                    <div class="chat-header-mode-toggle flex items-center rounded-full border border-border bg-muted/30 p-0.5 text-xs">
                         {
                             let action = chat_action.clone();
                             view! {
                                 <button
                                     class=move || {
                                         if verified_mode.try_get().unwrap_or(false) {
-                                            "px-2 py-1 rounded-full text-muted-foreground".to_string()
+                                            "btn btn-ghost btn-sm px-2 py-1 rounded-full text-muted-foreground".to_string()
                                         } else {
-                                            "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
+                                            "btn btn-ghost btn-sm px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
                                         }
                                     }
                                     on:click=move |_| action.set_verified_mode(false)
                                     type="button"
                                 >
-                                    "Fast"
+                                    "Best-Effort"
                                 </button>
                             }
                         }
@@ -3122,21 +3813,37 @@ fn ChatConversationPanel(
                                 <button
                                     class=move || {
                                         if verified_mode.try_get().unwrap_or(false) {
-                                            "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
+                                            if bit_identical_mode_blocked.try_get().unwrap_or(false) {
+                                                "btn btn-ghost btn-sm px-2 py-1 rounded-full bg-destructive/15 text-destructive shadow-sm".to_string()
+                                            } else if bit_identical_mode_degraded.try_get().unwrap_or(false) {
+                                                "btn btn-ghost btn-sm px-2 py-1 rounded-full bg-warning/15 text-warning-foreground shadow-sm".to_string()
+                                            } else {
+                                                "btn btn-ghost btn-sm px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
+                                            }
                                         } else {
-                                            "px-2 py-1 rounded-full text-muted-foreground".to_string()
+                                            "btn btn-ghost btn-sm px-2 py-1 rounded-full text-muted-foreground".to_string()
                                         }
                                     }
                                     on:click=move |_| action.set_verified_mode(true)
                                     type="button"
                                 >
-                                    "Verified"
+                                    {move || {
+                                        if bit_identical_mode_blocked.try_get().unwrap_or(false)
+                                            || bit_identical_mode_degraded
+                                                .try_get()
+                                                .unwrap_or(false)
+                                        {
+                                            "Strict-Replayable"
+                                        } else {
+                                            "Bit-Identical"
+                                        }
+                                    }}
                                 </button>
                             }
                         }
                     </div>
                     // Status badge
-                    <div data-testid="chat-status-badge">
+                    <div class="chat-header-status" data-testid="chat-status-badge">
                         {move || {
                             let err = error.try_get().flatten();
                             if err.is_some() {
@@ -3169,137 +3876,41 @@ fn ChatConversationPanel(
                             }
                         }}
                     </div>
-                    // Collaboration actions
-                    <div class="flex items-center gap-1">
-                        <button
-                            class="px-2 py-1 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors"
-                            on:click=move |_| show_header_share.set(true)
-                            title="Share session"
-                            data-testid="chat-header-share"
-                        >
-                            "Share"
-                        </button>
-                        <button
-                            class="px-2 py-1 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors"
-                            on:click=move |_| show_header_fork.set(true)
-                            title="Fork session"
-                            data-testid="chat-header-fork"
-                        >
-                            "Fork"
-                        </button>
-                        <button
-                            class="px-2 py-1 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors"
-                            on:click=move |_| show_header_provenance.set(true)
-                            title="View evidence"
-                            data-testid="chat-header-provenance"
-                        >
-                            "Evidence"
-                        </button>
-                    </div>
                 </div>
             </div>
-
-            // Tags badge row
-            <div class="flex items-center gap-2 flex-wrap" data-testid="chat-header-tags">
+            <div
+                class="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2"
+                data-testid="chat-context-strip"
+            >
+                <span class="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    "Current context"
+                </span>
+                <Badge variant=BadgeVariant::Outline>
+                    <span class="text-xs">
+                        "Model: "
+                        {move || context_model_label.try_get().unwrap_or_else(|| "Auto".to_string())}
+                    </span>
+                </Badge>
+                <Badge variant=BadgeVariant::Outline>
+                    <span class="text-xs">
+                        "Adapter: "
+                        {move || context_adapter_label.try_get().unwrap_or_else(|| "Auto".to_string())}
+                    </span>
+                </Badge>
                 {move || {
-                    let tags = session_tags.try_get().unwrap_or_default();
-                    if tags.is_empty() {
-                        None
-                    } else {
-                        Some(view! {
-                            <>
-                                {tags.into_iter().map(|tag| {
-                                    let style = tag.color.as_deref()
-                                        .map(|c| format!("border-color: {}; color: {}", c, c))
-                                        .unwrap_or_default();
-                                    view! {
-                                        <span
-                                            class="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border border-border"
-                                            style=style
-                                        >
-                                            {tag.name}
-                                        </span>
-                                    }
-                                }).collect::<Vec<_>>()}
-                            </>
-                        })
+                    let variant = context_mode_variant
+                        .try_get()
+                        .unwrap_or(BadgeVariant::Secondary);
+                    let label = context_mode_label
+                        .try_get()
+                        .unwrap_or_else(|| "Best-Effort".to_string());
+                    view! {
+                        <Badge variant=variant>
+                            <span class="text-xs">{label}</span>
+                        </Badge>
                     }
                 }}
-                <button
-                    class="inline-flex items-center px-1.5 py-0.5 text-2xs text-muted-foreground hover:text-foreground rounded border border-dashed border-border hover:border-foreground/30 transition-colors"
-                    on:click=move |_| show_header_tags.set(true)
-                    data-testid="chat-header-edit-tags"
-                >
-                    "+ Tag"
-                </button>
             </div>
-
-            // Collaboration dialogs (header-level)
-            {move || {
-                if show_header_share.try_get().unwrap_or(false) {
-                    Some(view! {
-                        <ShareSessionDialog
-                            session_id=session_id()
-                            on_close=Callback::new(move |_| show_header_share.set(false))
-                        />
-                    })
-                } else { None }
-            }}
-            {move || {
-                if show_header_tags.try_get().unwrap_or(false) {
-                    let refresh_tags = Callback::new(move |_: ()| {
-                        let id = session_id();
-                        let is_server_confirmed = ChatSessionsManager::load_session(&id)
-                            .map(|session| !session.placeholder)
-                            .unwrap_or(false);
-                        if !is_server_confirmed {
-                            session_tags.set(Vec::new());
-                            return;
-                        }
-                        wasm_bindgen_futures::spawn_local(async move {
-                            let client = ApiClient::with_base_url(api_base_url());
-                            if let Ok(resp) = client.get_session_tags(&id).await {
-                                session_tags.set(resp.tags);
-                            }
-                        });
-                    });
-                    Some(view! {
-                        <TagsDialog
-                            session_id=session_id()
-                            on_close=Callback::new(move |_| {
-                                show_header_tags.set(false);
-                                refresh_tags.run(());
-                            })
-                        />
-                    })
-                } else { None }
-            }}
-            {move || {
-                if show_header_fork.try_get().unwrap_or(false) {
-                    let navigate = use_navigate();
-                    Some(view! {
-                        <ForkSessionDialog
-                            session_id=session_id()
-                            on_close=Callback::new(move |_| show_header_fork.set(false))
-                            on_forked=Callback::new(move |new_id: String| {
-                                show_header_fork.set(false);
-                                let path = format!("/chat/{}", new_id);
-                                navigate(&path, Default::default());
-                            })
-                        />
-                    })
-                } else { None }
-            }}
-            {move || {
-                if show_header_provenance.try_get().unwrap_or(false) {
-                    Some(view! {
-                        <ProvenancePanel
-                            session_id=session_id()
-                            on_close=Callback::new(move |_| show_header_provenance.set(false))
-                        />
-                    })
-                } else { None }
-            }}
 
             // Stream status notice (progressive latency + TTFT feedback)
             // Error-tone notices with state.error are shown in the error banner below.
@@ -3352,31 +3963,31 @@ fn ChatConversationPanel(
             // Pause notice + navigation to review flow
             {move || {
                 let state = chat_state.try_get().unwrap_or_default();
-                let pause = state.paused_inference.clone()?;
+                let _pause = state.paused_inference.clone()?;
                 let message = state
                     .stream_notice
                     .clone()
                     .map(|n| n.message)
                     .unwrap_or_else(|| "Paused: Awaiting review".to_string());
-                let href_detail = format!("/reviews/{}", pause.pause_id);
-
                 Some(view! {
-                    <div class="flex items-center justify-between gap-3 text-xs" data-testid="chat-paused-notice">
-                        <div class="flex items-center gap-2 min-w-0">
-                            <Badge variant=BadgeVariant::Warning>"Paused"</Badge>
-                            <span class="text-muted-foreground truncate">{message}</span>
-                        </div>
-                        <div class="flex items-center gap-3 flex-shrink-0">
-                            <a href=href_detail class="text-xs font-medium text-primary hover:underline">
-                                "Open Review"
-                            </a>
-                            <a href="/reviews" class="text-xs text-muted-foreground hover:text-primary">
-                                "Queue"
-                            </a>
-                        </div>
+                    <div class="flex items-center gap-3 text-xs" data-testid="chat-paused-notice">
+                        <Badge variant=BadgeVariant::Warning>"Paused"</Badge>
+                        <span class="text-muted-foreground truncate">{message}</span>
                     </div>
                 })
             }}
+
+            // Pending-adapter badge: rendered outside the collapsed <details>
+            // so it's always visible when adapter_selection_pending is true.
+            {move || adapter_selection_pending.try_get().unwrap_or(false).then(|| view! {
+                <span
+                    class="chat-adapters-pending-badge"
+                    role="status"
+                    aria-label="Adapter changes pending confirmation"
+                >
+                    "Pending next message"
+                </span>
+            })}
 
             <details class="rounded-lg border border-border/60 bg-card/60 px-3 py-2" data-testid="chat-advanced-adapter-controls">
                 <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -3410,9 +4021,9 @@ fn ChatConversationPanel(
                         >
                             <div class="flex flex-wrap items-center justify-between gap-3">
                                 <div class="space-y-1">
-                                    <p class="text-sm font-medium">"Replay with proof is ready"</p>
+                                    <p class="text-sm font-medium">"Replay + execution receipt ready"</p>
                                     <p class="text-xs text-muted-foreground">
-                                        "You can replay the latest response with locked output and review its signed log trail."
+                                        "You can replay the latest response with locked output and review its execution receipt."
                                     </p>
                                 </div>
                                 <div class="flex items-center gap-2">
@@ -3428,7 +4039,7 @@ fn ChatConversationPanel(
                                         variant=ButtonVariant::Outline
                                         size=ButtonSize::Sm
                                     >
-                                        "View Signed Log"
+                                        "View Execution Receipt"
                                     </ButtonLink>
                                 </div>
                             </div>
@@ -3474,7 +4085,7 @@ fn ChatConversationPanel(
                                 >
                                     <span class="chat-overflow-notice-text">{msg}</span>
                                     <button
-                                        class="chat-overflow-notice-dismiss"
+                                        class="btn btn-ghost btn-icon-sm chat-overflow-notice-dismiss"
                                         type="button"
                                         title="Dismiss"
                                         aria-label="Dismiss overflow notice"
@@ -3487,7 +4098,7 @@ fn ChatConversationPanel(
                         })
                     }
                 }
-                <div class="p-5">
+                <div class="p-4">
                     {move || {
                         let msgs = chat_state.try_get().unwrap_or_default().messages;
                         if msgs.is_empty() {
@@ -3517,35 +4128,58 @@ fn ChatConversationPanel(
                                             </svg>
                                         </div>
                                         <div class="space-y-2">
-                                            <h3 class="heading-4 text-foreground">"What would you like to explore?"</h3>
+                                            <h3 class="heading-4 text-foreground">"Start Chat"</h3>
                                             <p class="text-sm text-muted-foreground leading-relaxed">
-                                                "Ask anything to begin. The system will route your request to the best skill stack and keep a signed record."
+                                                "Ask your first question, add files for context, or browse adapters."
                                             </p>
                                         </div>
-                                        // Suggestion chips (clickable to pre-fill)
                                         <div class="flex flex-wrap justify-center gap-2 pt-2">
-                                            {["Summarize this document", "Draft a customer reply", "Review this code change"].into_iter().map(|prompt| {
-                                                let prompt_text = prompt.to_string();
-                                                view! {
-                                                    <button
-                                                        type="button"
-                                                        class="text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer"
-                                                        data-testid="chat-conversation-suggestion"
-                                                        on:click=move |_| {
-                                                            message.set(prompt_text.clone());
+                                            <Button
+                                                size=ButtonSize::Sm
+                                                on_click=Callback::new(move |_| {
+                                                    #[cfg(target_arch = "wasm32")]
+                                                    {
+                                                        if let Some(window) = web_sys::window() {
+                                                            if let Some(document) = window.document() {
+                                                                if let Ok(Some(element)) = document.query_selector(
+                                                                    "[data-testid='chat-input']",
+                                                                ) {
+                                                                    if let Some(input) =
+                                                                        element.dyn_ref::<web_sys::HtmlElement>()
+                                                                    {
+                                                                        let _ = input.focus();
+                                                                    }
+                                                                }
+                                                            }
                                                         }
-                                                    >
-                                                        {prompt}
-                                                    </button>
-                                                }
-                                            }).collect::<Vec<_>>()}
+                                                    }
+                                                })
+                                                data_testid="chat-conversation-start-chat".to_string()
+                                            >
+                                                "Start Chat"
+                                            </Button>
+                                            <Button
+                                                variant=ButtonVariant::Outline
+                                                size=ButtonSize::Sm
+                                                on_click=Callback::new(move |_| show_attach_dialog.set(true))
+                                                data_testid="chat-conversation-add-files".to_string()
+                                            >
+                                                "Add Files"
+                                            </Button>
+                                            <a
+                                                href="/adapters"
+                                                class="btn btn-ghost btn-sm"
+                                                data-testid="chat-conversation-browse-adapters"
+                                            >
+                                                "Browse Adapters (Library)"
+                                            </a>
                                         </div>
                                     </div>
                                 </div>
                             }.into_any()
                         } else {
                             view! {
-                                <div class="space-y-6">
+                                <div class="space-y-5">
                                     <For
                                         each=move || message_ids.try_get().unwrap_or_default()
                                         key=|id| id.clone()
@@ -3672,7 +4306,7 @@ fn ChatConversationPanel(
                         Some(view! {
                             <button
                                 type="button"
-                                class="absolute bottom-4 right-4 inline-flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted/80 transition-colors"
+                                class="btn btn-outline btn-sm absolute bottom-4 right-4 inline-flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted/80 transition-colors"
                                 on:click=move |_| scroll_to_latest.run(())
                                 data-testid="chat-jump-to-latest"
                             >
@@ -3702,22 +4336,96 @@ fn ChatConversationPanel(
                 })
             }}
 
-            // Session error display (stale/missing session)
+            // Session inline notice (query param validation, etc.)
             {move || {
-                session_error.try_get().flatten().map(|e| view! {
-                    <div class="rounded-md bg-warning/10 border border-warning p-3 mb-4" data-testid="chat-session-error">
-                        <div class="flex items-center justify-between gap-2">
-                            <p class="text-sm text-warning-foreground">{e}</p>
-                            <a
-                                href="/chat"
-                                class="text-sm font-medium text-primary hover:underline"
-                                data-testid="chat-session-error-link"
-                            >
-                                "Start New Session"
-                            </a>
-                        </div>
+                session_inline_notice.try_get().flatten().map(|msg| view! {
+                    <div class="rounded-md bg-warning/10 border border-warning p-3 mb-4" data-testid="chat-session-inline-notice">
+                        <p class="text-sm text-warning-foreground">{msg}</p>
                     </div>
                 })
+            }}
+
+            // Session confirmation state display
+            {move || {
+                let state = session_confirmation_state
+                    .try_get()
+                    .unwrap_or(SessionConfirmationState::Confirmed);
+                match state {
+                    SessionConfirmationState::Confirmed => None,
+                    SessionConfirmationState::PendingConfirm => Some(view! {
+                        <div class="rounded-md bg-warning/10 border border-warning p-3 mb-4" data-testid="chat-session-error">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <p class="text-sm text-warning-foreground" data-testid="chat-session-state-pending">
+                                    "Local draft session (not confirmed by server yet)."
+                                </p>
+                                <div class="flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        class="text-sm font-medium text-primary hover:underline"
+                                        on:click=move |_| retry_session_confirmation.run(())
+                                        data-testid="chat-session-confirm-retry"
+                                    >
+                                        "Retry confirmation"
+                                    </button>
+                                    <a
+                                        href="/chat"
+                                        class="text-sm font-medium text-primary hover:underline"
+                                        data-testid="chat-session-error-link"
+                                    >
+                                        "Start New Session"
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                        .into_any()),
+                    SessionConfirmationState::NotFound => Some(view! {
+                        <div class="rounded-md bg-warning/10 border border-warning p-3 mb-4" data-testid="chat-session-error">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <p class="text-sm text-warning-foreground" data-testid="chat-session-state-not-found">
+                                    "Session not found on server; link may be stale."
+                                </p>
+                                <div class="flex items-center gap-3">
+                                    <a
+                                        href="/chat"
+                                        class="text-sm font-medium text-primary hover:underline"
+                                        data-testid="chat-session-error-link"
+                                    >
+                                        "Start New Session"
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                        .into_any()),
+                    SessionConfirmationState::TransientError => Some(view! {
+                        <div class="rounded-md bg-warning/10 border border-warning p-3 mb-4" data-testid="chat-session-error">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <p class="text-sm text-warning-foreground" data-testid="chat-session-state-transient">
+                                    "Could not confirm session due to a temporary error."
+                                </p>
+                                <div class="flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        class="text-sm font-medium text-primary hover:underline"
+                                        on:click=move |_| retry_session_confirmation.run(())
+                                        data-testid="chat-session-confirm-retry"
+                                    >
+                                        "Retry confirmation"
+                                    </button>
+                                    <a
+                                        href="/chat"
+                                        class="text-sm font-medium text-primary hover:underline"
+                                        data-testid="chat-session-error-link"
+                                    >
+                                        "Start New Session"
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                        .into_any()),
+                }
             }}
 
             // Error display with dismiss button
@@ -3802,7 +4510,7 @@ fn ChatConversationPanel(
                                             view! {}.into_any()
                                         }}
                                         <button
-                                            class="text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
+                                            class="btn btn-ghost btn-sm text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
                                             on:click=move |_| action.clear_error()
                                             aria-label="Dismiss error"
                                             data-testid="chat-error-dismiss"
@@ -3848,7 +4556,7 @@ fn ChatConversationPanel(
                                             </ButtonLink>
                                             {status_center.map(|ctx| view! {
                                                     <button
-                                                        class="text-xs text-muted-foreground hover:text-foreground"
+                                                        class="btn btn-link btn-xs text-xs text-muted-foreground hover:text-foreground"
                                                         on:click=move |_| ctx.open()
                                                     >
                                                         "Why?"
@@ -3866,6 +4574,62 @@ fn ChatConversationPanel(
 
             // Input
             <div class="border-t border-border pt-4">
+                <div class="mb-2 text-xs text-muted-foreground" data-testid="chat-active-config-line">
+                    {move || {
+                        let state = chat_state.try_get().unwrap_or_default();
+                        let model = base_model_label.try_get().unwrap_or_else(|| "Auto".to_string());
+                        let adapters = state
+                            .pinned_adapters
+                            .iter()
+                            .take(2)
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        let adapter_segment = if adapters.is_empty() {
+                            "no adapters pinned".to_string()
+                        } else {
+                            adapters.join(", ")
+                        };
+                        let rag_segment = state
+                            .active_collection_id
+                            .as_ref()
+                            .map(|id| format!("RAG: {}", id))
+                            .unwrap_or_else(|| "RAG: off".to_string());
+                        let verify_segment = if state.verified_mode {
+                            if state.bit_identical_mode_blocked || state.bit_identical_mode_degraded
+                            {
+                                "Strict-Replayable"
+                            } else {
+                                "Bit-Identical"
+                            }
+                        } else {
+                            "Best-Effort"
+                        };
+                        let details = format!(
+                            "{} · {} · {} · {}",
+                            model, adapter_segment, rag_segment, verify_segment
+                        );
+                        if is_compact_view.try_get().unwrap_or(false) {
+                            let expanded = show_mobile_config_details.try_get().unwrap_or(false);
+                            let button_text = if expanded {
+                                details
+                            } else {
+                                model
+                            };
+                            view! {
+                                <button
+                                    type="button"
+                                    class="btn btn-ghost btn-xs h-auto px-1 text-xs text-muted-foreground"
+                                    on:click=move |_| show_mobile_config_details.update(|v| *v = !*v)
+                                >
+                                    {button_text}
+                                </button>
+                            }
+                            .into_any()
+                        } else {
+                            view! { <span>{details}</span> }.into_any()
+                        }
+                    }}
+                </div>
                 <form
                     class="flex items-end gap-3"
                     on:submit=move |ev: web_sys::SubmitEvent| {
@@ -3934,9 +4698,9 @@ fn ChatConversationPanel(
                             type="button"
                             class=move || {
                                 if attach_mode.try_get().unwrap_or(AttachMode::Upload) == AttachMode::Upload {
-                                    "rounded-md border border-border bg-muted px-3 py-2 text-foreground"
+                                    "btn btn-outline btn-sm rounded-md border border-border bg-muted px-3 py-2 text-foreground"
                                 } else {
-                                    "rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                                    "btn btn-outline btn-sm rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
                                 }
                             }
                             on:click=move |_| attach_mode.set(AttachMode::Upload)
@@ -3947,9 +4711,9 @@ fn ChatConversationPanel(
                             type="button"
                             class=move || {
                                 if attach_mode.try_get().unwrap_or(AttachMode::Upload) == AttachMode::Paste {
-                                    "rounded-md border border-border bg-muted px-3 py-2 text-foreground"
+                                    "btn btn-outline btn-sm rounded-md border border-border bg-muted px-3 py-2 text-foreground"
                                 } else {
-                                    "rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                                    "btn btn-outline btn-sm rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
                                 }
                             }
                             on:click=move |_| attach_mode.set(AttachMode::Paste)
@@ -3960,9 +4724,9 @@ fn ChatConversationPanel(
                             type="button"
                             class=move || {
                                 if attach_mode.try_get().unwrap_or(AttachMode::Upload) == AttachMode::Chat {
-                                    "rounded-md border border-border bg-muted px-3 py-2 text-foreground"
+                                    "btn btn-outline btn-sm rounded-md border border-border bg-muted px-3 py-2 text-foreground"
                                 } else {
-                                    "rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                                    "btn btn-outline btn-sm rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
                                 }
                             }
                             on:click=move |_| attach_mode.set(AttachMode::Chat)
@@ -4079,7 +4843,7 @@ fn ChatConversationPanel(
                                     <div class="flex gap-2 flex-wrap">
                                         <button
                                             type="button"
-                                            class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
+                                            class="btn btn-outline btn-sm px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
                                             on:click=toggle_all
                                         >
                                             {move || if selected_msg_indices.try_get().unwrap_or_default().len() == chat_state.try_get().unwrap_or_default().messages.len() && !chat_state.try_get().unwrap_or_default().messages.is_empty() {
@@ -4090,21 +4854,21 @@ fn ChatConversationPanel(
                                         </button>
                                         <button
                                             type="button"
-                                            class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
+                                            class="btn btn-outline btn-sm px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
                                             on:click=move |_| select_last_5.run(5)
                                         >
                                             "Last 5"
                                         </button>
                                         <button
                                             type="button"
-                                            class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
+                                            class="btn btn-outline btn-sm px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
                                             on:click=move |_| select_last_10.run(10)
                                         >
                                             "Last 10"
                                         </button>
                                         <button
                                             type="button"
-                                            class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
+                                            class="btn btn-outline btn-sm px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
                                             on:click=move |_| select_last_20.run(20)
                                         >
                                             "Last 20"
@@ -4209,6 +4973,173 @@ fn format_token_display(
     }
 }
 
+fn trust_summary_label(
+    citation_count: usize,
+    document_link_count: usize,
+    adapter_attachments: &[AdapterAttachment],
+    adapters_used: &[String],
+    degraded_count: usize,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    if citation_count > 0 {
+        parts.push(format!(
+            "{} source{}",
+            citation_count,
+            plural_suffix(citation_count)
+        ));
+    }
+
+    if document_link_count > 0 {
+        parts.push(format!(
+            "{} document{}",
+            document_link_count,
+            plural_suffix(document_link_count)
+        ));
+    }
+
+    if let Some(first_attachment) = adapter_attachments.first() {
+        let label = first_attachment
+            .adapter_label
+            .clone()
+            .unwrap_or_else(|| short_adapter_label(&first_attachment.adapter_id));
+        let extra = adapter_attachments.len().saturating_sub(1);
+        if extra > 0 {
+            parts.push(format!("{label} +{extra} adapter{}", plural_suffix(extra)));
+        } else {
+            parts.push(label);
+        }
+    } else if let Some(first_adapter) = adapters_used.first() {
+        let extra = adapters_used.len().saturating_sub(1);
+        if extra > 0 {
+            parts.push(format!(
+                "{} +{} adapter{}",
+                short_adapter_label(first_adapter),
+                extra,
+                plural_suffix(extra)
+            ));
+        } else {
+            parts.push(short_adapter_label(first_adapter));
+        }
+    }
+
+    if degraded_count > 0 {
+        parts.push(format!(
+            "{} degraded notice{}",
+            degraded_count,
+            plural_suffix(degraded_count)
+        ));
+    }
+
+    if parts.is_empty() {
+        "Open trust details".to_string()
+    } else {
+        parts.join(" · ")
+    }
+}
+
+fn plural_suffix(count: usize) -> &'static str {
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
+}
+
+fn short_adapter_label(adapter_id: &str) -> String {
+    adapter_id
+        .strip_prefix("adp_")
+        .or_else(|| adapter_id.strip_prefix("adp-"))
+        .unwrap_or(adapter_id)
+        .to_string()
+}
+
+fn attach_reason_label(reason: &AdapterAttachReason) -> &'static str {
+    match reason {
+        AdapterAttachReason::Requested => "requested",
+        AdapterAttachReason::Pinned => "pinned",
+        AdapterAttachReason::StackRouting => "stack routing",
+        AdapterAttachReason::FallbackRouting => "fallback routing",
+        AdapterAttachReason::Unknown => "automatic",
+    }
+}
+
+fn attach_reason_detail(reason: &AdapterAttachReason) -> &'static str {
+    match reason {
+        AdapterAttachReason::Requested => "Added because you requested this adapter directly.",
+        AdapterAttachReason::Pinned => "Added because this adapter is pinned in the current chat.",
+        AdapterAttachReason::StackRouting => "Added by the active stack routing policy.",
+        AdapterAttachReason::FallbackRouting => {
+            "Added during fallback after part of the requested route degraded."
+        }
+        AdapterAttachReason::Unknown => "Added by automatic routing.",
+    }
+}
+
+fn degraded_kind_label(kind: &DegradedNoticeKind) -> &'static str {
+    match kind {
+        DegradedNoticeKind::AttachFailure => "Attach failure",
+        DegradedNoticeKind::WorkerSemanticFallback => "Semantic fallback",
+        DegradedNoticeKind::RoutingOverride => "Routing override",
+        DegradedNoticeKind::BlockedPins => "Blocked pins",
+        DegradedNoticeKind::WorkerUnavailable => "Worker unavailable",
+        DegradedNoticeKind::FfiAttachFailure => "Low-level attach failure",
+    }
+}
+
+fn degraded_level_label(level: &DegradedNoticeLevel) -> &'static str {
+    match level {
+        DegradedNoticeLevel::Info => "info",
+        DegradedNoticeLevel::Warning => "warning",
+        DegradedNoticeLevel::Critical => "critical",
+    }
+}
+
+fn degraded_level_class(level: &DegradedNoticeLevel) -> &'static str {
+    match level {
+        DegradedNoticeLevel::Info => "border-info/30 bg-info/5",
+        DegradedNoticeLevel::Warning => "border-warning/30 bg-warning/10",
+        DegradedNoticeLevel::Critical => "border-destructive/40 bg-destructive/10",
+    }
+}
+
+fn prominent_degraded_title(notices: &[DegradedNotice]) -> &'static str {
+    if notices
+        .iter()
+        .any(|notice| notice.kind == DegradedNoticeKind::FfiAttachFailure)
+    {
+        "Meaning changed: low-level adapter attach failed"
+    } else if notices
+        .iter()
+        .any(|notice| notice.kind == DegradedNoticeKind::WorkerSemanticFallback)
+    {
+        "Meaning changed: fallback worker path used"
+    } else if notices
+        .iter()
+        .any(|notice| notice.kind == DegradedNoticeKind::WorkerUnavailable)
+    {
+        "Response path failed: worker unavailable"
+    } else if notices
+        .iter()
+        .any(|notice| notice.kind == DegradedNoticeKind::AttachFailure)
+    {
+        "Meaning changed: adapter attach failed"
+    } else {
+        "Meaning changed during execution"
+    }
+}
+
+fn citation_page_span_label(citation: &crate::signals::chat::ChatCitation) -> String {
+    if let Some(page) = citation.page_number {
+        format!(
+            "Page {} · chars {}-{}",
+            page, citation.offset_start, citation.offset_end
+        )
+    } else {
+        format!("Chars {}-{}", citation.offset_start, citation.offset_end)
+    }
+}
+
 fn selected_file_from_event(ev: &web_sys::Event) -> Option<web_sys::File> {
     let target = ev
         .target()
@@ -4249,715 +5180,6 @@ fn reset_file_input_value(ev: &web_sys::Event) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Collaboration Dialogs (PASS 2)
-// ---------------------------------------------------------------------------
-
-/// Dialog for sharing a chat session with other users
-#[component]
-fn ShareSessionDialog(session_id: String, #[prop(into)] on_close: Callback<()>) -> impl IntoView {
-    let user_ids_input = RwSignal::new(String::new());
-    let permission = RwSignal::new("read".to_string());
-    let sharing = RwSignal::new(false);
-    let share_error = RwSignal::new(Option::<String>::None);
-    let share_success = RwSignal::new(false);
-
-    // Load existing shares
-    let existing_shares = RwSignal::new(Vec::<crate::api::types::SessionShareInfo>::new());
-    {
-        let sid = session_id.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::with_base_url(api_base_url());
-            match client.get_session_shares(&sid).await {
-                Ok(resp) => existing_shares.set(resp.shares),
-                Err(e) => {
-                    report_error_with_toast(
-                        &e,
-                        "Failed to load session shares",
-                        Some("/chat"),
-                        false,
-                    );
-                }
-            }
-        });
-    }
-
-    let do_share = {
-        let sid = session_id.clone();
-        Callback::new(move |_: ()| {
-            let raw = user_ids_input.try_get().unwrap_or_default();
-            let ids: Vec<String> = raw
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            if ids.is_empty() {
-                share_error.set(Some("Enter at least one user ID.".to_string()));
-                return;
-            }
-            sharing.set(true);
-            share_error.set(None);
-            let perm = permission.try_get().unwrap_or_else(|| "read".to_string());
-            let sid = sid.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::with_base_url(api_base_url());
-                let req = ShareSessionRequest {
-                    user_ids: Some(ids),
-                    workspace_id: None,
-                    permission: perm,
-                    expires_at: None,
-                };
-                match client.share_session(&sid, &req).await {
-                    Ok(resp) => {
-                        existing_shares.set(resp.shares);
-                        share_success.set(true);
-                        user_ids_input.set(String::new());
-                    }
-                    Err(e) => {
-                        share_error.set(Some(e.user_message()));
-                        report_error_with_toast(
-                            &e,
-                            "Failed to share session",
-                            Some("/chat"),
-                            false,
-                        );
-                    }
-                }
-                sharing.set(false);
-            });
-        })
-    };
-
-    let do_revoke = {
-        let sid = session_id.clone();
-        Callback::new(move |share_id: String| {
-            let sid = sid.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::with_base_url(api_base_url());
-                match client.revoke_session_share(&sid, &share_id).await {
-                    Ok(()) => {
-                        existing_shares.update(|shares| shares.retain(|s| s.share_id != share_id));
-                    }
-                    Err(e) => {
-                        report_error_with_toast(&e, "Failed to revoke share", Some("/chat"), false);
-                    }
-                }
-            });
-        })
-    };
-
-    let open = RwSignal::new(true);
-    let close_cb = on_close;
-    Effect::new(move |_| {
-        if !open.try_get().unwrap_or(true) {
-            close_cb.run(());
-        }
-    });
-
-    view! {
-        <Dialog open=open title="Share Session">
-            <div class="space-y-4">
-                <div class="space-y-2">
-                    <label for="chat-share-user-ids" class="text-xs font-medium">
-                        "User IDs (comma-separated)"
-                    </label>
-                    <Input
-                        id="chat-share-user-ids".to_string()
-                        value=user_ids_input
-                        placeholder="user-1, user-2".to_string()
-                    />
-                </div>
-                <div class="space-y-2">
-                    <p class="text-xs font-medium">"Permission"</p>
-                    <div class="flex items-center gap-2">
-                        <button
-                            class=move || format!(
-                                "px-3 py-1 text-xs rounded-md border transition-colors {}",
-                                if permission.try_get().unwrap_or_default() == "read" {
-                                    "border-primary bg-primary/10 text-primary"
-                                } else {
-                                    "border-border text-muted-foreground hover:text-foreground"
-                                }
-                            )
-                            on:click=move |_| permission.set("read".to_string())
-                        >
-                            "Read"
-                        </button>
-                        <button
-                            class=move || format!(
-                                "px-3 py-1 text-xs rounded-md border transition-colors {}",
-                                if permission.try_get().unwrap_or_default() == "write" {
-                                    "border-primary bg-primary/10 text-primary"
-                                } else {
-                                    "border-border text-muted-foreground hover:text-foreground"
-                                }
-                            )
-                            on:click=move |_| permission.set("write".to_string())
-                        >
-                            "Write"
-                        </button>
-                    </div>
-                </div>
-                {move || share_error.try_get().flatten().map(|err| view! {
-                    <p class="text-xs text-destructive">{err}</p>
-                })}
-                {move || share_success.try_get().unwrap_or(false).then(|| view! {
-                    <p class="text-xs text-success">"Session shared."</p>
-                })}
-                <div class="flex items-center justify-end gap-2">
-                    <Button variant=ButtonVariant::Secondary size=ButtonSize::Sm on_click=Callback::new(move |_| open.set(false))>
-                        "Close"
-                    </Button>
-                    <Button
-                        size=ButtonSize::Sm
-                        on_click=do_share
-                        disabled=Signal::derive(move || sharing.try_get().unwrap_or(false))
-                    >
-                        {move || if sharing.try_get().unwrap_or(false) { "Sharing..." } else { "Share" }}
-                    </Button>
-                </div>
-
-                // Existing shares
-                {move || {
-                    let shares = existing_shares.try_get().unwrap_or_default();
-                    if shares.is_empty() {
-                        None
-                    } else {
-                        Some(view! {
-                            <div class="border-t border-border pt-3 space-y-2">
-                                <h4 class="text-xs font-medium">"Current Shares"</h4>
-                                {shares.into_iter().map(|share| {
-                                    let revoke = do_revoke;
-                                    let sid = share.share_id.clone();
-                                    view! {
-                                        <div class="flex items-center justify-between text-xs">
-                                            <div>
-                                                <span class="font-mono">{share.user_id}</span>
-                                                <span class="text-muted-foreground ml-2">{format!("({})", share.permission)}</span>
-                                            </div>
-                                            <button
-                                                class="text-destructive hover:underline text-2xs"
-                                                on:click=move |_| revoke.run(sid.clone())
-                                            >
-                                                "Revoke"
-                                            </button>
-                                        </div>
-                                    }
-                                }).collect::<Vec<_>>()}
-                            </div>
-                        })
-                    }
-                }}
-            </div>
-        </Dialog>
-    }
-}
-
-/// Dialog for managing tags on a chat session
-#[component]
-fn TagsDialog(session_id: String, #[prop(into)] on_close: Callback<()>) -> impl IntoView {
-    let session_tags = RwSignal::new(Vec::<crate::api::types::ChatTagResponse>::new());
-    let all_tags = RwSignal::new(Vec::<crate::api::types::ChatTagResponse>::new());
-    let loading = RwSignal::new(true);
-    let new_tag_name = RwSignal::new(String::new());
-    let new_tag_color = RwSignal::new(String::new());
-
-    // Load session tags and all available tags
-    {
-        let sid = session_id.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::with_base_url(api_base_url());
-            let (session_result, all_result) = (
-                client.get_session_tags(&sid).await,
-                client.list_chat_tags().await,
-            );
-            match session_result {
-                Ok(resp) => session_tags.set(resp.tags),
-                Err(e) => {
-                    report_error_with_toast(
-                        &e,
-                        "Failed to load session tags",
-                        Some("/chat"),
-                        false,
-                    );
-                }
-            }
-            match all_result {
-                Ok(tags) => all_tags.set(tags),
-                Err(e) => {
-                    report_error_with_toast(&e, "Failed to load tags", Some("/chat"), false);
-                }
-            }
-            loading.set(false);
-        });
-    }
-
-    let assign_tag = {
-        let sid = session_id.clone();
-        Callback::new(move |tag_id: String| {
-            let sid = sid.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::with_base_url(api_base_url());
-                let mut current_ids: Vec<String> = session_tags
-                    .try_get()
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|t| t.id.clone())
-                    .collect();
-                if !current_ids.contains(&tag_id) {
-                    current_ids.push(tag_id);
-                }
-                let req = AssignTagsRequest {
-                    tag_ids: current_ids,
-                };
-                match client.assign_tags(&sid, &req).await {
-                    Ok(()) => {
-                        if let Ok(resp) = client.get_session_tags(&sid).await {
-                            session_tags.set(resp.tags);
-                        }
-                    }
-                    Err(e) => {
-                        report_error_with_toast(&e, "Failed to assign tag", Some("/chat"), false);
-                    }
-                }
-            });
-        })
-    };
-
-    let remove_tag = {
-        let sid = session_id.clone();
-        Callback::new(move |tag_id: String| {
-            let sid = sid.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::with_base_url(api_base_url());
-                match client.remove_tag(&sid, &tag_id).await {
-                    Ok(()) => {
-                        session_tags.update(|tags| tags.retain(|t| t.id != tag_id));
-                    }
-                    Err(e) => {
-                        report_error_with_toast(&e, "Failed to remove tag", Some("/chat"), false);
-                    }
-                }
-            });
-        })
-    };
-
-    let create_tag = Callback::new(move |_: ()| {
-        let name = new_tag_name.try_get().unwrap_or_default();
-        if name.trim().is_empty() {
-            return;
-        }
-        let color_raw = new_tag_color.try_get().unwrap_or_default();
-        let color = if color_raw.trim().is_empty() {
-            None
-        } else {
-            Some(color_raw)
-        };
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::with_base_url(api_base_url());
-            let req = CreateChatTagRequest { name, color };
-            match client.create_chat_tag(&req).await {
-                Ok(tag) => {
-                    all_tags.update(|tags| tags.push(tag));
-                    new_tag_name.set(String::new());
-                    new_tag_color.set(String::new());
-                }
-                Err(e) => {
-                    report_error_with_toast(&e, "Failed to create tag", Some("/chat"), false);
-                }
-            }
-        });
-    });
-
-    let open = RwSignal::new(true);
-    let close_cb = on_close;
-    Effect::new(move |_| {
-        if !open.try_get().unwrap_or(true) {
-            close_cb.run(());
-        }
-    });
-
-    view! {
-        <Dialog open=open title="Manage Tags">
-            <div class="space-y-4">
-                {move || {
-                    if loading.try_get().unwrap_or(true) {
-                        return view! { <Spinner /> }.into_any();
-                    }
-
-                    let current = session_tags.try_get().unwrap_or_default();
-                    let available = all_tags.try_get().unwrap_or_default();
-                    let current_ids: Vec<String> = current.iter().map(|t| t.id.clone()).collect();
-
-                    view! {
-                        <div class="space-y-3">
-                            // Current tags
-                            <div>
-                                <h4 class="text-xs font-medium mb-1">"Assigned Tags"</h4>
-                                {if current.is_empty() {
-                                    view! { <p class="text-2xs text-muted-foreground">"No tags assigned"</p> }.into_any()
-                                } else {
-                                    view! {
-                                        <div class="flex flex-wrap gap-1">
-                                            {current.into_iter().map(|tag| {
-                                                let remove = remove_tag;
-                                                let tid = tag.id.clone();
-                                                let style = tag.color.as_deref()
-                                                    .map(|c| format!("border-color: {}; color: {}", c, c))
-                                                    .unwrap_or_default();
-                                                view! {
-                                                    <span
-                                                        class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs rounded-full border border-border"
-                                                        style=style
-                                                    >
-                                                        {tag.name}
-                                                        <button
-                                                            class="hover:text-destructive"
-                                                            on:click=move |_| remove.run(tid.clone())
-                                                            title="Remove tag"
-                                                        >
-                                                            "x"
-                                                        </button>
-                                                    </span>
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </div>
-                                    }.into_any()
-                                }}
-                            </div>
-
-                            // Available tags to assign
-                            <div>
-                                <h4 class="text-xs font-medium mb-1">"Available Tags"</h4>
-                                {
-                                    let unassigned: Vec<_> = available.into_iter()
-                                        .filter(|t| !current_ids.contains(&t.id))
-                                        .collect();
-                                    if unassigned.is_empty() {
-                                        view! { <p class="text-2xs text-muted-foreground">"All tags assigned"</p> }.into_any()
-                                    } else {
-                                        view! {
-                                            <div class="flex flex-wrap gap-1">
-                                                {unassigned.into_iter().map(|tag| {
-                                                    let assign = assign_tag;
-                                                    let tid = tag.id.clone();
-                                                    let style = tag.color.as_deref()
-                                                        .map(|c| format!("border-color: {}; color: {}", c, c))
-                                                        .unwrap_or_default();
-                                                    view! {
-                                                        <button
-                                                            class="inline-flex items-center px-2 py-0.5 text-2xs rounded-full border border-dashed border-border hover:border-primary transition-colors"
-                                                            style=style
-                                                            on:click=move |_| assign.run(tid.clone())
-                                                            title="Assign tag"
-                                                        >
-                                                            {"+ "}{tag.name}
-                                                        </button>
-                                                    }
-                                                }).collect::<Vec<_>>()}
-                                            </div>
-                                        }.into_any()
-                                    }
-                                }
-                            </div>
-
-                            // Create new tag
-                            <div class="border-t border-border pt-3">
-                                <h4 class="text-xs font-medium mb-2">"Create New Tag"</h4>
-                                <div class="flex items-end gap-2">
-                                    <div class="flex-1">
-                                        <Input
-                                            value=new_tag_name
-                                            placeholder="Tag name".to_string()
-                                        />
-                                    </div>
-                                    <div class="w-24">
-                                        <Input
-                                            value=new_tag_color
-                                            placeholder="#color".to_string()
-                                        />
-                                    </div>
-                                    <Button size=ButtonSize::Sm on_click=create_tag>
-                                        "Create"
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
-                    }.into_any()
-                }}
-
-                <div class="flex justify-end">
-                    <Button variant=ButtonVariant::Secondary size=ButtonSize::Sm on_click=Callback::new(move |_| open.set(false))>
-                        "Close"
-                    </Button>
-                </div>
-            </div>
-        </Dialog>
-    }
-}
-
-/// Dialog for forking a chat session
-#[component]
-fn ForkSessionDialog(
-    session_id: String,
-    #[prop(into)] on_close: Callback<()>,
-    #[prop(into)] on_forked: Callback<String>,
-) -> impl IntoView {
-    let fork_name = RwSignal::new(String::new());
-    let include_messages = RwSignal::new(true);
-    let forking = RwSignal::new(false);
-    let fork_error = RwSignal::new(Option::<String>::None);
-
-    let do_fork = {
-        let sid = session_id.clone();
-        Callback::new(move |_: ()| {
-            forking.set(true);
-            fork_error.set(None);
-            let name_val = fork_name.try_get().unwrap_or_default();
-            let name = if name_val.trim().is_empty() {
-                None
-            } else {
-                Some(name_val)
-            };
-            let msgs = include_messages.try_get().unwrap_or(true);
-            let sid = sid.clone();
-            let on_forked = on_forked;
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::with_base_url(api_base_url());
-                let req = ForkSessionRequest {
-                    name,
-                    include_messages: msgs,
-                };
-                match client.fork_session(&sid, &req).await {
-                    Ok(resp) => {
-                        on_forked.run(resp.session_id);
-                    }
-                    Err(e) => {
-                        fork_error.set(Some(e.user_message()));
-                        report_error_with_toast(&e, "Failed to fork session", Some("/chat"), false);
-                    }
-                }
-                forking.set(false);
-            });
-        })
-    };
-
-    let open = RwSignal::new(true);
-    let close_cb = on_close;
-    Effect::new(move |_| {
-        if !open.try_get().unwrap_or(true) {
-            close_cb.run(());
-        }
-    });
-
-    view! {
-        <Dialog open=open title="Fork Session">
-            <div class="space-y-4">
-                <div class="space-y-2">
-                    <label for="chat-fork-session-name" class="text-xs font-medium">
-                        "New session name (optional)"
-                    </label>
-                    <Input
-                        id="chat-fork-session-name".to_string()
-                        value=fork_name
-                        placeholder="Forked session name".to_string()
-                    />
-                </div>
-                <div class="flex items-center gap-2">
-                    <Checkbox
-                        checked=Signal::derive(move || include_messages.try_get().unwrap_or(true))
-                        on_change=Callback::new(move |v| include_messages.set(v))
-                        aria_label="Include messages in fork"
-                    />
-                    <span class="text-xs">"Include existing messages"</span>
-                </div>
-                {move || fork_error.try_get().flatten().map(|err| view! {
-                    <p class="text-xs text-destructive">{err}</p>
-                })}
-                <div class="flex items-center justify-end gap-2">
-                    <Button variant=ButtonVariant::Secondary size=ButtonSize::Sm on_click=Callback::new(move |_| open.set(false))>
-                        "Cancel"
-                    </Button>
-                    <Button
-                        size=ButtonSize::Sm
-                        on_click=do_fork
-                        disabled=Signal::derive(move || forking.try_get().unwrap_or(false))
-                    >
-                        {move || if forking.try_get().unwrap_or(false) { "Forking..." } else { "Fork" }}
-                    </Button>
-                </div>
-            </div>
-        </Dialog>
-    }
-}
-
-/// Panel showing provenance chain for a chat session
-#[component]
-fn ProvenancePanel(session_id: String, #[prop(into)] on_close: Callback<()>) -> impl IntoView {
-    let provenance =
-        RwSignal::new(Option::<adapteros_api_types::provenance::ChatProvenanceResponse>::None);
-    let loading = RwSignal::new(true);
-    let load_error = RwSignal::new(Option::<String>::None);
-
-    {
-        let sid = session_id.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::with_base_url(api_base_url());
-            match client.get_chat_provenance(&sid).await {
-                Ok(resp) => provenance.set(Some(resp)),
-                Err(e) => {
-                    report_error_with_toast(&e, "Failed to load provenance", Some("/chat"), false);
-                    load_error.set(Some(e.user_message()));
-                }
-            }
-            loading.set(false);
-        });
-    }
-
-    let open = RwSignal::new(true);
-    let close_cb = on_close;
-    Effect::new(move |_| {
-        if !open.try_get().unwrap_or(true) {
-            close_cb.run(());
-        }
-    });
-
-    view! {
-        <Dialog open=open title="Session Evidence">
-            <div class="space-y-4 max-h-96 overflow-y-auto">
-                {move || {
-                    if loading.try_get().unwrap_or(true) {
-                        return view! { <Spinner /> }.into_any();
-                    }
-                    if let Some(err) = load_error.try_get().flatten() {
-                        return view! {
-                            <p class="text-xs text-destructive">{err}</p>
-                        }.into_any();
-                    }
-                    let Some(prov) = provenance.try_get().flatten() else {
-                        return view! {
-                            <p class="text-xs text-muted-foreground">"No provenance data available."</p>
-                        }.into_any();
-                    };
-
-                    view! {
-                        <div class="space-y-4">
-                            // Session info
-                            <div class="space-y-1">
-                                <h4 class="text-xs font-semibold">"Session"</h4>
-                                <div class="text-2xs text-muted-foreground space-y-0.5">
-                                    <p>{format!("Name: {}", prov.session.name)}</p>
-                                    <p>{format!("ID: {}", prov.session.id)}</p>
-                                    <p>{format!("Messages: {}", prov.session.message_count)}</p>
-                                    <p>{format!("Created: {}", prov.session.created_at)}</p>
-                                </div>
-                            </div>
-
-                            // Stack info
-                            {prov.stack.map(|stack| view! {
-                                <div class="space-y-1">
-                                    <h4 class="text-xs font-semibold">"Stack"</h4>
-                                    <div class="text-2xs text-muted-foreground space-y-0.5">
-                                        <p>{format!("Name: {}", stack.name)}</p>
-                                        <p>{format!("ID: {}", stack.id)}</p>
-                                        {stack.description.map(|d| view! { <p>{format!("Description: {}", d)}</p> })}
-                                        <p>{format!("Adapters: {}", stack.adapter_ids.join(", "))}</p>
-                                    </div>
-                                </div>
-                            })}
-
-                            // Base model
-                            {prov.base_model.map(|model| view! {
-                                <div class="space-y-1">
-                                    <h4 class="text-xs font-semibold">"Base Model"</h4>
-                                    <div class="text-2xs text-muted-foreground space-y-0.5">
-                                        <p>{format!("{} ({})", model.name, model.id)}</p>
-                                        <p class="font-mono">{format!("Hash: {}", model.hash_b3)}</p>
-                                    </div>
-                                </div>
-                            })}
-
-                            // Adapters
-                            {if prov.adapters.is_empty() {
-                                None
-                            } else {
-                                Some(view! {
-                                    <div class="space-y-2">
-                                        <h4 class="text-xs font-semibold">"Adapters"</h4>
-                                        {prov.adapters.into_iter().map(|adapter| {
-                                            view! {
-                                                <div class="rounded border border-border p-2 space-y-1">
-                                                    <p class="text-xs font-medium">{adapter.name.clone()}</p>
-                                                    <div class="text-2xs text-muted-foreground space-y-0.5">
-                                                        <p>{format!("ID: {}", adapter.id)}</p>
-                                                        <p>{format!("Tier: {}", adapter.tier)}</p>
-                                                        <p class="font-mono">{format!("Hash: {}", adapter.hash_b3)}</p>
-                                                        {adapter.training_job.map(|job| view! {
-                                                            <div class="mt-1 pl-2 border-l-2 border-primary/30 space-y-0.5">
-                                                                <p class="font-medium">"Training Job"</p>
-                                                                <p>{format!("Status: {}", humanize(&job.status))}</p>
-                                                                <p>{format!("Started: {}", job.started_at)}</p>
-                                                                {job.completed_at.map(|c| view! { <p>{format!("Completed: {}", c)}</p> })}
-                                                                {job.dataset.map(|ds| view! {
-                                                                    <div class="mt-0.5">
-                                                                        <p class="font-medium">"Dataset"</p>
-                                                                        <p>{format!("{} ({})", ds.name, ds.format.to_uppercase())}</p>
-                                                                        <p>{format!("Files: {}, Size: {} bytes", ds.file_count, ds.total_size_bytes)}</p>
-                                                                    </div>
-                                                                })}
-                                                            </div>
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            }
-                                        }).collect::<Vec<_>>()}
-                                    </div>
-                                })
-                            }}
-
-                            // Timeline
-                            {prov.timeline.map(|events| {
-                                if events.is_empty() {
-                                    return view! {}.into_any();
-                                }
-                                view! {
-                                    <div class="space-y-2">
-                                        <h4 class="text-xs font-semibold">"Timeline"</h4>
-                                        <div class="space-y-1">
-                                            {events.into_iter().map(|event| view! {
-                                                <div class="flex items-start gap-2 text-2xs">
-                                                    <span class="text-muted-foreground shrink-0 w-32 font-mono">{event.timestamp.clone()}</span>
-                                                    <span>{event.description}</span>
-                                                </div>
-                                            }).collect::<Vec<_>>()}
-                                        </div>
-                                    </div>
-                                }.into_any()
-                            })}
-
-                            // Provenance hash
-                            <div class="border-t border-border pt-2">
-                                <p class="text-2xs text-muted-foreground font-mono">
-                                    {format!("Provenance hash: {}", prov.provenance_hash)}
-                                </p>
-                                <p class="text-2xs text-muted-foreground">
-                                    {format!("Computed: {}", prov.computed_at)}
-                                </p>
-                            </div>
-                        </div>
-                    }.into_any()
-                }}
-
-                <div class="flex justify-end pt-2">
-                    <Button variant=ButtonVariant::Secondary size=ButtonSize::Sm on_click=Callback::new(move |_| open.set(false))>
-                        "Close"
-                    </Button>
-                </div>
-            </div>
-        </Dialog>
-    }
-}
-
 /// Simple setTimeout wrapper for debouncing
 #[cfg(target_arch = "wasm32")]
 fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
@@ -4980,4 +5202,360 @@ fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
 fn set_timeout_simple<F: FnOnce() + 'static>(f: F, _ms: i32) {
     // Non-WASM: run immediately; debounce disabled in tests/SSR.
     f();
+}
+
+// ---------------------------------------------------------------------------
+// Chat target selector (moved from chat_dock.rs, stacks removed)
+// ---------------------------------------------------------------------------
+
+/// Target options fetched from API
+#[derive(Debug, Clone, Default)]
+struct TargetOptions {
+    models: Vec<(String, String)>,   // (id, name)
+    policies: Vec<(String, String)>, // (cpid, display_name)
+    loading: bool,
+    error: Option<String>,
+}
+
+/// Target selector dropdown with dynamic data from API
+#[component]
+fn ChatTargetSelector(#[prop(optional)] inline: bool) -> impl IntoView {
+    let (chat_state, chat_action) = use_chat();
+    let show_dropdown = RwSignal::new(false);
+    let options = RwSignal::new(TargetOptions::default());
+    let has_loaded = RwSignal::new(false);
+
+    let (system_status, _) = use_system_status();
+    let active_model_name =
+        Signal::derive(
+            move || match system_status.try_get().unwrap_or(LoadingState::Idle) {
+                LoadingState::Loaded(ref status) => status
+                    .kernel
+                    .as_ref()
+                    .and_then(|k| k.model.as_ref())
+                    .and_then(|m| m.model_id.clone()),
+                _ => None,
+            },
+        );
+
+    let toggle_dropdown = move |_| {
+        show_dropdown.update(|v| *v = !*v);
+    };
+
+    let select_target = {
+        let action = chat_action.clone();
+        move |target: ChatTarget| {
+            action.set_target(target);
+            show_dropdown.set(false);
+        }
+    };
+
+    Effect::new(move |prev_open: Option<bool>| {
+        let Some(is_open) = show_dropdown.try_get() else {
+            return prev_open.unwrap_or(false);
+        };
+        if let Some(was_open) = prev_open {
+            if was_open && !is_open {
+                let _ = has_loaded.try_set(false);
+            }
+        }
+        is_open
+    });
+
+    Effect::new(move || {
+        if show_dropdown.try_get().unwrap_or(false) && !has_loaded.try_get().unwrap_or(true) {
+            has_loaded.set(true);
+            options.update(|o| {
+                o.loading = true;
+                o.error = None;
+            });
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = crate::api::ApiClient::with_base_url(crate::api::api_base_url());
+
+                let models_fut = client.list_models();
+                let policies_fut = client.list_policies();
+
+                let (models_res, policies_res) = futures::join!(models_fut, policies_fut);
+
+                let mut errors: Vec<String> = Vec::new();
+
+                let _ = options.try_update(|o| {
+                    o.loading = false;
+
+                    match models_res {
+                        Ok(resp) => {
+                            o.models = resp
+                                .models
+                                .into_iter()
+                                .map(|m| (m.id.clone(), m.name.clone()))
+                                .collect();
+                        }
+                        Err(e) => {
+                            let msg = format!("Models: {}", e);
+                            web_sys::console::warn_1(&msg.clone().into());
+                            errors.push(msg);
+                        }
+                    }
+
+                    match policies_res {
+                        Ok(policies) => {
+                            o.policies = policies
+                                .into_iter()
+                                .map(|p| {
+                                    let display = p
+                                        .cpid
+                                        .replace('-', " ")
+                                        .split_whitespace()
+                                        .map(|w| {
+                                            let mut chars = w.chars();
+                                            match chars.next() {
+                                                Some(first) => {
+                                                    first.to_uppercase().chain(chars).collect()
+                                                }
+                                                None => String::new(),
+                                            }
+                                        })
+                                        .collect::<Vec<String>>()
+                                        .join(" ");
+                                    (p.cpid, display)
+                                })
+                                .collect();
+                        }
+                        Err(e) => {
+                            let msg = format!("Policies: {}", e);
+                            web_sys::console::warn_1(&msg.clone().into());
+                            errors.push(msg);
+                        }
+                    }
+
+                    if !errors.is_empty() {
+                        o.error = Some(format!("Failed to load: {}", errors.join(", ")));
+                    }
+                });
+            });
+        }
+    });
+
+    let container_class = if inline {
+        "relative"
+    } else {
+        "relative border-b px-4 py-2"
+    };
+    let button_class = if inline {
+        "flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted transition-colors"
+    } else {
+        "flex w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted transition-colors"
+    };
+    let dropdown_class = if inline {
+        "absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded-md border border-border bg-popover shadow-lg max-h-80 overflow-y-auto"
+    } else {
+        "absolute left-4 right-4 top-full z-50 mt-1 rounded-md border bg-popover shadow-lg max-h-80 overflow-y-auto"
+    };
+
+    view! {
+        <div class=container_class>
+            <button
+                class=button_class
+                on:click=toggle_dropdown
+                data-testid=move || if inline { Some("chat-target-selector".to_string()) } else { None }
+            >
+                {move || {
+                    let model = active_model_name.try_get().flatten();
+                    let label = chat_state.get().target.display_name_with_model(model.as_deref());
+                    if inline {
+                        view! {
+                            <>
+                                <span class="text-muted-foreground text-xs">"Target:"</span>
+                                <span class="font-medium truncate min-w-[140px] max-w-[220px]">{label}</span>
+                            </>
+                        }
+                        .into_any()
+                    } else {
+                        view! { <span class="truncate">{label}</span> }.into_any()
+                    }
+                }}
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class=if inline {
+                        "h-4 w-4 text-muted-foreground flex-shrink-0"
+                    } else {
+                        "h-4 w-4 text-muted-foreground"
+                    }
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    stroke-width="2"
+                >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+
+            {move || {
+                if inline && show_dropdown.get() {
+                    Some(view! {
+                        <div
+                            class="fixed inset-0 z-40"
+                            on:click=move |_| show_dropdown.set(false)
+                        />
+                    })
+                } else {
+                    None
+                }
+            }}
+
+            {move || {
+                if show_dropdown.get() {
+                    let select = select_target.clone();
+                    let opts = options.get();
+
+                    view! {
+                        <div
+                            class=dropdown_class
+                            data-testid=move || if inline { Some("chat-target-dropdown".to_string()) } else { None }
+                        >
+                            <div class="p-1">
+                                <ChatTargetOption
+                                    target=ChatTarget::Default
+                                    label="Auto".to_string()
+                                    on_select=select.clone()
+                                />
+
+                                {opts.error.as_ref().map(|e| view! {
+                                    <div class="px-2 py-2 text-xs text-destructive bg-destructive/10 rounded mx-1 my-1">
+                                        {e.clone()}
+                                    </div>
+                                })}
+
+                                {if opts.loading {
+                                    Some(view! {
+                                        <div class="px-2 py-3 text-center text-sm text-muted-foreground">
+                                            <span class="animate-pulse">"Loading options..."</span>
+                                        </div>
+                                    })
+                                } else {
+                                    None
+                                }}
+
+                                {if !opts.models.is_empty() {
+                                    let select = select.clone();
+                                    Some(view! {
+                                        <div class="my-1 border-t"/>
+                                        <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Models"</div>
+                                        {opts.models.iter().map(|(id, name)| {
+                                            let target = ChatTarget::Model(id.clone());
+                                            let label = name.clone();
+                                            let select = select.clone();
+                                            view! {
+                                                <ChatTargetOption
+                                                    target=target
+                                                    label=label
+                                                    on_select=select
+                                                />
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    })
+                                } else {
+                                    None
+                                }}
+
+                                {if !opts.policies.is_empty() {
+                                    let select = select.clone();
+                                    Some(view! {
+                                        <div class="my-1 border-t"/>
+                                        <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Policy Packs"</div>
+                                        {opts.policies.iter().map(|(id, name)| {
+                                            let target = ChatTarget::PolicyPack(id.clone());
+                                            let label = name.clone();
+                                            let select = select.clone();
+                                            view! {
+                                                <ChatTargetOption
+                                                    target=target
+                                                    label=label
+                                                    on_select=select
+                                                />
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    })
+                                } else {
+                                    None
+                                }}
+                            </div>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {}.into_any()
+                }
+            }}
+        </div>
+    }
+}
+
+#[component]
+fn ChatTargetOption<F>(target: ChatTarget, label: String, on_select: F) -> impl IntoView
+where
+    F: Fn(ChatTarget) + Clone + 'static,
+{
+    let target_clone = target.clone();
+    let select = on_select.clone();
+
+    view! {
+        <button
+            class="flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+            on:click=move |_| {
+                select(target_clone.clone());
+            }
+        >
+            {label}
+        </button>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_confirmation_maps_not_found_errors_to_not_found_state() {
+        let not_found = ApiError::NotFound("missing".to_string());
+        assert_eq!(
+            map_session_confirmation_error(&not_found),
+            SessionConfirmationState::NotFound
+        );
+
+        let structured = ApiError::Structured {
+            error: "missing".to_string(),
+            code: "NOT_FOUND".to_string(),
+            failure_code: None,
+            hint: None,
+            details: Box::new(None),
+            request_id: None,
+            error_id: None,
+            fingerprint: None,
+            session_id: None,
+            diag_trace_id: None,
+            otel_trace_id: None,
+        };
+        assert_eq!(
+            map_session_confirmation_error(&structured),
+            SessionConfirmationState::NotFound
+        );
+    }
+
+    #[test]
+    fn session_confirmation_maps_non_not_found_errors_to_transient_state() {
+        let transient_errors = [
+            ApiError::Network("connection reset".to_string()),
+            ApiError::Server("upstream failure".to_string()),
+            ApiError::RateLimited {
+                retry_after: Some(2000),
+            },
+        ];
+        for err in transient_errors {
+            assert_eq!(
+                map_session_confirmation_error(&err),
+                SessionConfirmationState::TransientError
+            );
+        }
+    }
 }

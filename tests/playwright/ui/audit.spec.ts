@@ -6,17 +6,15 @@ test('audit tabs render', { tag: ['@smoke'] }, async ({ page }) => {
   await expect(
     page.getByRole('heading', { name: 'Audit Log', level: 1, exact: true })
   ).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Event Timeline' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Hash Chain' })).toBeVisible();
-  await page.getByRole('tab', { name: 'Hash Chain' }).click();
-  const empty = page.getByText('No chain entries found');
-  if (await empty.isVisible().catch(() => false)) {
-    await expect(empty).toBeVisible();
+  const timelineEmpty = page.getByText('No audit events found');
+  if (await timelineEmpty.isVisible().catch(() => false)) {
+    await expect(timelineEmpty).toBeVisible();
     return;
   }
-  const verification = page.getByText('Verification Status');
-  if (await verification.isVisible().catch(() => false)) {
-    await expect(verification).toBeVisible();
+  const totalEvents = page.getByText('Total Events');
+  if (await totalEvents.isVisible().catch(() => false)) {
+    await expect(totalEvents).toBeVisible();
+    await expect(page.getByText('Chain Status')).toBeVisible();
     return;
   }
   await expectErrorState(page);

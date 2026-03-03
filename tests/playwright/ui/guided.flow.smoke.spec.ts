@@ -15,20 +15,18 @@ test('guided flow surfaces stay reachable with clear page actions', { tag: ['@sm
 
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
 
-  await expect(page.getByRole('heading', { name: 'Guided Flow', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Teach New Skill', exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open Prompt Studio', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open Restore Points', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open Update Center', exact: true })).toBeVisible();
-  await expect(page.getByText('Start here', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Quick Start', exact: true })).toBeVisible();
+  await expect(page.getByText('Create Adapter', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('View Evidence', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Start Chat', { exact: true }).first()).toBeVisible();
 
-  await sidebar.getByRole('link', { name: 'Adapter Training', exact: true }).click();
+  await sidebar.getByRole('link', { name: 'Build', exact: true }).click();
   await expect(page).toHaveURL(/\/training(\/|$|\?)/);
-  await expect(page.getByRole('button', { name: 'Create Job', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create Adapter', exact: true })).toBeVisible();
   await expect(page.getByText('Filters', { exact: true })).toBeVisible();
 
-  await sidebar.getByRole('link', { name: 'Prompt Studio', exact: true }).click();
+  await sidebar.getByRole('link', { name: 'Chat', exact: true }).click();
   await expect(page).toHaveURL(/\/chat(\/|$|\?)/);
   const chatEntryState = await resolveChatEntryState(page);
   if (chatEntryState === 'unavailable') {
@@ -38,16 +36,17 @@ test('guided flow surfaces stay reachable with clear page actions', { tag: ['@sm
     await expect(page.getByTestId('chat-advanced-adapter-controls')).toBeVisible();
   }
 
-  await sidebar.getByRole('link', { name: 'Restore Points', exact: true }).click();
+  await sidebar.getByRole('link', { name: 'Execution Records', exact: true }).click();
   await expect(page).toHaveURL(/\/runs(\/|$|\?)/);
-  await expect(page.getByRole('heading', { name: 'Flight Recorder', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Refresh', exact: true }).first()).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Execution Records', exact: true }).first()
+  ).toBeVisible();
 
-  await sidebar.getByRole('link', { name: 'Update Center', exact: true }).click();
+  await sidebar.getByRole('link', { name: 'Versions', exact: true }).click();
   await expect(page).toHaveURL(/\/update-center(\/|$|\?)/);
-  await expect(page.getByRole('heading', { name: 'Update Center', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Teach New Skill', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: /^(Update Center|Versions)$/ }).first()
+  ).toBeVisible();
 });
 
 test(
@@ -59,15 +58,17 @@ test(
     await ensureSidebarExpanded(page);
 
     const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
-    const switchToFull = page.locator('button[title*="switch to Full"]').first();
-
-    await expect(switchToFull).toBeVisible();
-    await expect(sidebar.getByRole('link', { name: 'Adapter Training', exact: true })).toBeVisible();
-    await expect(sidebar.getByRole('link', { name: 'Prompt Studio', exact: true })).toBeVisible();
-    await expect(sidebar.getByRole('link', { name: 'Restore Points', exact: true })).toBeVisible();
-    await expect(sidebar.getByRole('link', { name: 'Update Center', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: 'Build', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: 'Chat', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: 'Execution Records', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: 'Versions', exact: true })).toBeVisible();
     await expect(sidebar.getByRole('button', { name: /^Govern/ })).toHaveCount(0);
     await expect(sidebar.getByRole('button', { name: /^Org/ })).toHaveCount(0);
+
+    const switchToFull = page.locator('button[title*="switch to Full"]').first();
+    if (!(await switchToFull.isVisible().catch(() => false))) {
+      return;
+    }
 
     await switchToFull.click();
     await expect(page.locator('button[title*="switch to Primary"]').first()).toBeVisible();

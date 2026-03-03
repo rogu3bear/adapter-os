@@ -1,0 +1,108 @@
+{
+  "name": "adapter_benchmarks_v1",
+  "description": "Adapter evaluation and benchmarking dataset for adapterOS. Covers perplexity evaluation, task-specific accuracy assessment, latency benchmarking, regression testing across adapter versions, and evaluation methodology design. All examples reference adapterOS-specific APIs (compute_perplexity, PerplexityImprovement, TrainingConfig) and realistic LoRA parameter ranges (rank 4-32, alpha 8-64).",
+  "version": "1.0.0",
+  "category": "eval",
+  "scope": "system",
+  "tier": "critical",
+  "rank": 8,
+  "alpha": 16.0,
+  "target_modules": [
+    "gate_proj",
+    "q_proj",
+    "v_proj"
+  ],
+  "entries": [
+    {
+      "path": "adapter-benchmarks.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "primary",
+      "notes": "2000 examples across 5 subcategories: perplexity_evaluation (400), task_accuracy (400), latency_benchmarks (400), regression_testing (400), evaluation_methodology (400)"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#adapter-evaluation",
+      "crates/adapteros-lora-worker/src/training/perplexity.rs"
+    ],
+    "created_by": "adapter-benchmarks-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Synthetic dataset covering adapter evaluation lifecycle: perplexity assessment, domain-specific accuracy, latency overhead measurement, cross-version regression detection, and evaluation methodology best practices. Numerical examples grounded in adapterOS perplexity module (PPL = exp(loss)) and TrainingConfig parameter ranges."
+  },
+  "evaluation_gates": [
+    "Perplexity values correctly computed as exp(cross_entropy_loss)",
+    "Overfitting detection triggers when train perplexity << eval perplexity by factor > 3x",
+    "Latency overhead thresholds scale with adapter rank (rank=4 < 2%, rank=32 < 5%)",
+    "Regression testing identifies score drops > 2% as statistically significant",
+    "Evaluation methodology enforces zero overlap between train and eval sets",
+    "Task accuracy metrics are domain-appropriate (F1 for classification, BLEU for generation)",
+    "Memory overhead calculations account for both A and B matrices (rank * hidden_dim * 2)"
+  ],
+  "intent": "Train the adapter to reason about the complete evaluation lifecycle: assessing trained adapter quality via perplexity, measuring domain-specific task accuracy, benchmarking latency and memory overhead, tracking quality regressions across versions, and designing statistically sound evaluation protocols.",
+  "subcategory_breakdown": {
+    "perplexity_evaluation": {
+      "count": 400,
+      "subcategories": [
+        "perplexity_computation",
+        "perplexity_interpretation",
+        "overfitting_detection",
+        "domain_perplexity_ranges",
+        "perplexity_improvement_tracking"
+      ],
+      "loss_ranges": [0.1, 0.5, 1.0, 2.0, 3.0, 4.5]
+    },
+    "task_accuracy": {
+      "count": 400,
+      "subcategories": [
+        "code_review_accuracy",
+        "qa_correctness",
+        "style_consistency",
+        "classification_metrics",
+        "generation_quality"
+      ],
+      "domains": ["code_review", "question_answering", "style_transfer", "classification", "summarization"]
+    },
+    "latency_benchmarks": {
+      "count": 400,
+      "subcategories": [
+        "rank_latency_scaling",
+        "memory_overhead",
+        "throughput_measurement",
+        "batch_latency",
+        "multi_adapter_overhead"
+      ],
+      "rank_values": [4, 8, 16, 32],
+      "hidden_dims": [768, 1024, 2048, 4096]
+    },
+    "regression_testing": {
+      "count": 400,
+      "subcategories": [
+        "version_comparison",
+        "score_tracking",
+        "regression_detection",
+        "threshold_calibration",
+        "rollback_decisions"
+      ]
+    },
+    "evaluation_methodology": {
+      "count": 400,
+      "subcategories": [
+        "eval_set_design",
+        "train_eval_separation",
+        "statistical_significance",
+        "benchmark_suite_construction",
+        "adversarial_evaluation"
+      ]
+    }
+  },
+  "statistics": {
+    "total_examples": 2000,
+    "examples_per_subcategory": 400,
+    "rank_values_covered": [4, 8, 16, 32],
+    "hidden_dims_covered": [768, 1024, 2048, 4096],
+    "loss_ranges_covered": [0.1, 0.5, 1.0, 2.0, 3.0, 4.5],
+    "avg_quality_score": 0.94
+  }
+}

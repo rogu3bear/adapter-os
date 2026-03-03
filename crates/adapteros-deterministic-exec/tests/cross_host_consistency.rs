@@ -159,7 +159,7 @@ async fn test_merkle_chain_break_detection() -> Result<()> {
         .bind(corrupted_hash.to_hex())
         .bind(5)
         .bind("host-a")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Retrieve entries again

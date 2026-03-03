@@ -77,7 +77,7 @@ async fn multipart_jsonl_empty_marks_failed() {
         .await
         .expect("response body");
     let error: serde_json::Value = serde_json::from_slice(&body).expect("error response");
-    assert_eq!(error["code"].as_str(), Some("DATASET_SCHEMA_INVALID"));
+    assert_eq!(error["code"].as_str(), Some("BAD_REQUEST"));
 
     let dataset = dataset_by_name(&state, "default", &dataset_name).await;
     assert_eq!(dataset.status, "failed");
@@ -201,7 +201,7 @@ async fn chunked_jsonl_empty_marks_failed() {
         .await
         .expect("complete body");
     let error: serde_json::Value = serde_json::from_slice(&body).expect("error response");
-    assert_eq!(error["code"].as_str(), Some("DATASET_SCHEMA_INVALID"));
+    assert_eq!(error["code"].as_str(), Some("BAD_REQUEST"));
 
     let dataset = dataset_by_name(&state, "default", &dataset_name).await;
     assert_eq!(dataset.status, "failed");

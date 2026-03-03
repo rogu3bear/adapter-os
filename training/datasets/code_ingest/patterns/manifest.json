@@ -1,0 +1,17 @@
+{
+  "name": "code_patterns_v1",
+  "category": "code_ingest",
+  "version": "1.0.0",
+  "description": "Rust code pattern recognition training data for adapterOS codebase",
+  "created": "2026-02-26",
+  "target_count": 800,
+  "subcategories": {
+    "error_handling": 200,
+    "async_patterns": 200,
+    "testing_patterns": 200,
+    "api_patterns": 200
+  },
+  "files": [
+    "code-patterns.jsonl"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "rng_snapshots_v1",
+  "category": "replay",
+  "tier": "critical",
+  "description": "Training examples for ChaCha20Rng snapshot capture, restore, diff, and debugging workflows in adapterOS deterministic replay. Covers full 256-bit state serialization, step-count tracking, domain labels, and time-travel debugging.",
+  "version": "1.0.0",
+  "created": "2026-02-26",
+  "subcategories": [
+    "snapshot_capture",
+    "snapshot_restore",
+    "snapshot_diff",
+    "debugging_workflows"
+  ],
+  "target_count": 500,
+  "distribution": {
+    "snapshot_capture": 150,
+    "snapshot_restore": 150,
+    "snapshot_diff": 100,
+    "debugging_workflows": 100
+  },
+  "entries": [
+    {
+      "path": "rng-snapshots.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "primary"
+    }
+  ],
+  "provenance": {
+    "source": "rng-snapshots-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "references": [
+      "crates/adapteros-deterministic-exec/src/seed.rs",
+      "crates/adapteros-deterministic-exec/src/global_ledger.rs",
+      "training/datasets/replay/README.md"
+    ]
+  }
+}

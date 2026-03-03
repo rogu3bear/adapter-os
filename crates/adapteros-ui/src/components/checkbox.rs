@@ -23,6 +23,12 @@ pub fn Checkbox(
     /// Accessible label for screen readers (used when no visible label is provided)
     #[prop(optional, into)]
     aria_label: Option<String>,
+    /// Optional ID for the checkbox input
+    #[prop(optional, into)]
+    id: Option<String>,
+    /// Optional name for form submission and accessibility tooling
+    #[prop(optional, into)]
+    name: Option<String>,
     /// Whether the checkbox is disabled
     #[prop(optional, into)]
     disabled: Signal<bool>,
@@ -49,10 +55,14 @@ pub fn Checkbox(
 
     // Only apply aria-label when no visible label is provided
     let effective_aria_label = aria_label.filter(|_| label.is_none());
+    let input_id =
+        StoredValue::new(id.unwrap_or_else(|| format!("checkbox-{}", uuid::Uuid::new_v4())));
 
     view! {
         <label class=label_class>
             <input
+                id=input_id.get_value()
+                name=name
                 type="checkbox"
                 class="checkbox"
                 prop:checked=checked

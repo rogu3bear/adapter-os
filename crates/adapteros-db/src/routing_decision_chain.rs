@@ -165,7 +165,7 @@ impl Db {
         .bind(inference_id)
         .bind(limit.unwrap_or(500) as i64)
         .bind(offset.unwrap_or(0) as i64)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch routing chain: {e}")))?;
 
@@ -318,7 +318,7 @@ mod tests {
             );
             "#,
         )
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("create tenants");
 
@@ -326,7 +326,7 @@ mod tests {
         sqlx::query(include_str!(
             "../../../migrations/0158_routing_decision_chain.sql"
         ))
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("create routing_decision_chain");
 
@@ -334,7 +334,7 @@ mod tests {
         sqlx::query("INSERT INTO tenants (id, name, allow_unrestricted_egress) VALUES (?, ?, 0)")
             .bind(&tenant_id)
             .bind("Routing Chain Tenant")
-            .execute(db.pool())
+            .execute(db.pool_result().unwrap())
             .await
             .expect("insert tenant");
 

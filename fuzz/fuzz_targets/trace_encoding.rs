@@ -155,7 +155,7 @@ fuzz_target!(|data: &[u8]| {
         .bind(blob.clone())
         .bind(blob)
         .bind(&trace_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await;
 
         // Receipt recomputation exercises decoding paths; errors are fine, panics are not

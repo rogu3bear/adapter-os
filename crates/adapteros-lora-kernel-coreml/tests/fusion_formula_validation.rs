@@ -25,7 +25,7 @@ fn create_adapter_weights(values: &[f32]) -> Vec<u8> {
         .expect("create tensor view");
     serialize(
         vec![("adapter.weight".to_string(), tensor)],
-        &Default::default(),
+        Default::default(),
     )
     .expect("serialize adapter weights")
 }

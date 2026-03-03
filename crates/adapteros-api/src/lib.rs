@@ -9,7 +9,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use adapteros_server_api::http::{ApiError, LoginRequest, LoginResponse};
+//! use adapteros_api::ApiError;
 //! use axum::response::IntoResponse;
 //!
 //! // Handle API errors
@@ -25,6 +25,7 @@
 use adapteros_api_types::ErrorResponse;
 use adapteros_core::AosError;
 use adapteros_deterministic_exec::spawn_deterministic;
+use adapteros_inference_contract::UDS_INFER_PATH;
 use adapteros_lora_worker::{InferenceRequest, InferenceResponse};
 use adapteros_telemetry::middleware::api_error_only_middleware;
 use axum::{
@@ -89,8 +90,8 @@ fn api_cors_layer() -> CorsLayer {
         );
         Vec::new()
     } else {
-        let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
-        let server_port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
+        let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "18081".to_string());
+        let server_port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "18080".to_string());
         [
             format!("http://localhost:{}", ui_port),
             format!("http://127.0.0.1:{}", ui_port),
@@ -169,7 +170,7 @@ pub async fn serve_uds_with_worker<
 
     // Create router with middleware
     let app = Router::new()
-        .route("/inference", post(inference_handler::<K>))
+        .route(UDS_INFER_PATH, post(inference_handler::<K>))
         .route("/v1/completions", post(completion_handler::<K>))
         .route(
             "/v1/chat/completions",
@@ -217,7 +218,7 @@ pub async fn serve_uds_with_worker<
                                                 Ok(hyper::Response::builder()
                                                     .status(500)
                                                     .body(body)
-                                                    .expect("Failed to build error response"))
+                                                    .unwrap_or_else(|_| hyper::Response::new(axum::body::Body::from("Internal Server Error"))))
                                             }
                                         }
                                     }

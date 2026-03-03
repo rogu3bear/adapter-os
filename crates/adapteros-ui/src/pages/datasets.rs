@@ -1,3049 +1,2183 @@
-//! Datasets management page
+//! Datasets management pages.
 //!
-//! Provides UI for managing training datasets - listing, viewing,
-//! and deleting datasets used for adapter training.
+//! Provides a list view (`/datasets`) and detail/manage view (`/datasets/:id`).
 
-#[cfg(target_arch = "wasm32")]
-use crate::api::report_error_with_toast;
+use crate::api::types::DatasetPreprocessStatusResponse;
 use crate::api::{
-    ApiClient, DatasetListResponse, DatasetSafetyCheckResult, DatasetStatisticsResponse,
+    use_api_client, ApiClient, ApiError, CanonicalRow, DatasetPreviewResponse,
+    DatasetVersionTrustOverrideRequest, ValidateDatasetRequest,
 };
 use crate::components::{
-    Badge, BadgeVariant, BreadcrumbTrail, Button, ButtonLink, ButtonSize, ButtonVariant, Card,
-    Checkbox, Combobox, ComboboxOption, ConfirmationDialog, ConfirmationSeverity, CopyableId,
-    EmptyState, ErrorDisplay, Input, PageBreadcrumbItem, PageHeader, PageScaffold,
-    PageScaffoldActions, RefreshButton, Select, SkeletonDetailSection, SkeletonTable, TabNav,
-    TabPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Toggle,
+    Badge, BadgeVariant, Button, ButtonType, ButtonVariant, Card, ConfirmationDialog,
+    ConfirmationSeverity, Dialog, DialogSize, EmptyState, EmptyStateVariant, ErrorDisplay, Input,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction,
+    RefreshButton, Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
-use crate::hooks::{
-    use_api, use_api_resource, use_delete_dialog, DeleteDialogState, LoadingState, Refetch,
-};
-use crate::pages::training::dataset_wizard::{DatasetOutcome, DatasetUploadWizard};
-use crate::utils::{format_bytes, format_date, humanize};
-use crate::validation::{use_field_error, use_form_state, validate_on_blur, ValidationRule};
-#[cfg(target_arch = "wasm32")]
-use adapteros_api_types::TrainingJobResponse;
+use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState, Refetch};
+use crate::utils::{format_bytes, format_datetime, status_display_label, status_display_with_raw};
+use adapteros_api_types::training::DatasetFileResponse;
 use leptos::prelude::*;
-use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
-#[cfg(target_arch = "wasm32")]
-use serde_json::json;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::Arc;
 
-// =============================================================================
-// Dataset Stat Card Component
-// =============================================================================
+fn token(raw: &str) -> String {
+    raw.trim().to_ascii_lowercase().replace('-', "_")
+}
 
-/// Clickable stat card for dataset readiness strip (trainable, needs validation, etc.).
-#[component]
-fn DatasetStatCard(
-    label: &'static str,
-    badge_label: &'static str,
-    badge_variant: BadgeVariant,
-    description: &'static str,
-    title: &'static str,
-    on_click: Callback<()>,
-    children: Children,
-) -> impl IntoView {
-    view! {
-        <button
-            type="button"
-            class="text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            on:click=move |_| on_click.run(())
-            title=title
-        >
-            <Card>
-                <div class="dataset-stat-card">
-                    <div class="dataset-stat-card__label">{label}</div>
-                    <div class="dataset-stat-card__row">
-                        <div class="heading-3">{children()}</div>
-                        <Badge variant=badge_variant>{badge_label}</Badge>
-                    </div>
-                    <div class="dataset-stat-card__description">{description}</div>
-                </div>
-            </Card>
-        </button>
+fn status_badge_variant(status: &str) -> BadgeVariant {
+    match token(status).as_str() {
+        "ready" | "valid" | "allowed" => BadgeVariant::Success,
+        "processing" | "running" | "pending" | "validating" | "needs_approval" => {
+            BadgeVariant::Warning
+        }
+        "invalid" | "blocked" | "failed" | "error" => BadgeVariant::Destructive,
+        _ => BadgeVariant::Secondary,
     }
 }
 
-mod components;
-
-// =============================================================================
-// Trainability / Readiness Helpers
-// =============================================================================
-
-#[derive(Debug, Clone, PartialEq)]
-struct DatasetGating {
-    is_trainable: bool,
-    readiness_label: &'static str,
-    readiness_variant: BadgeVariant,
-    inline_reason: String,
-    status_ok: bool,
-    validation_ok: bool,
-    trust_ok: bool,
-}
-
-fn is_status_ok(status: &str) -> bool {
-    matches!(status, "ready" | "indexed")
-}
-
-fn is_validation_ok(validation_status: Option<&str>) -> bool {
-    validation_status == Some("valid")
-}
-
-fn is_trust_ok(trust_state: Option<&str>) -> bool {
-    match trust_state {
-        None => true,
-        Some(s) => matches!(s, "allowed" | "trusted" | "approved"),
-    }
-}
-
-fn dataset_gating(ds: &crate::api::DatasetResponse) -> DatasetGating {
-    let status_ok = is_status_ok(ds.status.as_str());
-    let validation_ok = is_validation_ok(ds.validation_status.as_deref());
-    let trust_ok = is_trust_ok(ds.trust_state.as_deref());
-    let is_trainable = status_ok && validation_ok && trust_ok;
-
-    let (readiness_label, readiness_variant, inline_reason) = if is_trainable {
-        (
-            "Trainable",
-            BadgeVariant::Success,
-            "Ready to train".to_string(),
+fn action_error_message(action: &str, error: &ApiError) -> String {
+    if matches!(error, ApiError::Forbidden(_)) || error.code() == Some("FORBIDDEN") {
+        format!(
+            "You do not have permission to {}. Ask an administrator for dataset-management access.",
+            action
         )
-    } else if !status_ok {
-        let variant = match ds.status.as_str() {
-            "processing" => BadgeVariant::Warning,
-            "failed" | "error" => BadgeVariant::Destructive,
-            _ => BadgeVariant::Secondary,
-        };
-        (
-            "Not ready",
-            variant,
-            "Needs: status ready/indexed".to_string(),
-        )
-    } else if !validation_ok {
-        let label = "Needs validation";
-        let variant = match ds.validation_status.as_deref() {
-            Some("pending") | Some("processing") => BadgeVariant::Warning,
-            Some("invalid") | Some("failed") => BadgeVariant::Destructive,
-            Some(_) => BadgeVariant::Secondary,
-            None => BadgeVariant::Secondary,
-        };
-        let reason = match ds.validation_status.as_deref() {
-            Some(s) => format!("Needs: validation ({})", s),
-            None => "Needs: validation".to_string(),
-        };
-        (label, variant, reason)
-    } else if !trust_ok {
-        let variant = match ds.trust_state.as_deref() {
-            Some("blocked") => BadgeVariant::Destructive,
-            Some("needs_approval") | Some("allowed_with_warning") => BadgeVariant::Warning,
-            _ => BadgeVariant::Secondary,
-        };
-        let reason = match ds.trust_state.as_deref() {
-            Some(s) => format!("Needs: trust ({})", s),
-            None => "Needs: trust".to_string(),
-        };
-        ("Needs trust", variant, reason)
     } else {
-        (
-            "Not trainable",
-            BadgeVariant::Secondary,
-            "Blocked".to_string(),
-        )
-    };
-
-    DatasetGating {
-        is_trainable,
-        readiness_label,
-        readiness_variant,
-        inline_reason,
-        status_ok,
-        validation_ok,
-        trust_ok,
+        format!("Unable to {}: {}", action, error.user_message())
     }
 }
 
-fn dataset_type_label(ds: &crate::api::DatasetResponse) -> &'static str {
-    match ds.dataset_type.as_deref() {
-        Some("identity") => "Identity",
-        _ => "Standard",
-    }
+fn preprocess_is_running(status: &DatasetPreprocessStatusResponse) -> bool {
+    matches!(token(&status.status).as_str(), "pending" | "running")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DatasetViewMode {
-    Table,
-    Cards,
-}
-
-impl DatasetViewMode {
-    fn from_query(q: Option<&str>) -> Self {
-        match q {
-            Some("cards") => Self::Cards,
-            _ => Self::Table,
-        }
-    }
-
-    fn as_query_value(&self) -> &'static str {
-        match self {
-            Self::Table => "table",
-            Self::Cards => "cards",
-        }
-    }
-}
-
-fn build_query_string(map: &HashMap<String, String>) -> String {
-    if map.is_empty() {
-        return String::new();
-    }
-    let mut keys: Vec<String> = map.keys().cloned().collect();
-    keys.sort();
-    let mut parts = Vec::new();
-    for k in keys {
-        if let Some(v) = map.get(&k) {
-            if v.is_empty() {
-                continue;
-            }
-            let key = js_sys::encode_uri_component(&k);
-            let val = js_sys::encode_uri_component(v);
-            parts.push(format!("{}={}", key, val));
-        }
-    }
-    if parts.is_empty() {
-        String::new()
-    } else {
-        format!("?{}", parts.join("&"))
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn scroll_to_element_id(id: &str) {
-    let id = id.to_string();
-    leptos::task::spawn_local(async move {
-        gloo_timers::future::TimeoutFuture::new(0).await;
-        if let Some(window) = web_sys::window() {
-            if let Some(doc) = window.document() {
-                if let Some(el) = doc.get_element_by_id(&id) {
-                    // Keep this conservative: `ScrollIntoViewOptions` isn't available in all
-                    // `web-sys` feature sets in this repo. Basic scroll keeps the UX acceptable.
-                    el.scroll_into_view();
-                }
-            }
-        }
-    });
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn scroll_to_element_id(_id: &str) {}
-
-fn set_query_param(map: &mut HashMap<String, String>, key: &str, value: &str) {
-    if value.trim().is_empty() {
-        map.remove(key);
-    } else {
-        map.insert(key.to_string(), value.to_string());
-    }
-}
-
-/// Datasets list page
 #[component]
 pub fn Datasets() -> impl IntoView {
-    let (datasets, refetch) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_datasets(None).await });
-
-    let show_upload_dialog = RwSignal::new(false);
-    let query = use_query_map();
     let navigate = use_navigate();
-    let view_mode = RwSignal::new(DatasetViewMode::Table);
+    let search = RwSignal::new(String::new());
+    let status_filter = RwSignal::new(String::new());
+    let trust_filter = RwSignal::new(String::new());
+    let validation_filter = RwSignal::new(String::new());
 
-    // Keep view mode in sync with query param (e.g. ?view=cards)
-    Effect::new(move |_| {
-        let Some(q) = query.try_get() else { return };
-        let mode = DatasetViewMode::from_query(q.get("view").as_deref());
-        if view_mode.get_untracked() != mode {
-            let _ = view_mode.try_set(mode);
-        }
-    });
-
-    let on_upload = Callback::new(move |_| show_upload_dialog.set(true));
-    let navigate_for_view = navigate.clone();
-
-    let on_set_view_mode = Callback::new({
-        let navigate = navigate.clone();
-        move |mode: DatasetViewMode| {
-            view_mode.set(mode);
-            let mut params: HashMap<String, String> = query
-                .try_get()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v))
-                .collect();
-            match mode {
-                DatasetViewMode::Table => {
-                    params.remove("view");
-                }
-                DatasetViewMode::Cards => {
-                    params.insert("view".to_string(), mode.as_query_value().to_string());
-                }
-            }
-            let qs = build_query_string(&params);
-            navigate(&format!("/datasets{}", qs), Default::default());
-        }
-    });
-
-    let on_dataset_uploaded = Callback::new(move |outcome: DatasetOutcome| {
-        refetch.run(());
-        navigate(
-            &format!("/datasets/{}", outcome.dataset_id),
-            Default::default(),
-        );
-    });
+    let (datasets, refetch_datasets) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_datasets(None).await });
 
     view! {
         <PageScaffold
             title="Datasets"
-            subtitle="Advanced training data management"
+            subtitle="Browse datasets, inspect trust and validation state, and launch training."
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Data", "/datasets"),
+                PageBreadcrumbItem::new("Build", "/training"),
                 PageBreadcrumbItem::current("Datasets"),
             ]
+            full_width=true
         >
-            <PageScaffoldActions slot>
+            <PageScaffoldPrimaryAction slot>
                 <Button
                     variant=ButtonVariant::Primary
-                    on_click=Callback::new({
-                        let navigate = navigate_for_view.clone();
-                        move |_| navigate("/training?open_wizard=1", Default::default())
-                    })
+                    on_click=Callback::new(move |_| navigate("/training?open_wizard=1", Default::default()))
                 >
-                    "Create Adapter"
+                    "Create dataset"
                 </Button>
-                <Button
-                    variant=ButtonVariant::Ghost
-                    on_click=Callback::new({
-                        let navigate = navigate_for_view.clone();
-                        move |_| navigate("/adapters", Default::default())
-                    })
-                >
-                    "View Adapters"
-                </Button>
-                <RefreshButton on_click=Callback::new(move |_| refetch.run(()))/>
-                <Button
-                    variant=ButtonVariant::Outline
-                    on_click=Callback::new(move |_| show_upload_dialog.set(true))
-                >
-                    "Upload Structured Data"
-                </Button>
+            </PageScaffoldPrimaryAction>
+
+            <PageScaffoldActions slot>
+                <Input value=search placeholder="Search by name or ID".to_string() />
+                <Select
+                    value=status_filter
+                    options=vec![
+                        ("".to_string(), "All statuses".to_string()),
+                        ("ready".to_string(), "Ready".to_string()),
+                        ("processing".to_string(), "Processing".to_string()),
+                        ("pending".to_string(), "Pending".to_string()),
+                        ("failed".to_string(), "Failed".to_string()),
+                    ]
+                    class="w-40".to_string()
+                />
+                <Select
+                    value=trust_filter
+                    options=vec![
+                        ("".to_string(), "All trust".to_string()),
+                        ("allowed".to_string(), "Allowed".to_string()),
+                        (
+                            "allowed_with_warning".to_string(),
+                            "Allowed With Warning".to_string(),
+                        ),
+                        ("needs_approval".to_string(), "Needs Approval".to_string()),
+                        ("blocked".to_string(), "Blocked".to_string()),
+                        ("unknown".to_string(), "Unknown".to_string()),
+                    ]
+                    class="w-48".to_string()
+                />
+                <Select
+                    value=validation_filter
+                    options=vec![
+                        ("".to_string(), "All validation".to_string()),
+                        ("valid".to_string(), "Valid".to_string()),
+                        ("validating".to_string(), "Validating".to_string()),
+                        ("pending".to_string(), "Pending".to_string()),
+                        ("invalid".to_string(), "Invalid".to_string()),
+                    ]
+                    class="w-44".to_string()
+                />
+                <RefreshButton on_click=Callback::new(move |_| refetch_datasets.run(())) />
             </PageScaffoldActions>
 
             {move || {
-                match datasets.try_get().unwrap_or(LoadingState::Idle) {
+                match datasets.get() {
                     LoadingState::Idle | LoadingState::Loading => {
-                        view! { <SkeletonTable rows=5 columns=4/> }.into_any()
-                    }
-                    LoadingState::Loaded(data) => {
-                        view! {
-                            <DatasetsList
-                                datasets=data
-                                refetch=refetch
-                                on_upload=on_upload
-                                view_mode=view_mode
-                                on_set_view_mode=on_set_view_mode
-                            />
-                        }.into_any()
+                        view! { <p class="text-sm text-muted-foreground">"Loading datasets..."</p> }
+                            .into_any()
                     }
                     LoadingState::Error(e) => {
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| refetch.run(()))
+                                on_retry=Callback::new(move |_| refetch_datasets.run(()))
                             />
-                        }.into_any()
+                        }
+                        .into_any()
+                    }
+                    LoadingState::Loaded(resp) => {
+                        let query = search.get().trim().to_ascii_lowercase();
+                        let status = token(&status_filter.get());
+                        let trust = token(&trust_filter.get());
+                        let validation = token(&validation_filter.get());
+
+                        let rows = resp
+                            .datasets
+                            .into_iter()
+                            .filter(|dataset| {
+                                if !query.is_empty() {
+                                    let display_name = dataset
+                                        .display_name
+                                        .clone()
+                                        .unwrap_or_else(|| dataset.name.clone())
+                                        .to_ascii_lowercase();
+                                    let id = dataset.id.to_ascii_lowercase();
+                                    if !display_name.contains(&query) && !id.contains(&query) {
+                                        return false;
+                                    }
+                                }
+
+                                if !status.is_empty() && token(&dataset.status) != status {
+                                    return false;
+                                }
+
+                                if !trust.is_empty() {
+                                    let trust_state = dataset
+                                        .trust_state
+                                        .as_deref()
+                                        .map(token)
+                                        .unwrap_or_else(|| "unknown".to_string());
+                                    if trust_state != trust {
+                                        return false;
+                                    }
+                                }
+
+                                if !validation.is_empty() {
+                                    let validation_state = dataset
+                                        .validation_status
+                                        .as_deref()
+                                        .map(token)
+                                        .unwrap_or_else(|| "unknown".to_string());
+                                    if validation_state != validation {
+                                        return false;
+                                    }
+                                }
+
+                                true
+                            })
+                            .collect::<Vec<_>>();
+
+                        if rows.is_empty() {
+                            view! {
+                                <EmptyState
+                                    variant=EmptyStateVariant::Empty
+                                    title="No datasets found"
+                                    description="Try different filters or create a new dataset from the training wizard."
+                                />
+                            }
+                            .into_any()
+                        } else {
+                            view! {
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>"Name"</TableHead>
+                                            <TableHead>"Dataset ID"</TableHead>
+                                            <TableHead>"Status"</TableHead>
+                                            <TableHead>"Trust"</TableHead>
+                                            <TableHead>"Validation"</TableHead>
+                                            <TableHead>"Created"</TableHead>
+                                            <TableHead>"Actions"</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {rows
+                                            .into_iter()
+                                            .map(|dataset| {
+                                                let display_name = dataset
+                                                    .display_name
+                                                    .clone()
+                                                    .unwrap_or_else(|| dataset.name.clone());
+                                                let status_label = status_display_label(&dataset.status);
+                                                let trust_state = dataset
+                                                    .trust_state
+                                                    .clone()
+                                                    .unwrap_or_else(|| "unknown".to_string());
+                                                let validation_state = dataset
+                                                    .validation_status
+                                                    .clone()
+                                                    .unwrap_or_else(|| "unknown".to_string());
+                                                let trust_state_label = status_display_label(&trust_state);
+                                                let validation_state_label =
+                                                    status_display_label(&validation_state);
+                                                let dataset_id = dataset.id.clone();
+                                                let detail_href = format!("/datasets/{}", dataset.id);
+                                                let train_href = format!(
+                                                    "/training?open_wizard=1&dataset_id={}",
+                                                    dataset.id
+                                                );
+
+                                                view! {
+                                                    <TableRow>
+                                                        <TableCell>{display_name}</TableCell>
+                                                        <TableCell>
+                                                            <code class="text-xs">{dataset_id.clone()}</code>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <span title=dataset.status.clone()>
+                                                                <Badge variant=status_badge_variant(&dataset.status)>
+                                                                    {status_label}
+                                                                </Badge>
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <span title=trust_state.clone()>
+                                                                <Badge variant=status_badge_variant(&trust_state)>
+                                                                    {trust_state_label}
+                                                                </Badge>
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <span title=validation_state.clone()>
+                                                                <Badge variant=status_badge_variant(&validation_state)>
+                                                                    {validation_state_label}
+                                                                </Badge>
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <span class="text-xs text-muted-foreground">
+                                                                {format_datetime(&dataset.created_at)}
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div class="flex items-center gap-2">
+                                                                <a href=detail_href.clone()>
+                                                                    <Button
+                                                                        button_type=ButtonType::Button
+                                                                        variant=ButtonVariant::Secondary
+                                                                    >
+                                                                        "View"
+                                                                    </Button>
+                                                                </a>
+                                                                <a href=train_href>
+                                                                    <Button
+                                                                        button_type=ButtonType::Button
+                                                                        variant=ButtonVariant::Ghost
+                                                                    >
+                                                                        "Train"
+                                                                    </Button>
+                                                                </a>
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                }
+                                            })
+                                            .collect::<Vec<_>>()}
+                                    </TableBody>
+                                </Table>
+                            }
+                            .into_any()
+                        }
                     }
                 }
             }}
+        </PageScaffold>
+    }
+}
 
-            <DatasetUploadWizard
-                open=show_upload_dialog
-                on_complete=on_dataset_uploaded
+#[component]
+pub fn DatasetDetail() -> impl IntoView {
+    let params = use_params_map();
+    let navigate = use_navigate();
+    let client = use_api_client();
+
+    let dataset_id = Signal::derive(move || params.get().get("id").unwrap_or_default());
+
+    let (dataset, refetch_dataset) = use_api_resource(move |client: Arc<ApiClient>| {
+        let dataset_id = dataset_id.get();
+        async move { client.get_dataset(&dataset_id).await }
+    });
+
+    let (versions, refetch_versions) = use_api_resource(move |client: Arc<ApiClient>| {
+        let dataset_id = dataset_id.get();
+        async move { client.list_dataset_versions(&dataset_id).await }
+    });
+
+    let (files, refetch_files) = use_api_resource(move |client: Arc<ApiClient>| {
+        let dataset_id = dataset_id.get();
+        async move { client.list_dataset_files(&dataset_id).await }
+    });
+
+    let (_preview, refetch_preview) = use_api_resource(move |client: Arc<ApiClient>| {
+        let dataset_id = dataset_id.get();
+        async move { client.preview_dataset(&dataset_id, Some(5)).await }
+    });
+
+    let (adapters, refetch_adapters) = use_api_resource(move |client: Arc<ApiClient>| {
+        let dataset_id = dataset_id.get();
+        async move { client.get_dataset_adapters(&dataset_id).await }
+    });
+
+    let selected_version_id = RwSignal::new(String::new());
+    let compare_version_id = RwSignal::new(String::new());
+    let editing_row_id = RwSignal::new(None::<String>);
+    let edit_prompt = RwSignal::new(String::new());
+    let edit_response = RwSignal::new(String::new());
+    let edit_weight = RwSignal::new(String::new());
+    let edit_split = RwSignal::new(String::new());
+    let selected_source_file_id = RwSignal::new(None::<String>);
+    let selected_source_page = RwSignal::new(None::<i32>);
+    let selected_source_row_id = RwSignal::new(None::<String>);
+    let pending_row_edits =
+        RwSignal::new(HashMap::<String, crate::api::types::DatasetRowEditRequest>::new());
+
+    let (version_rows, refetch_version_rows) = use_api_resource(move |client: Arc<ApiClient>| {
+        let version_id = selected_version_id.get();
+        async move {
+            if version_id.trim().is_empty() {
+                Ok(Vec::new())
+            } else {
+                client.list_dataset_rows(&version_id, None, None).await
+            }
+        }
+    });
+
+    let (version_detail, refetch_version_detail) =
+        use_api_resource(move |client: Arc<ApiClient>| {
+            let dataset_id = dataset_id.get();
+            let revision = selected_version_id.get();
+            let compare_to = compare_version_id.get();
+            async move {
+                let revision = if revision.trim().is_empty() {
+                    "latest".to_string()
+                } else {
+                    revision
+                };
+                let compare = if compare_to.trim().is_empty() {
+                    None
+                } else {
+                    Some(compare_to.clone())
+                };
+                client
+                    .get_dataset_version_detail(&dataset_id, &revision, compare.as_deref(), false)
+                    .await
+            }
+        });
+
+    let validating = RwSignal::new(false);
+    let preprocessing = RwSignal::new(false);
+    let applying_override = RwSignal::new(false);
+    let saving_row_edits = RwSignal::new(false);
+    let regenerating_evaluation = RwSignal::new(false);
+    let deleting = RwSignal::new(false);
+    let delete_dialog_open = RwSignal::new(false);
+    let name_editing = RwSignal::new(false);
+    let name_draft = RwSignal::new(String::new());
+    let renaming = RwSignal::new(false);
+
+    let override_version_id = RwSignal::new(String::new());
+    let override_state = RwSignal::new("allowed".to_string());
+    let override_reason = RwSignal::new(String::new());
+
+    let preprocess_status = RwSignal::new(None::<DatasetPreprocessStatusResponse>);
+    let action_error = RwSignal::new(None::<String>);
+    let action_success = RwSignal::new(None::<String>);
+
+    Effect::new(move || {
+        if let LoadingState::Loaded(resp) = versions.get() {
+            if let Some(version) = resp.versions.first() {
+                if override_version_id.get().trim().is_empty() {
+                    override_version_id.set(version.dataset_version_id.clone());
+                }
+                if selected_version_id.get().trim().is_empty() {
+                    selected_version_id.set(version.dataset_version_id.clone());
+                }
+            }
+        }
+    });
+
+    let should_poll_preprocess = Signal::derive(move || {
+        preprocess_status
+            .get()
+            .as_ref()
+            .map(preprocess_is_running)
+            .unwrap_or(false)
+    });
+
+    let _cancel_preprocess_poll = use_conditional_polling(1500, should_poll_preprocess, {
+        let client = client.clone();
+        move || {
+            let client = client.clone();
+            let dataset_id = dataset_id.get();
+            async move {
+                match client.get_dataset_preprocess_status(&dataset_id).await {
+                    Ok(status) => {
+                        preprocess_status.set(Some(status.clone()));
+                        if !preprocess_is_running(&status) {
+                            preprocessing.set(false);
+                            refetch_dataset.run(());
+                            if token(&status.status) == "completed" {
+                                action_success.set(Some("Preprocessing completed.".to_string()));
+                            } else {
+                                let reason = status
+                                    .error_message
+                                    .clone()
+                                    .unwrap_or_else(|| "Preprocessing failed.".to_string());
+                                action_error.set(Some(reason));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        preprocessing.set(false);
+                        action_error
+                            .set(Some(action_error_message("check preprocessing status", &e)));
+                    }
+                }
+            }
+        }
+    });
+
+    let validate_action = Callback::new({
+        let client = client.clone();
+        move |_| {
+            if validating.get() {
+                return;
+            }
+            validating.set(true);
+            action_error.set(None);
+            action_success.set(None);
+
+            let client = client.clone();
+            let dataset_id = dataset_id.get();
+            wasm_bindgen_futures::spawn_local(async move {
+                let request = ValidateDatasetRequest {
+                    check_format: Some(true),
+                };
+                match client.validate_dataset(&dataset_id, &request).await {
+                    Ok(resp) => {
+                        action_success.set(Some(format!(
+                            "Validation finished: {}.",
+                            status_display_label(&resp.validation_status.to_string())
+                        )));
+                        refetch_dataset.run(());
+                        refetch_preview.run(());
+                    }
+                    Err(e) => {
+                        action_error.set(Some(action_error_message("validate this dataset", &e)));
+                    }
+                }
+                validating.set(false);
+            });
+        }
+    });
+
+    let preprocess_action = Callback::new({
+        let client = client.clone();
+        move |_| {
+            if preprocessing.get() {
+                return;
+            }
+            preprocessing.set(true);
+            action_error.set(None);
+            action_success.set(None);
+
+            let client = client.clone();
+            let dataset_id = dataset_id.get();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client
+                    .start_dataset_preprocessing(&dataset_id, true, true)
+                    .await
+                {
+                    Ok(started) => {
+                        action_success.set(Some(format!(
+                            "Preprocessing started ({})",
+                            status_display_label(&started.status)
+                        )));
+                        match client.get_dataset_preprocess_status(&dataset_id).await {
+                            Ok(status) => {
+                                preprocess_status.set(Some(status.clone()));
+                                if !preprocess_is_running(&status) {
+                                    preprocessing.set(false);
+                                }
+                            }
+                            Err(e) => {
+                                preprocessing.set(false);
+                                action_error.set(Some(action_error_message(
+                                    "fetch preprocessing status",
+                                    &e,
+                                )));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        preprocessing.set(false);
+                        action_error.set(Some(action_error_message("start preprocessing", &e)));
+                    }
+                }
+            });
+        }
+    });
+
+    let apply_override_action = Callback::new({
+        let client = client.clone();
+        move |_| {
+            if applying_override.get() {
+                return;
+            }
+
+            let version_id = override_version_id.get().trim().to_string();
+            let reason = override_reason.get().trim().to_string();
+            if version_id.is_empty() {
+                action_error.set(Some(
+                    "Select a dataset version before applying trust override.".to_string(),
+                ));
+                return;
+            }
+            if reason.is_empty() {
+                action_error.set(Some("Trust override reason is required.".to_string()));
+                return;
+            }
+
+            applying_override.set(true);
+            action_error.set(None);
+            action_success.set(None);
+
+            let client = client.clone();
+            let dataset_id = dataset_id.get();
+            let state = override_state.get();
+            wasm_bindgen_futures::spawn_local(async move {
+                let request = DatasetVersionTrustOverrideRequest {
+                    override_state: state,
+                    reason: Some(reason),
+                };
+
+                match client
+                    .apply_dataset_version_trust_override(&dataset_id, &version_id, &request)
+                    .await
+                {
+                    Ok(resp) => {
+                        action_success.set(Some(format!(
+                            "Trust override applied. Effective trust state: {}.",
+                            status_display_label(&resp.effective_trust_state)
+                        )));
+                        refetch_versions.run(());
+                        refetch_dataset.run(());
+                    }
+                    Err(e) => {
+                        action_error.set(Some(action_error_message("apply trust override", &e)));
+                    }
+                }
+                applying_override.set(false);
+            });
+        }
+    });
+
+    let start_row_edit = Callback::new(move |row: CanonicalRow| {
+        editing_row_id.set(Some(row.row_id));
+        edit_prompt.set(row.prompt);
+        edit_response.set(row.response);
+        edit_weight.set(format!("{}", row.weight));
+        edit_split.set(row.split);
+    });
+
+    let cancel_row_edit = Callback::new(move |_| {
+        editing_row_id.set(None);
+        edit_prompt.set(String::new());
+        edit_response.set(String::new());
+        edit_weight.set(String::new());
+        edit_split.set(String::new());
+    });
+
+    let save_row_edit_draft = Callback::new({
+        move |row: CanonicalRow| {
+            let row_id = row.row_id.clone();
+            let mut weight = row.weight;
+            if let Ok(parsed) = edit_weight.get().trim().parse::<f32>() {
+                weight = parsed;
+            }
+            let split = if edit_split.get().trim().is_empty() {
+                row.split.clone()
+            } else {
+                edit_split.get().trim().to_ascii_lowercase()
+            };
+            let prompt = edit_prompt.get();
+            let response = edit_response.get();
+
+            let unchanged = prompt == row.prompt
+                && response == row.response
+                && (weight - row.weight).abs() <= f32::EPSILON
+                && split == row.split;
+
+            pending_row_edits.update(|drafts| {
+                if unchanged {
+                    drafts.remove(&row_id);
+                } else {
+                    drafts.insert(
+                        row_id.clone(),
+                        crate::api::types::DatasetRowEditRequest {
+                            row_id: row_id.clone(),
+                            prompt: Some(prompt.clone()),
+                            response: Some(response.clone()),
+                            weight: Some(weight),
+                            split: Some(split.clone()),
+                        },
+                    );
+                }
+            });
+
+            editing_row_id.set(None);
+            edit_prompt.set(String::new());
+            edit_response.set(String::new());
+            edit_weight.set(String::new());
+            edit_split.set(String::new());
+        }
+    });
+
+    let open_row_source = Callback::new(move |row: CanonicalRow| {
+        selected_source_row_id.set(Some(row.row_id.clone()));
+        selected_source_page.set(row_source_page_start(&row));
+
+        if let LoadingState::Loaded(file_rows) = files.get() {
+            if let Some(file) = resolve_source_file_for_row(&row, &file_rows) {
+                selected_source_file_id.set(Some(file.file_id));
+            }
+        }
+    });
+
+    let save_edits_as_new_version = Callback::new({
+        let client = client.clone();
+        move |_| {
+            if saving_row_edits.get() {
+                return;
+            }
+
+            let drafts = pending_row_edits.get();
+            if drafts.is_empty() {
+                action_error.set(Some("No row edits to save.".to_string()));
+                return;
+            }
+            let base_version = selected_version_id.get();
+            if base_version.trim().is_empty() {
+                action_error.set(Some(
+                    "Select a base dataset version before saving edits.".to_string(),
+                ));
+                return;
+            }
+
+            saving_row_edits.set(true);
+            action_error.set(None);
+            action_success.set(None);
+
+            let client = client.clone();
+            let dataset_id = dataset_id.get();
+            let row_edits = drafts.values().cloned().collect::<Vec<_>>();
+            wasm_bindgen_futures::spawn_local(async move {
+                let request = crate::api::types::CreateDatasetVersionRequest {
+                    version_label: Some("Edited rows".to_string()),
+                    manifest_path: None,
+                    manifest_json: None,
+                    base_dataset_version_id: Some(base_version.clone()),
+                    row_edits: Some(row_edits),
+                };
+
+                match client.create_dataset_version(&dataset_id, &request).await {
+                    Ok(resp) => {
+                        selected_version_id.set(resp.dataset_version_id.clone());
+                        compare_version_id.set(String::new());
+                        pending_row_edits.set(HashMap::new());
+                        action_success.set(Some(format!(
+                            "Created dataset version v{} from row edits.",
+                            resp.version_number
+                        )));
+                        refetch_versions.run(());
+                        refetch_version_rows.run(());
+                        refetch_version_detail.run(());
+                        refetch_preview.run(());
+                    }
+                    Err(e) => {
+                        action_error.set(Some(action_error_message(
+                            "save row edits as a new version",
+                            &e,
+                        )));
+                    }
+                }
+
+                saving_row_edits.set(false);
+            });
+        }
+    });
+
+    let regenerate_evaluation = Callback::new({
+        let client = client.clone();
+        move |_| {
+            if regenerating_evaluation.get() {
+                return;
+            }
+            let revision = selected_version_id.get();
+            if revision.trim().is_empty() {
+                action_error.set(Some(
+                    "Select a version before regenerating evaluation.".to_string(),
+                ));
+                return;
+            }
+
+            regenerating_evaluation.set(true);
+            action_error.set(None);
+            action_success.set(None);
+
+            let client = client.clone();
+            let dataset_id = dataset_id.get();
+            let compare_to = compare_version_id.get();
+            wasm_bindgen_futures::spawn_local(async move {
+                let compare = if compare_to.trim().is_empty() {
+                    None
+                } else {
+                    Some(compare_to.as_str())
+                };
+                match client
+                    .get_dataset_version_detail(&dataset_id, &revision, compare, true)
+                    .await
+                {
+                    Ok(_) => {
+                        action_success.set(Some("Dataset evaluation regenerated.".to_string()));
+                        refetch_version_detail.run(());
+                    }
+                    Err(e) => {
+                        action_error.set(Some(action_error_message(
+                            "regenerate dataset evaluation",
+                            &e,
+                        )));
+                    }
+                }
+                regenerating_evaluation.set(false);
+            });
+        }
+    });
+
+    let start_rename = Callback::new({
+        move |_| {
+            if let LoadingState::Loaded(data) = dataset.get() {
+                let display_name = data
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| data.name.clone());
+                name_draft.set(display_name);
+                name_editing.set(true);
+            }
+        }
+    });
+
+    let cancel_rename = Callback::new(move |_| {
+        name_editing.set(false);
+        name_draft.set(String::new());
+    });
+
+    let save_rename = Callback::new({
+        let client = client.clone();
+        move |_| {
+            if renaming.get() {
+                return;
+            }
+            let new_name = name_draft.get().trim().to_string();
+            if new_name.is_empty() {
+                action_error.set(Some("Name cannot be empty.".to_string()));
+                return;
+            }
+            renaming.set(true);
+            action_error.set(None);
+            action_success.set(None);
+
+            let client = client.clone();
+            let dataset_id = dataset_id.get();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client
+                    .update_dataset(&dataset_id, Some(new_name.as_str()), None)
+                    .await
+                {
+                    Ok(_) => {
+                        name_editing.set(false);
+                        name_draft.set(String::new());
+                        action_success.set(Some("Dataset renamed.".to_string()));
+                        refetch_dataset.run(());
+                    }
+                    Err(e) => {
+                        action_error.set(Some(action_error_message("rename this dataset", &e)));
+                    }
+                }
+                renaming.set(false);
+            });
+        }
+    });
+
+    let delete_action = Callback::new({
+        let client = client.clone();
+        let navigate_after_delete = navigate.clone();
+        move |_| {
+            if deleting.get() {
+                return;
+            }
+            deleting.set(true);
+            action_error.set(None);
+
+            let client = client.clone();
+            let dataset_id = dataset_id.get();
+            let navigate = navigate_after_delete.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.delete_dataset(&dataset_id).await {
+                    Ok(_) => {
+                        delete_dialog_open.set(false);
+                        navigate("/datasets", Default::default());
+                    }
+                    Err(e) => {
+                        action_error.set(Some(action_error_message("delete this dataset", &e)));
+                    }
+                }
+                deleting.set(false);
+            });
+        }
+    });
+
+    let versions_for_override = Signal::derive(move || {
+        if let LoadingState::Loaded(resp) = versions.get() {
+            resp.versions
+                .iter()
+                .map(|v| {
+                    (
+                        v.dataset_version_id.clone(),
+                        format!("v{} ({})", v.version_number, v.dataset_version_id.clone()),
+                    )
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        }
+    });
+
+    let versions_for_compare = Signal::derive(move || {
+        let mut options = vec![("".to_string(), "No compare".to_string())];
+        if let LoadingState::Loaded(resp) = versions.get() {
+            for v in resp.versions {
+                options.push((
+                    v.dataset_version_id.clone(),
+                    format!("v{} ({})", v.version_number, v.dataset_version_id),
+                ));
+            }
+        }
+        options
+    });
+
+    let train_href =
+        Signal::derive(move || format!("/training?open_wizard=1&dataset_id={}", dataset_id.get()));
+    let files_table_client = client.clone();
+    let source_panel_client = client.clone();
+
+    view! {
+        <PageScaffold
+            title="Dataset Detail"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Build", "/training"),
+                PageBreadcrumbItem::new("Datasets", "/datasets"),
+                PageBreadcrumbItem::current(dataset_id.get()),
+            ]
+            full_width=true
+        >
+            <PageScaffoldActions slot>
+                <Button
+                    button_type=ButtonType::Button
+                    variant=ButtonVariant::Ghost
+                    on_click=Callback::new(move |_| navigate("/datasets", Default::default()))
+                >
+                    "Back to datasets"
+                </Button>
+                <RefreshButton
+                    on_click=Callback::new(move |_| {
+                        refetch_dataset.run(());
+                        refetch_versions.run(());
+                        refetch_files.run(());
+                        refetch_preview.run(());
+                        refetch_version_rows.run(());
+                        refetch_version_detail.run(());
+                    })
+                />
+            </PageScaffoldActions>
+
+            {move || action_error.get().map(|message| view! {
+                <div class="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
+                    <p class="text-sm text-destructive">{message}</p>
+                </div>
+            })}
+
+            {move || action_success.get().map(|message| view! {
+                <div class="mb-4 rounded-lg border border-status-success/50 bg-status-success/5 p-3">
+                    <p class="text-sm text-status-success">{message}</p>
+                </div>
+            })}
+
+            <div class="grid gap-4 lg:grid-cols-3">
+                <div class="space-y-4 lg:col-span-2">
+                    <Card title="Summary".to_string()>
+                        {move || match dataset.get() {
+                            LoadingState::Idle | LoadingState::Loading => {
+                                view! { <p class="text-sm text-muted-foreground">"Loading dataset summary..."</p> }.into_any()
+                            }
+                            LoadingState::Error(e) => {
+                                view! { <ErrorDisplay error=e on_retry=Callback::new(move |_| refetch_dataset.run(())) /> }.into_any()
+                            }
+                            LoadingState::Loaded(data) => {
+                                let display_name = data
+                                    .display_name
+                                    .clone()
+                                    .unwrap_or_else(|| data.name.clone());
+                                view! {
+                                    <div class="grid gap-3 text-sm md:grid-cols-2">
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Name"</p>
+                                            {move || if name_editing.get() {
+                                                view! {
+                                                    <div class="flex items-center gap-2">
+                                                        <Input
+                                                            value=name_draft
+                                                            placeholder="Dataset name".to_string()
+                                                            class="flex-1".to_string()
+                                                        />
+                                                        <Button
+                                                            button_type=ButtonType::Button
+                                                            variant=ButtonVariant::Primary
+                                                            disabled=Signal::derive(move || renaming.get())
+                                                            loading=Signal::derive(move || renaming.get())
+                                                            on_click=save_rename
+                                                        >
+                                                            "Save"
+                                                        </Button>
+                                                        <Button
+                                                            button_type=ButtonType::Button
+                                                            variant=ButtonVariant::Ghost
+                                                            disabled=Signal::derive(move || renaming.get())
+                                                            on_click=cancel_rename
+                                                        >
+                                                            "Cancel"
+                                                        </Button>
+                                                    </div>
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    <div class="flex items-center gap-2">
+                                                        <p class="font-medium flex-1">{display_name.clone()}</p>
+                                                        <Button
+                                                            button_type=ButtonType::Button
+                                                            variant=ButtonVariant::Ghost
+                                                            on_click=start_rename
+                                                        >
+                                                            "Rename"
+                                                        </Button>
+                                                    </div>
+                                                }.into_any()
+                                            }}
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Dataset ID"</p>
+                                            <p class="font-mono text-xs">{data.id.clone()}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Format"</p>
+                                            <p>{data.format.clone()}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Dataset Hash"</p>
+                                            <p class="font-mono text-xs">
+                                                {data
+                                                    .dataset_hash_b3
+                                                    .clone()
+                                                    .or(data.hash_b3.clone())
+                                                    .unwrap_or_else(|| "-".to_string())}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Created"</p>
+                                            <p>{format_datetime(&data.created_at)}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Updated"</p>
+                                            <p>
+                                                {data
+                                                    .updated_at
+                                                    .clone()
+                                                    .map(|v| format_datetime(&v))
+                                                    .unwrap_or_else(|| "-".to_string())}
+                                            </p>
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            }
+                        }}
+                    </Card>
+
+                    <Card
+                        title="Versions".to_string()
+                        description="Dataset versions from uploads. Add files via the training wizard.".to_string()
+                    >
+                        {move || {
+                            let add_version_href = format!(
+                                "/training?open_wizard=1&dataset_id={}",
+                                dataset_id.get()
+                            );
+                            match versions.get() {
+                                LoadingState::Idle | LoadingState::Loading => {
+                                    view! { <p class="text-sm text-muted-foreground">"Loading versions..."</p> }.into_any()
+                                }
+                                LoadingState::Error(e) => {
+                                    view! { <ErrorDisplay error=e on_retry=Callback::new(move |_| refetch_versions.run(())) /> }.into_any()
+                                }
+                                LoadingState::Loaded(resp) => {
+                                    if resp.versions.is_empty() {
+                                        view! {
+                                            <div class="space-y-2">
+                                                <p class="text-sm text-muted-foreground">"No versions yet."</p>
+                                                <a href=add_version_href>
+                                                    <Button button_type=ButtonType::Button variant=ButtonVariant::Secondary>
+                                                        "Add version"
+                                                    </Button>
+                                                </a>
+                                            </div>
+                                        }
+                                        .into_any()
+                                    } else {
+                                        view! {
+                                            <div class="space-y-3">
+                                                <a href=add_version_href>
+                                                    <Button button_type=ButtonType::Button variant=ButtonVariant::Secondary>
+                                                        "Add version"
+                                                    </Button>
+                                                </a>
+                                                <div class="grid gap-2 md:grid-cols-2">
+                                                    <div class="space-y-1">
+                                                        <p class="text-xs text-muted-foreground">"Working version"</p>
+                                                        <Select
+                                                            value=selected_version_id
+                                                            options=versions_for_override.get()
+                                                        />
+                                                    </div>
+                                                    <div class="space-y-1">
+                                                        <p class="text-xs text-muted-foreground">"Compare with"</p>
+                                                        <Select
+                                                            value=compare_version_id
+                                                            options=versions_for_compare.get()
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <Table>
+                                                    <TableHeader>
+                                                        <TableRow>
+                                                            <TableHead>"Version"</TableHead>
+                                                            <TableHead>"Version ID"</TableHead>
+                                                            <TableHead>"Trust"</TableHead>
+                                                            <TableHead>"Created"</TableHead>
+                                                        </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                        {resp
+                                                            .versions
+                                                            .into_iter()
+                                                            .map(|version| {
+                                                                let is_selected = selected_version_id.get()
+                                                                    == version.dataset_version_id;
+                                                                let version_id = version.dataset_version_id.clone();
+                                                                let version_id_for_click = version_id.clone();
+                                                                let trust = version
+                                                                    .trust_state
+                                                                    .clone()
+                                                                    .unwrap_or_else(|| "unknown".to_string());
+                                                                let trust_label = status_display_label(&trust);
+                                                                view! {
+                                                                    <TableRow class=if is_selected { "bg-primary/5" } else { "" }>
+                                                                        <TableCell>{format!("v{}", version.version_number)}</TableCell>
+                                                                        <TableCell>
+                                                                            <button
+                                                                                class="font-mono text-xs text-left hover:underline"
+                                                                                on:click=move |_| selected_version_id.set(version_id_for_click.clone())
+                                                                            >
+                                                                                {version_id}
+                                                                            </button>
+                                                                        </TableCell>
+                                                                        <TableCell>
+                                                                            <span title=trust.clone()>
+                                                                                <Badge variant=status_badge_variant(&trust)>
+                                                                                    {trust_label}
+                                                                                </Badge>
+                                                                            </span>
+                                                                        </TableCell>
+                                                                        <TableCell>
+                                                                            <span class="text-xs text-muted-foreground">
+                                                                                {format_datetime(&version.created_at)}
+                                                                            </span>
+                                                                        </TableCell>
+                                                                    </TableRow>
+                                                                }
+                                                            })
+                                                            .collect::<Vec<_>>()}
+                                                    </TableBody>
+                                                </Table>
+                                            </div>
+                                        }
+                                        .into_any()
+                                    }
+                                }
+                            }
+                        }}
+                    </Card>
+
+                    <Card title="Files".to_string()>
+                        <DatasetFilesTable
+                            dataset_id=dataset_id.get()
+                            client=files_table_client.clone()
+                            files=files
+                            refetch=refetch_files
+                        />
+                    </Card>
+
+                    <Card
+                        title="Adapters using this dataset".to_string()
+                        description="Adapters trained on this dataset (from training lineage).".to_string()
+                    >
+                        {move || match adapters.get() {
+                            LoadingState::Idle | LoadingState::Loading => {
+                                view! { <p class="text-sm text-muted-foreground">"Loading adapters..."</p> }.into_any()
+                            }
+                            LoadingState::Error(e) => {
+                                view! {
+                                    <ErrorDisplay error=e on_retry=Callback::new(move |_| refetch_adapters.run(())) />
+                                }
+                                    .into_any()
+                            }
+                            LoadingState::Loaded(resp) => {
+                                if resp.adapters.is_empty() {
+                                    view! {
+                                        <p class="text-sm text-muted-foreground">
+                                            "No adapters have been trained on this dataset yet."
+                                        </p>
+                                    }
+                                        .into_any()
+                                } else {
+                                    view! {
+                                        <div class="space-y-2">
+                                            {resp
+                                                .adapters
+                                                .into_iter()
+                                                .map(|a| {
+                                                    let href = format!("/adapters/{}", a.adapter_id);
+                                                    let adapter_id = a.adapter_id.clone();
+                                                    let version_hint = a
+                                                        .dataset_version_id
+                                                        .as_ref()
+                                                        .map(|vid| format!(" ({})", vid))
+                                                        .unwrap_or_default();
+                                                    view! {
+                                                        <div class="flex items-center gap-2">
+                                                            <a href=href class="text-sm font-medium text-primary hover:underline">
+                                                                {adapter_id}
+                                                            </a>
+                                                            {if !version_hint.is_empty() {
+                                                                view! {
+                                                                    <span class="text-xs text-muted-foreground font-mono">{version_hint}</span>
+                                                                }.into_any()
+                                                            } else {
+                                                                view! {}.into_any()
+                                                            }}
+                                                        </div>
+                                                    }
+                                                })
+                                                .collect::<Vec<_>>()}
+                                        </div>
+                                    }
+                                    .into_any()
+                                }
+                            }
+                        }}
+                    </Card>
+
+                    <Card
+                        title="Rows".to_string()
+                        description="Editable dataset rows with provenance and source navigation.".to_string()
+                    >
+                        <div class="space-y-3">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="text-xs text-muted-foreground">
+                                    {move || {
+                                        let selected = selected_version_id.get();
+                                        if selected.is_empty() {
+                                            "Select a version to inspect rows.".to_string()
+                                        } else {
+                                            format!("Working version: {}", selected)
+                                        }
+                                    }}
+                                </span>
+                                <Badge variant=BadgeVariant::Secondary>
+                                    {move || format!("Pending edits: {}", pending_row_edits.get().len())}
+                                </Badge>
+                                <Button
+                                    button_type=ButtonType::Button
+                                    variant=ButtonVariant::Primary
+                                    disabled=Signal::derive(move || {
+                                        saving_row_edits.get() || pending_row_edits.get().is_empty()
+                                    })
+                                    loading=Signal::derive(move || saving_row_edits.get())
+                                    on_click=save_edits_as_new_version
+                                >
+                                    "Save edits as new version"
+                                </Button>
+                            </div>
+
+                            <div class="grid gap-4 lg:grid-cols-3">
+                                <div class="lg:col-span-2">
+                                    {move || match version_rows.get() {
+                                        LoadingState::Idle | LoadingState::Loading => {
+                                            view! { <p class="text-sm text-muted-foreground">"Loading rows..."</p> }.into_any()
+                                        }
+                                        LoadingState::Error(e) => {
+                                            view! { <ErrorDisplay error=e on_retry=Callback::new(move |_| refetch_version_rows.run(())) /> }.into_any()
+                                        }
+                                        LoadingState::Loaded(rows) => {
+                                            if rows.is_empty() {
+                                                view! {
+                                                    <p class="text-sm text-muted-foreground">
+                                                        "No canonical rows available for this version."
+                                                    </p>
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    <div class="overflow-x-auto">
+                                                        <Table>
+                                                            <TableHeader>
+                                                                <TableRow>
+                                                                    <TableHead>"Prompt"</TableHead>
+                                                                    <TableHead>"Response"</TableHead>
+                                                                    <TableHead>"Weight"</TableHead>
+                                                                    <TableHead>"Split"</TableHead>
+                                                                    <TableHead>"Provenance"</TableHead>
+                                                                    <TableHead>"Source span"</TableHead>
+                                                                    <TableHead>"Actions"</TableHead>
+                                                                </TableRow>
+                                                            </TableHeader>
+                                                            <TableBody>
+                                                                {rows
+                                                                    .into_iter()
+                                                                    .map(|row| {
+                                                                        let row_for_edit_save = row.clone();
+                                                                        let row_for_edit_start = row.clone();
+                                                                        let row_for_source_span = row.clone();
+                                                                        let row_for_source_action = row.clone();
+                                                                        let is_draft = pending_row_edits
+                                                                            .get()
+                                                                            .contains_key(&row.row_id);
+                                                                        let is_editing = editing_row_id
+                                                                            .get()
+                                                                            .as_ref()
+                                                                            .map(|id| id == &row.row_id)
+                                                                            .unwrap_or(false);
+                                                                        let source_span = row_source_span_label(&row);
+                                                                        let provenance_state = if row
+                                                                            .metadata
+                                                                            .get("provenance_invalidated")
+                                                                            .and_then(|v| v.as_bool())
+                                                                            .unwrap_or(false) {
+                                                                            "invalidated"
+                                                                        } else {
+                                                                            "linked"
+                                                                        };
+
+                                                                        view! {
+                                                                            <TableRow class=if is_draft { "bg-warning/5" } else { "" }>
+                                                                                <TableCell class="max-w-[18rem] align-top">
+                                                                                    {if is_editing {
+                                                                                        view! {
+                                                                                            <textarea
+                                                                                                class="w-full rounded-md border border-border/70 bg-background p-2 text-xs"
+                                                                                                rows="4"
+                                                                                                prop:value=move || edit_prompt.get()
+                                                                                                on:input=move |ev| edit_prompt.set(event_target_value(&ev))
+                                                                                            />
+                                                                                        }.into_any()
+                                                                                    } else {
+                                                                                        view! { <span class="text-xs">{shorten_text(&row.prompt, 180)}</span> }.into_any()
+                                                                                    }}
+                                                                                </TableCell>
+                                                                                <TableCell class="max-w-[18rem] align-top">
+                                                                                    {if is_editing {
+                                                                                        view! {
+                                                                                            <textarea
+                                                                                                class="w-full rounded-md border border-border/70 bg-background p-2 text-xs"
+                                                                                                rows="4"
+                                                                                                prop:value=move || edit_response.get()
+                                                                                                on:input=move |ev| edit_response.set(event_target_value(&ev))
+                                                                                            />
+                                                                                        }.into_any()
+                                                                                    } else {
+                                                                                        view! { <span class="text-xs">{shorten_text(&row.response, 180)}</span> }.into_any()
+                                                                                    }}
+                                                                                </TableCell>
+                                                                                <TableCell class="align-top">
+                                                                                    {if is_editing {
+                                                                                        view! {
+                                                                                            <Input
+                                                                                                value=edit_weight
+                                                                                                placeholder="1.0".to_string()
+                                                                                                class="w-24".to_string()
+                                                                                            />
+                                                                                        }.into_any()
+                                                                                    } else {
+                                                                                        view! { <span class="text-xs">{format!("{:.3}", row.weight)}</span> }.into_any()
+                                                                                    }}
+                                                                                </TableCell>
+                                                                                <TableCell class="align-top">
+                                                                                    {if is_editing {
+                                                                                        view! {
+                                                                                            <Input
+                                                                                                value=edit_split
+                                                                                                placeholder="train".to_string()
+                                                                                                class="w-24".to_string()
+                                                                                            />
+                                                                                        }.into_any()
+                                                                                    } else {
+                                                                                        view! { <span class="text-xs">{row.split.clone()}</span> }.into_any()
+                                                                                    }}
+                                                                                </TableCell>
+                                                                                <TableCell class="align-top">
+                                                                                    <Badge
+                                                                                        variant=if provenance_state == "invalidated" {
+                                                                                            BadgeVariant::Warning
+                                                                                        } else {
+                                                                                            BadgeVariant::Success
+                                                                                        }
+                                                                                    >
+                                                                                        {provenance_state}
+                                                                                    </Badge>
+                                                                                </TableCell>
+                                                                                <TableCell class="align-top">
+                                                                                    <button
+                                                                                        class="text-xs text-muted-foreground text-left hover:underline"
+                                                                                        on:click=move |_| open_row_source.run(row_for_source_span.clone())
+                                                                                    >
+                                                                                        {source_span}
+                                                                                    </button>
+                                                                                </TableCell>
+                                                                                <TableCell class="align-top">
+                                                                                    <div class="flex items-center gap-2">
+                                                                                        {if is_editing {
+                                                                                            view! {
+                                                                                                <Button
+                                                                                                    button_type=ButtonType::Button
+                                                                                                    variant=ButtonVariant::Primary
+                                                                                                    on_click=Callback::new(move |_| save_row_edit_draft.run(row_for_edit_save.clone()))
+                                                                                                >
+                                                                                                    "Save Row"
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                    button_type=ButtonType::Button
+                                                                                                    variant=ButtonVariant::Ghost
+                                                                                                    on_click=cancel_row_edit
+                                                                                                >
+                                                                                                    "Cancel"
+                                                                                                </Button>
+                                                                                            }.into_any()
+                                                                                        } else {
+                                                                                            view! {
+                                                                                                <Button
+                                                                                                    button_type=ButtonType::Button
+                                                                                                    variant=ButtonVariant::Ghost
+                                                                                                    on_click=Callback::new(move |_| start_row_edit.run(row_for_edit_start.clone()))
+                                                                                                >
+                                                                                                    "Edit"
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                    button_type=ButtonType::Button
+                                                                                                    variant=ButtonVariant::Ghost
+                                                                                                    on_click=Callback::new(move |_| open_row_source.run(row_for_source_action.clone()))
+                                                                                                >
+                                                                                                    "Open Source"
+                                                                                                </Button>
+                                                                                            }.into_any()
+                                                                                        }}
+                                                                                    </div>
+                                                                                </TableCell>
+                                                                            </TableRow>
+                                                                        }
+                                                                    })
+                                                                    .collect::<Vec<_>>()}
+                                                            </TableBody>
+                                                        </Table>
+                                                    </div>
+                                                }.into_any()
+                                            }
+                                        }
+                                    }}
+                                </div>
+
+                                <div class="rounded-md border border-border/70 bg-muted/10 p-3 space-y-2">
+                                    <p class="text-sm font-medium">"Source panel"</p>
+                                    {move || {
+                                        let selected_file_id = selected_source_file_id.get();
+                                        let selected_page = selected_source_page.get();
+                                        let selected_row = selected_source_row_id.get();
+                                        let rows = match files.get() {
+                                            LoadingState::Loaded(rows) => rows,
+                                            _ => Vec::new(),
+                                        };
+                                        if let Some(file_id) = selected_file_id {
+                                            if let Some(file) = rows.into_iter().find(|f| f.file_id == file_id) {
+                                                let mut source_url = source_panel_client
+                                                    .dataset_file_content_url(&dataset_id.get(), &file.file_id, true);
+                                                if let Some(page) = selected_page {
+                                                    source_url = format!("{}#page={}", source_url, page.max(1));
+                                                }
+                                                return if is_pdf_file(&file) {
+                                                    view! {
+                                                        <div class="space-y-2">
+                                                            <p class="text-xs text-muted-foreground font-mono">{file.file_name.clone()}</p>
+                                                            {selected_row.map(|row_id| view! {
+                                                                <p class="text-xs text-muted-foreground">"From row: "{row_id}</p>
+                                                            })}
+                                                            <iframe
+                                                                src=source_url
+                                                                class="w-full h-[420px] rounded-md border border-border/70 bg-background"
+                                                            ></iframe>
+                                                        </div>
+                                                    }.into_any()
+                                                } else {
+                                                    view! {
+                                                        <div class="space-y-2">
+                                                            <p class="text-xs text-muted-foreground font-mono">{file.file_name}</p>
+                                                            <p class="text-xs text-muted-foreground">
+                                                                "Selected source is not a PDF. Use the file viewer for text/binary inspection."
+                                                            </p>
+                                                        </div>
+                                                    }.into_any()
+                                                };
+                                            }
+                                        }
+                                        view! {
+                                            <p class="text-xs text-muted-foreground">
+                                                "Pick a row and open its source span to jump here."
+                                            </p>
+                                        }.into_any()
+                                    }}
+                                </div>
+                            </div>
+
+                            <div class="rounded-md border border-border/70 bg-muted/10 p-3 space-y-2">
+                                <p class="text-sm font-medium">"Version compare"</p>
+                                {move || match version_detail.get() {
+                                    LoadingState::Idle | LoadingState::Loading => {
+                                        view! { <p class="text-xs text-muted-foreground">"Loading compare..."</p> }.into_any()
+                                    }
+                                    LoadingState::Error(_) => {
+                                        view! { <p class="text-xs text-muted-foreground">"Compare unavailable."</p> }.into_any()
+                                    }
+                                    LoadingState::Loaded(detail) => {
+                                        if let Some(compare) = detail.compare {
+                                            if compare.changed_rows.is_empty() {
+                                                view! { <p class="text-xs text-muted-foreground">"No changed rows between selected versions."</p> }.into_any()
+                                            } else {
+                                                view! {
+                                                    <div class="space-y-2">
+                                                        <p class="text-xs text-muted-foreground">
+                                                            {format!(
+                                                                "{} changed rows (showing up to {}).",
+                                                                compare.total_changed_rows,
+                                                                compare.changed_rows.len()
+                                                            )}
+                                                        </p>
+                                                        <Table>
+                                                            <TableHeader>
+                                                                <TableRow>
+                                                                    <TableHead>"Row"</TableHead>
+                                                                    <TableHead>"Change"</TableHead>
+                                                                    <TableHead>"Fields"</TableHead>
+                                                                    <TableHead>"Provenance impact"</TableHead>
+                                                                </TableRow>
+                                                            </TableHeader>
+                                                            <TableBody>
+                                                                {compare
+                                                                    .changed_rows
+                                                                    .into_iter()
+                                                                    .map(|change| view! {
+                                                                        <TableRow>
+                                                                            <TableCell>
+                                                                                <span class="font-mono text-xs">{change.row_id}</span>
+                                                                            </TableCell>
+                                                                            <TableCell>{change.change_type}</TableCell>
+                                                                            <TableCell>{if change.changed_fields.is_empty() {
+                                                                                "-".to_string()
+                                                                            } else {
+                                                                                change.changed_fields.join(", ")
+                                                                            }}</TableCell>
+                                                                            <TableCell>{change.provenance_impact}</TableCell>
+                                                                        </TableRow>
+                                                                    })
+                                                                    .collect::<Vec<_>>()}
+                                                            </TableBody>
+                                                        </Table>
+                                                    </div>
+                                                }.into_any()
+                                            }
+                                        } else {
+                                            view! { <p class="text-xs text-muted-foreground">"Select a compare version to view changed rows and fields."</p> }.into_any()
+                                        }
+                                    }
+                                }}
+                            </div>
+                        </div>
+                    </Card>
+                </div>
+
+                <div class="space-y-4">
+                    <Card title="Manage dataset".to_string()>
+                        <div class="space-y-4">
+                            <Button
+                                button_type=ButtonType::Button
+                                variant=ButtonVariant::Secondary
+                                disabled=Signal::derive(move || validating.get())
+                                loading=Signal::derive(move || validating.get())
+                                on_click=validate_action
+                            >
+                                "Validate Dataset"
+                            </Button>
+
+                            <Button
+                                button_type=ButtonType::Button
+                                variant=ButtonVariant::Secondary
+                                disabled=Signal::derive(move || preprocessing.get())
+                                loading=Signal::derive(move || preprocessing.get())
+                                on_click=preprocess_action
+                            >
+                                "Preprocess"
+                            </Button>
+
+                            {move || preprocess_status.get().map(|status| view! {
+                                <div class="rounded-md border border-border/70 bg-muted/20 p-3 text-xs space-y-1">
+                                    <p>
+                                        <span class="text-muted-foreground">"Status: "</span>
+                                        <span title=status.status.clone()>
+                                            {status_display_label(&status.status)}
+                                        </span>
+                                    </p>
+                                    <p>
+                                        <span class="text-muted-foreground">"Processed: "</span>
+                                        {status.lines_processed.to_string()}
+                                    </p>
+                                    <p>
+                                        <span class="text-muted-foreground">"Removed: "</span>
+                                        {status.lines_removed.to_string()}
+                                    </p>
+                                    {status.error_message.clone().map(|err| view! {
+                                        <p class="text-destructive">{err}</p>
+                                    })}
+                                </div>
+                            })}
+
+                            <div class="border-t pt-3 space-y-2">
+                                <p class="text-sm font-medium">"Trust override"</p>
+                                <Select
+                                    value=override_version_id
+                                    options=versions_for_override.get()
+                                />
+                                <Select
+                                    value=override_state
+                                    options=vec![
+                                        ("allowed".to_string(), "Allowed".to_string()),
+                                        (
+                                            "allowed_with_warning".to_string(),
+                                            "Allowed With Warning".to_string(),
+                                        ),
+                                        ("needs_approval".to_string(), "Needs Approval".to_string()),
+                                        ("blocked".to_string(), "Blocked".to_string()),
+                                    ]
+                                />
+                                <Input
+                                    value=override_reason
+                                    placeholder="Reason (required)".to_string()
+                                />
+                                <Button
+                                    button_type=ButtonType::Button
+                                    variant=ButtonVariant::Secondary
+                                    disabled=Signal::derive(move || {
+                                        applying_override.get()
+                                            || override_reason.get().trim().is_empty()
+                                            || override_version_id.get().trim().is_empty()
+                                    })
+                                    loading=Signal::derive(move || applying_override.get())
+                                    on_click=apply_override_action
+                                >
+                                    "Apply Trust Override"
+                                </Button>
+                            </div>
+
+                            <div class="border-t pt-3 space-y-2">
+                                <a href=move || train_href.get()>
+                                    <Button button_type=ButtonType::Button variant=ButtonVariant::Primary>
+                                        "Train from this dataset"
+                                    </Button>
+                                </a>
+                                <Button
+                                    button_type=ButtonType::Button
+                                    variant=ButtonVariant::Destructive
+                                    disabled=Signal::derive(move || deleting.get())
+                                    on_click=Callback::new(move |_| delete_dialog_open.set(true))
+                                >
+                                    "Delete Dataset"
+                                </Button>
+                            </div>
+                        </div>
+                    </Card>
+
+                    <Card title="Safety and trust".to_string()>
+                        {move || match dataset.get() {
+                            LoadingState::Loaded(data) => {
+                                let trust = data
+                                    .trust_state
+                                    .clone()
+                                    .unwrap_or_else(|| "unknown".to_string());
+                                let validation = data
+                                    .validation_status
+                                    .clone()
+                                    .unwrap_or_else(|| "unknown".to_string());
+                                view! {
+                                    <div class="space-y-2 text-sm">
+                                        <p>
+                                            <span class="text-muted-foreground">"Trust: "</span>
+                                            <span title=trust.clone()>{status_display_with_raw(&trust)}</span>
+                                        </p>
+                                        <p>
+                                            <span class="text-muted-foreground">"Validation: "</span>
+                                            <span title=validation.clone()>{status_display_with_raw(&validation)}</span>
+                                        </p>
+                                        <p>
+                                            <span class="text-muted-foreground">"Dataset status: "</span>
+                                            <span title=data.status.clone()>{status_display_with_raw(&data.status)}</span>
+                                        </p>
+                                    </div>
+                                }.into_any()
+                            }
+                            LoadingState::Idle | LoadingState::Loading => {
+                                view! { <p class="text-sm text-muted-foreground">"Loading trust details..."</p> }.into_any()
+                            }
+                            LoadingState::Error(_) => {
+                                view! { <p class="text-sm text-muted-foreground">"Trust details unavailable."</p> }.into_any()
+                            }
+                        }}
+                    </Card>
+
+                    <Card title="Evaluation".to_string()>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <p class="text-xs text-muted-foreground">
+                                    "Coverage, duplication, leakage risk, and schema anomalies for the selected version."
+                                </p>
+                                <Button
+                                    button_type=ButtonType::Button
+                                    variant=ButtonVariant::Ghost
+                                    disabled=Signal::derive(move || regenerating_evaluation.get())
+                                    loading=Signal::derive(move || regenerating_evaluation.get())
+                                    on_click=regenerate_evaluation
+                                >
+                                    "Regenerate"
+                                </Button>
+                            </div>
+                            {move || match version_detail.get() {
+                                LoadingState::Idle | LoadingState::Loading => {
+                                    view! { <p class="text-xs text-muted-foreground">"Loading evaluation..."</p> }.into_any()
+                                }
+                                LoadingState::Error(_) => {
+                                    view! { <p class="text-xs text-muted-foreground">"Evaluation unavailable."</p> }.into_any()
+                                }
+                                LoadingState::Loaded(detail) => {
+                                    if let Some(evaluation) = detail.evaluation {
+                                        let generated_at = evaluation.generated_at.clone();
+                                        let generator_version = evaluation.generator_version.clone();
+                                        let artifact_id = evaluation.artifact_id.clone();
+                                        let coverage = evaluation.coverage_stats;
+                                        let duplication = evaluation.duplication_stats;
+                                        let leakage = evaluation.leakage_risk;
+                                        let anomalies = evaluation.schema_anomalies;
+                                        let citations = evaluation.citations;
+                                        let examples = evaluation.example_rows;
+                                        view! {
+                                            <div class="space-y-3 text-sm">
+                                                <div class="rounded-md border border-border/70 bg-muted/10 p-3 space-y-1">
+                                                    <p class="text-xs text-muted-foreground">
+                                                        {format!("Generated {}", format_datetime(&generated_at))}
+                                                    </p>
+                                                    <p class="text-xs text-muted-foreground">
+                                                        {format!("Generator {}", generator_version)}
+                                                    </p>
+                                                    <p class="text-xs text-muted-foreground font-mono break-all">
+                                                        {format!("Artifact {}", artifact_id)}
+                                                    </p>
+                                                </div>
+
+                                                <div class="grid grid-cols-2 gap-2 text-xs">
+                                                    <div class="rounded-md border border-border/60 p-2">
+                                                        <p class="text-muted-foreground">"Rows"</p>
+                                                        <p class="font-medium">{coverage.total_rows}</p>
+                                                    </div>
+                                                    <div class="rounded-md border border-border/60 p-2">
+                                                        <p class="text-muted-foreground">"With response"</p>
+                                                        <p class="font-medium">{coverage.rows_with_response}</p>
+                                                    </div>
+                                                    <div class="rounded-md border border-border/60 p-2">
+                                                        <p class="text-muted-foreground">"With source span"</p>
+                                                        <p class="font-medium">{coverage.rows_with_source_span}</p>
+                                                    </div>
+                                                    <div class="rounded-md border border-border/60 p-2">
+                                                        <p class="text-muted-foreground">"With provenance metadata"</p>
+                                                        <p class="font-medium">{coverage.rows_with_provenance_metadata}</p>
+                                                    </div>
+                                                    <div class="rounded-md border border-border/60 p-2">
+                                                        <p class="text-muted-foreground">"Duplicate pairs"</p>
+                                                        <p class="font-medium">{duplication.duplicate_prompt_response_pairs}</p>
+                                                    </div>
+                                                    <div class="rounded-md border border-border/60 p-2">
+                                                        <p class="text-muted-foreground">"Duplicate prompts"</p>
+                                                        <p class="font-medium">{duplication.duplicate_prompt_only}</p>
+                                                    </div>
+                                                    <div class="rounded-md border border-border/60 p-2 col-span-2">
+                                                        <p class="text-muted-foreground">"Leakage risk"</p>
+                                                        <p class="font-medium">
+                                                            {format!(
+                                                                "{:.2}% ({} rows)",
+                                                                leakage.risk_score * 100.0,
+                                                                leakage.risky_row_count
+                                                            )}
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div class="space-y-1">
+                                                    <p class="text-xs font-medium">"Schema anomalies"</p>
+                                                    {if anomalies.is_empty() {
+                                                        view! {
+                                                            <p class="text-xs text-muted-foreground">"None detected."</p>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <div class="space-y-1">
+                                                                {anomalies
+                                                                    .into_iter()
+                                                                    .take(5)
+                                                                    .map(|anomaly| view! {
+                                                                        <div class="rounded-md border border-border/60 p-2 text-xs">
+                                                                            <p class="font-medium">{anomaly.issue}</p>
+                                                                            <p class="text-muted-foreground font-mono">{anomaly.row_id}</p>
+                                                                        </div>
+                                                                    })
+                                                                    .collect::<Vec<_>>()}
+                                                            </div>
+                                                        }.into_any()
+                                                    }}
+                                                </div>
+
+                                                <div class="space-y-1">
+                                                    <p class="text-xs font-medium">"Example rows"</p>
+                                                    {if examples.is_empty() {
+                                                        view! { <p class="text-xs text-muted-foreground">"No examples available."</p> }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <div class="space-y-1">
+                                                                {examples
+                                                                    .into_iter()
+                                                                    .take(3)
+                                                                    .map(|row| view! {
+                                                                        <div class="rounded-md border border-border/60 p-2 text-xs">
+                                                                            <p class="font-mono text-muted-foreground">{row.row_id}</p>
+                                                                            <p class="mt-1"><span class="text-muted-foreground">"Prompt: "</span>{shorten_text(&row.prompt, 120)}</p>
+                                                                            <p class="mt-1"><span class="text-muted-foreground">"Response: "</span>{shorten_text(&row.response, 120)}</p>
+                                                                        </div>
+                                                                    })
+                                                                    .collect::<Vec<_>>()}
+                                                            </div>
+                                                        }.into_any()
+                                                    }}
+                                                </div>
+
+                                                <div class="space-y-1">
+                                                    <p class="text-xs font-medium">"Citations"</p>
+                                                    {if citations.is_empty() {
+                                                        view! { <p class="text-xs text-muted-foreground">"No citations available."</p> }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <div class="space-y-1">
+                                                                {citations
+                                                                    .into_iter()
+                                                                    .take(5)
+                                                                    .map(|citation| view! {
+                                                                        <div class="rounded-md border border-border/60 p-2 text-xs">
+                                                                            <p class="font-medium">{citation.issue}</p>
+                                                                            <p class="font-mono text-muted-foreground">{citation.row_id}</p>
+                                                                        </div>
+                                                                    })
+                                                                    .collect::<Vec<_>>()}
+                                                            </div>
+                                                        }.into_any()
+                                                    }}
+                                                </div>
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! { <p class="text-xs text-muted-foreground">"No evaluation artifact yet."</p> }.into_any()
+                                    }
+                                }
+                            }}
+                        </div>
+                    </Card>
+                </div>
+            </div>
+
+            <ConfirmationDialog
+                open=delete_dialog_open
+                title="Delete dataset".to_string()
+                description="This permanently removes the dataset and related files.".to_string()
+                severity=ConfirmationSeverity::Destructive
+                confirm_text="Delete".to_string()
+                typed_confirmation=dataset_id.get()
+                on_confirm=delete_action
+                on_cancel=Callback::new(move |_| delete_dialog_open.set(false))
+                loading=Signal::derive(move || deleting.get())
             />
         </PageScaffold>
     }
 }
 
-/// List of datasets component
-#[component]
-fn DatasetsList(
-    datasets: DatasetListResponse,
-    refetch: Refetch,
-    on_upload: Callback<()>,
-    view_mode: RwSignal<DatasetViewMode>,
-    on_set_view_mode: Callback<DatasetViewMode>,
-) -> impl IntoView {
-    let all_datasets = StoredValue::new(datasets.datasets);
-    let navigate = use_navigate();
-    let navigate_store = StoredValue::new(navigate);
-    let query = use_query_map();
-
-    // Filters (client-side)
-    let search = RwSignal::new(String::new());
-    let status_filter = RwSignal::new(String::new());
-    let validation_filter = RwSignal::new(String::new());
-    let trust_filter = RwSignal::new(String::new());
-    let type_filter = RwSignal::new(String::new());
-    let trainable_only = RwSignal::new(false);
-    let sort = RwSignal::new("created_desc".to_string());
-    let filters_initialized = RwSignal::new(false);
-    let last_emitted_query = RwSignal::new(String::new());
-
-    // Initialize filters from query params once (so links are shareable).
-    Effect::new(move |_| {
-        if filters_initialized.try_get().unwrap_or(true) {
-            return;
-        }
-        let Some(q) = query.try_get() else { return };
-        if let Some(v) = q.get("q") {
-            let _ = search.try_set(v.clone());
-        }
-        if let Some(v) = q.get("status") {
-            let _ = status_filter.try_set(v.clone());
-        }
-        if let Some(v) = q.get("validation") {
-            let _ = validation_filter.try_set(v.clone());
-        }
-        if let Some(v) = q.get("trust") {
-            let _ = trust_filter.try_set(v.clone());
-        }
-        if let Some(v) = q.get("type") {
-            let _ = type_filter.try_set(v.clone());
-        }
-        if let Some(v) = q.get("sort") {
-            let _ = sort.try_set(v.clone());
-        }
-        if q.get("trainable").as_deref() == Some("1") {
-            let _ = trainable_only.try_set(true);
-        }
-        let _ = filters_initialized.try_set(true);
-    });
-
-    // Persist filters to the URL query string (replace, not push).
-    Effect::new(move |_| {
-        if !filters_initialized.try_get().unwrap_or(false) {
-            return;
-        }
-
-        // Track dependencies
-        let Some(qv) = search.try_get() else { return };
-        let Some(sv) = status_filter.try_get() else {
-            return;
-        };
-        let Some(vv) = validation_filter.try_get() else {
-            return;
-        };
-        let Some(tv) = trust_filter.try_get() else {
-            return;
-        };
-        let Some(ty) = type_filter.try_get() else {
-            return;
-        };
-        let Some(so) = sort.try_get() else { return };
-        let tr = trainable_only.try_get().unwrap_or(false);
-
-        let Some(q) = query.try_get() else { return };
-        let mut params: HashMap<String, String> =
-            q.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-
-        set_query_param(&mut params, "q", qv.trim());
-        set_query_param(&mut params, "status", sv.trim());
-        set_query_param(&mut params, "validation", vv.trim());
-        set_query_param(&mut params, "trust", tv.trim());
-        set_query_param(&mut params, "type", ty.trim());
-        set_query_param(&mut params, "sort", so.trim());
-        set_query_param(&mut params, "trainable", if tr { "1" } else { "" });
-
-        let qs = build_query_string(&params);
-        // Avoid churn by only navigating when the computed query actually changes.
-        if last_emitted_query.get_untracked() == qs {
-            return;
-        }
-        let _ = last_emitted_query.try_set(qs.clone());
-        navigate_store.with_value(|nav| {
-            nav(
-                &format!("/datasets{}", qs),
-                leptos_router::NavigateOptions {
-                    replace: true,
-                    ..Default::default()
-                },
-            );
-        });
-    });
-
-    // Delete confirmation dialog state using reusable hook
-    let client = use_api();
-    let delete_state = use_delete_dialog();
-    let delete_state_for_cancel = delete_state;
-    let on_cancel_delete = Callback::new(move |_| delete_state_for_cancel.cancel());
-    let delete_state_for_confirm = delete_state;
-    let on_confirm_delete = {
-        let client = Arc::clone(&client);
-        Callback::new(move |_| {
-            if let Some(id) = delete_state_for_confirm.get_pending_id() {
-                delete_state_for_confirm.start_delete();
-                let client = Arc::clone(&client);
-                let delete_state = delete_state_for_confirm;
-                wasm_bindgen_futures::spawn_local(async move {
-                    match client.delete_dataset(&id).await {
-                        Ok(_) => {
-                            refetch.run(());
-                            delete_state.finish_delete(Ok(()));
-                        }
-                        Err(e) => {
-                            delete_state.finish_delete(Err(format!("Failed to delete: {}", e)));
-                        }
-                    }
-                });
-            }
-        })
-    };
-    let delete_state_for_loading = delete_state;
-
-    // Readiness counts (computed on full list, not filtered list)
-    let trainable_count = Signal::derive(move || {
-        all_datasets
-            .get_value()
-            .iter()
-            .filter(|d| dataset_gating(d).is_trainable)
-            .count()
-    });
-    let needs_validation_count = Signal::derive(move || {
-        all_datasets
-            .get_value()
-            .iter()
-            .filter(|d| {
-                let g = dataset_gating(d);
-                g.status_ok && !g.validation_ok
-            })
-            .count()
-    });
-    let needs_trust_count = Signal::derive(move || {
-        all_datasets
-            .get_value()
-            .iter()
-            .filter(|d| {
-                let g = dataset_gating(d);
-                g.status_ok && g.validation_ok && !g.trust_ok
-            })
-            .count()
-    });
-    let processing_failed_count = Signal::derive(move || {
-        all_datasets
-            .get_value()
-            .iter()
-            .filter(|d| matches!(d.status.as_str(), "processing" | "failed" | "error"))
-            .count()
-    });
-
-    // Quick filter actions (readiness strip)
-    let on_quick_trainable = Callback::new(move |_| {
-        trainable_only.set(true);
-        status_filter.set(String::new());
-        validation_filter.set(String::new());
-        trust_filter.set(String::new());
-        type_filter.set(String::new());
-    });
-    let on_quick_needs_validation = Callback::new(move |_| {
-        trainable_only.set(false);
-        status_filter.set("ready_indexed".to_string());
-        validation_filter.set("not_valid".to_string());
-        trust_filter.set(String::new());
-        type_filter.set(String::new());
-    });
-    let on_quick_needs_trust = Callback::new(move |_| {
-        trainable_only.set(false);
-        status_filter.set("ready_indexed".to_string());
-        validation_filter.set("valid".to_string());
-        trust_filter.set("not_ok".to_string());
-        type_filter.set(String::new());
-    });
-    let on_quick_processing_failed = Callback::new(move |_| {
-        trainable_only.set(false);
-        status_filter.set("processing_failed".to_string());
-        validation_filter.set(String::new());
-        trust_filter.set(String::new());
-        type_filter.set(String::new());
-    });
-
-    let filtered_sorted = Signal::derive(move || {
-        let mut items = all_datasets.get_value();
-
-        let q = search.try_get().unwrap_or_default().trim().to_lowercase();
-        let status = status_filter.try_get().unwrap_or_default();
-        let validation = validation_filter.try_get().unwrap_or_default();
-        let trust = trust_filter.try_get().unwrap_or_default();
-        let dtype = type_filter.try_get().unwrap_or_default();
-        let only_trainable = trainable_only.try_get().unwrap_or(false);
-        let sort = sort.try_get().unwrap_or_default();
-
-        items.retain(|d| {
-            if !q.is_empty() {
-                let hay = format!("{} {}", d.name.to_lowercase(), d.id.to_lowercase());
-                if !hay.contains(&q) {
-                    return false;
-                }
-            }
-
-            // Type
-            if !dtype.is_empty() {
-                match dtype.as_str() {
-                    "identity" => {
-                        if d.dataset_type.as_deref() != Some("identity") {
-                            return false;
-                        }
-                    }
-                    "standard" => {
-                        if d.dataset_type.as_deref() == Some("identity") {
-                            return false;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            // Status
-            if !status.is_empty() {
-                match status.as_str() {
-                    "ready" => {
-                        if d.status != "ready" {
-                            return false;
-                        }
-                    }
-                    "indexed" => {
-                        if d.status != "indexed" {
-                            return false;
-                        }
-                    }
-                    "processing" => {
-                        if d.status != "processing" {
-                            return false;
-                        }
-                    }
-                    "failed" => {
-                        if !(d.status == "failed" || d.status == "error") {
-                            return false;
-                        }
-                    }
-                    "ready_indexed" => {
-                        if !is_status_ok(d.status.as_str()) {
-                            return false;
-                        }
-                    }
-                    "processing_failed" => {
-                        if !matches!(d.status.as_str(), "processing" | "failed" | "error") {
-                            return false;
-                        }
-                    }
-                    "other" => {
-                        if matches!(
-                            d.status.as_str(),
-                            "ready" | "indexed" | "processing" | "failed" | "error"
-                        ) {
-                            return false;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            // Validation
-            if !validation.is_empty() {
-                match validation.as_str() {
-                    "valid" => {
-                        if d.validation_status.as_deref() != Some("valid") {
-                            return false;
-                        }
-                    }
-                    "invalid" => {
-                        if !matches!(
-                            d.validation_status.as_deref(),
-                            Some("invalid") | Some("failed")
-                        ) {
-                            return false;
-                        }
-                    }
-                    "pending" => {
-                        if !matches!(
-                            d.validation_status.as_deref(),
-                            Some("pending") | Some("processing")
-                        ) {
-                            return false;
-                        }
-                    }
-                    "unknown" => {
-                        if d.validation_status.is_some() {
-                            return false;
-                        }
-                    }
-                    "not_valid" => {
-                        if d.validation_status.as_deref() == Some("valid") {
-                            return false;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            // Trust
-            if !trust.is_empty() {
-                match trust.as_str() {
-                    "ok" => {
-                        if !is_trust_ok(d.trust_state.as_deref()) {
-                            return false;
-                        }
-                    }
-                    "needs_approval" => {
-                        if d.trust_state.as_deref() != Some("needs_approval") {
-                            return false;
-                        }
-                    }
-                    "blocked" => {
-                        if d.trust_state.as_deref() != Some("blocked") {
-                            return false;
-                        }
-                    }
-                    "unknown" => {
-                        if d.trust_state.is_some() {
-                            return false;
-                        }
-                    }
-                    "not_ok" => {
-                        if is_trust_ok(d.trust_state.as_deref()) {
-                            return false;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            if only_trainable && !dataset_gating(d).is_trainable {
-                return false;
-            }
-
-            true
-        });
-
-        // Sort
-        match sort.as_str() {
-            "created_asc" => items.sort_by(|a, b| a.created_at.cmp(&b.created_at)),
-            "name_asc" => items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
-            _ => items.sort_by(|a, b| b.created_at.cmp(&a.created_at)),
-        }
-
-        items
-    });
-
-    let total_filtered =
-        Signal::derive(move || filtered_sorted.try_get().unwrap_or_default().len());
-    let any_filters_active = Signal::derive(move || {
-        !search.try_get().unwrap_or_default().trim().is_empty()
-            || !status_filter
-                .try_get()
-                .unwrap_or_default()
-                .trim()
-                .is_empty()
-            || !validation_filter
-                .try_get()
-                .unwrap_or_default()
-                .trim()
-                .is_empty()
-            || !trust_filter.try_get().unwrap_or_default().trim().is_empty()
-            || !type_filter.try_get().unwrap_or_default().trim().is_empty()
-            || sort.try_get().unwrap_or_default().trim() != "created_desc"
-            || trainable_only.try_get().unwrap_or(false)
-    });
-    let active_filter_labels = Signal::derive(move || {
-        let mut labels = Vec::new();
-
-        let search_value = search.try_get().unwrap_or_default().trim().to_string();
-        if !search_value.is_empty() {
-            let preview = if search_value.chars().count() > 24 {
-                format!("{}...", search_value.chars().take(24).collect::<String>())
-            } else {
-                search_value
-            };
-            labels.push(format!("search: {}", preview));
-        }
-
-        let status_value = status_filter
-            .try_get()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        if !status_value.is_empty() {
-            labels.push(format!("status: {}", status_value.replace('_', " ")));
-        }
-
-        let validation_value = validation_filter
-            .try_get()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        if !validation_value.is_empty() {
-            labels.push(format!(
-                "validation: {}",
-                validation_value.replace('_', " ")
-            ));
-        }
-
-        let trust_value = trust_filter
-            .try_get()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        if !trust_value.is_empty() {
-            labels.push(format!("trust: {}", trust_value.replace('_', " ")));
-        }
-
-        let type_value = type_filter.try_get().unwrap_or_default().trim().to_string();
-        if !type_value.is_empty() {
-            labels.push(format!("type: {}", type_value.replace('_', " ")));
-        }
-
-        let sort_value = sort.try_get().unwrap_or_default();
-        if sort_value != "created_desc" {
-            let sort_label = match sort_value.as_str() {
-                "created_asc" => "oldest first",
-                "name_asc" => "name A-Z",
-                _ => sort_value.as_str(),
-            };
-            labels.push(format!("sort: {}", sort_label));
-        }
-
-        if trainable_only.try_get().unwrap_or(false) {
-            labels.push("trainable only".to_string());
-        }
-
-        labels
-    });
-
-    let dataset_count_total = datasets.total;
-    let show_empty = Signal::derive(move || all_datasets.get_value().is_empty());
-    let delete_state_for_views = delete_state;
-
-    view! {
-        <Show
-            when=move || show_empty.try_get().unwrap_or(false)
-            fallback=move || {
-                let delete_state = delete_state_for_views;
-                view! {
-                    <div class="space-y-4">
-                        // Readiness strip
-                        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                            <DatasetStatCard
-                                label="Trainable"
-                                badge_label="Ready"
-                                badge_variant=BadgeVariant::Success
-                                description="Ready for training"
-                                title="Show trainable datasets"
-                                on_click=on_quick_trainable
-                            >
-                                {move || trainable_count.try_get().unwrap_or(0).to_string()}
-                            </DatasetStatCard>
-                            <DatasetStatCard
-                                label="Needs validation"
-                                badge_label="Check"
-                                badge_variant=BadgeVariant::Warning
-                                description="Fix format or re-validate"
-                                title="Show datasets that need validation"
-                                on_click=on_quick_needs_validation
-                            >
-                                {move || needs_validation_count.try_get().unwrap_or(0).to_string()}
-                            </DatasetStatCard>
-                            <DatasetStatCard
-                                label="Needs trust"
-                                badge_label="Gate"
-                                badge_variant=BadgeVariant::Warning
-                                description="Approval required"
-                                title="Show datasets blocked by trust/approval"
-                                on_click=on_quick_needs_trust
-                            >
-                                {move || needs_trust_count.try_get().unwrap_or(0).to_string()}
-                            </DatasetStatCard>
-                            <DatasetStatCard
-                                label="Processing / Failed"
-                                badge_label="Status"
-                                badge_variant=BadgeVariant::Secondary
-                                description="Wait or investigate"
-                                title="Show datasets still processing or failed"
-                                on_click=on_quick_processing_failed
-                            >
-                                {move || processing_failed_count.try_get().unwrap_or(0).to_string()}
-                            </DatasetStatCard>
-                        </div>
-
-                        // Filter bar + view toggle
-                        <Card>
-                            <div class="p-4 space-y-3">
-                                <div class="flex items-center justify-between gap-4 flex-wrap">
-                                    <div class="text-sm text-muted-foreground">
-                                        {move || {
-                                            let filtered = total_filtered.try_get().unwrap_or(0);
-                                            if filtered as i64 == dataset_count_total {
-                                                format!("{} dataset(s)", dataset_count_total)
-                                            } else {
-                                                format!("{} of {} dataset(s)", filtered, dataset_count_total)
-                                            }
-                                        }}
-                                    </div>
-                                    <div class="inline-flex rounded-md border border-border overflow-hidden">
-                                        <button
-                                            type="button"
-                                            class=move || {
-                                                if view_mode.try_get().unwrap_or(DatasetViewMode::Table) == DatasetViewMode::Table {
-                                                    "px-3 py-1.5 text-xs bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                                } else {
-                                                    "px-3 py-1.5 text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                                }
-                                            }
-                                            on:click={
-                                                let cb = on_set_view_mode;
-                                                move |_| cb.run(DatasetViewMode::Table)
-                                            }
-                                        >
-                                            "Table"
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class=move || {
-                                                if view_mode.try_get().unwrap_or(DatasetViewMode::Table) == DatasetViewMode::Cards {
-                                                    "px-3 py-1.5 text-xs bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                                } else {
-                                                    "px-3 py-1.5 text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                                }
-                                            }
-                                            on:click={
-                                                let cb = on_set_view_mode;
-                                                move |_| cb.run(DatasetViewMode::Cards)
-                                            }
-                                        >
-                                            "Cards"
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div class="flex flex-wrap items-center gap-3">
-                                    <Input
-                                        value=search
-                                        placeholder="Search by name or ID..."
-                                        class="w-64"
-                                    />
-
-                                    <Select
-                                        value=status_filter
-                                        options=vec![
-                                            ("".to_string(), "All Status".to_string()),
-                                            ("ready_indexed".to_string(), "Ready/Indexed".to_string()),
-                                            ("ready".to_string(), "Ready".to_string()),
-                                            ("indexed".to_string(), "Indexed".to_string()),
-                                            ("processing".to_string(), "Processing".to_string()),
-                                            ("failed".to_string(), "Failed/Error".to_string()),
-                                            ("other".to_string(), "Other".to_string()),
-                                        ]
-                                        class="w-40".to_string()
-                                    />
-                                    <span class="text-xs text-muted-foreground">
-                                        "Other = anything not ready/indexed/processing/failed/error"
-                                    </span>
-                                    <Select
-                                        value=validation_filter
-                                        options=vec![
-                                            ("".to_string(), "All Validation".to_string()),
-                                            ("valid".to_string(), "Valid".to_string()),
-                                            ("not_valid".to_string(), "Needs Validation".to_string()),
-                                            ("invalid".to_string(), "Invalid/Failed".to_string()),
-                                            ("pending".to_string(), "Pending/Processing".to_string()),
-                                            ("unknown".to_string(), "Unknown".to_string()),
-                                        ]
-                                        class="w-44".to_string()
-                                    />
-                                    <Select
-                                        value=trust_filter
-                                        options=vec![
-                                            ("".to_string(), "All Trust".to_string()),
-                                            ("ok".to_string(), "Allowed".to_string()),
-                                            ("not_ok".to_string(), "Needs Trust".to_string()),
-                                            ("needs_approval".to_string(), "Needs Approval".to_string()),
-                                            ("blocked".to_string(), "Blocked".to_string()),
-                                            ("unknown".to_string(), "Unknown".to_string()),
-                                        ]
-                                        class="w-40".to_string()
-                                    />
-                                    <Select
-                                        value=type_filter
-                                        options=vec![
-                                            ("".to_string(), "All Types".to_string()),
-                                            ("standard".to_string(), "Standard".to_string()),
-                                            ("identity".to_string(), "Identity".to_string()),
-                                        ]
-                                        class="w-36".to_string()
-                                    />
-                                    <Select
-                                        value=sort
-                                        options=vec![
-                                            ("created_desc".to_string(), "Created (newest)".to_string()),
-                                            ("created_asc".to_string(), "Created (oldest)".to_string()),
-                                            ("name_asc".to_string(), "Name (A-Z)".to_string()),
-                                        ]
-                                        class="w-44".to_string()
-                                    />
-                                    <Toggle
-                                        checked=trainable_only
-                                        label="Trainable only".to_string()
-                                        class="w-auto"
-                                    />
-                                    <Button
-                                        variant=ButtonVariant::Ghost
-                                        disabled=Signal::derive(move || !any_filters_active.try_get().unwrap_or(false))
-                                        on_click=Callback::new(move |_| {
-                                            search.set(String::new());
-                                            status_filter.set(String::new());
-                                            validation_filter.set(String::new());
-                                            trust_filter.set(String::new());
-                                            type_filter.set(String::new());
-                                            sort.set("created_desc".to_string());
-                                            trainable_only.set(false);
-                                        })
-                                    >
-                                        "Clear filters"
-                                    </Button>
-                                </div>
-                                {move || {
-                                    let labels = active_filter_labels.try_get().unwrap_or_default();
-                                    if labels.is_empty() {
-                                        None
-                                    } else {
-                                        Some(view! {
-                                            <div class="flex flex-wrap items-center gap-2">
-                                                <span class="text-xs text-muted-foreground">"Active filters:"</span>
-                                                {labels.into_iter().map(|label| {
-                                                    view! {
-                                                        <Badge variant=BadgeVariant::Outline>{label}</Badge>
-                                                    }
-                                                }).collect::<Vec<_>>()}
-                                            </div>
-                                        })
-                                    }
-                                }}
-                            </div>
-                        </Card>
-
-                        // Results (table or cards)
-                        {move || {
-                            let items = filtered_sorted.try_get().unwrap_or_default();
-                            if items.is_empty() {
-                                view! {
-                                    <Card>
-                                        <EmptyState
-                                            title="No datasets match your filters"
-                                            description="Try clearing filters or searching by ID."
-                                        />
-                                    </Card>
-                                }.into_any()
-                            } else if view_mode.try_get().unwrap_or(DatasetViewMode::Table) == DatasetViewMode::Cards {
-                                view! { <DatasetsCardGrid datasets=items delete_state=delete_state/> }.into_any()
-                            } else {
-                                view! { <DatasetsTable datasets=items delete_state=delete_state/> }.into_any()
-                            }
-                        }}
-                    </div>
-                }.into_any()
-            }
-        >
-            <Card>
-                <div class="py-10 px-6 text-center space-y-3">
-                    <div class="heading-3">"No training data yet"</div>
-                    <p class="text-sm text-muted-foreground max-w-xl mx-auto">
-                        "Create an adapter from your files first, or upload structured training data directly."
-                    </p>
-                    <div class="flex items-center justify-center gap-2 pt-2">
-                        <Button
-                            variant=ButtonVariant::Primary
-                            on_click=Callback::new({
-                                let nav_store = navigate_store;
-                                move |_| {
-                                    nav_store
-                                        .with_value(|nav| nav("/training?open_wizard=1", Default::default()))
-                                }
-                            })
-                        >
-                            "Create Adapter"
-                        </Button>
-                        <Button
-                            variant=ButtonVariant::Outline
-                            on_click=Callback::new({
-                                let on_upload = on_upload;
-                                move |_| on_upload.run(())
-                            })
-                        >
-                            "Upload Structured Data"
-                        </Button>
-                    </div>
-                </div>
-            </Card>
-        </Show>
-
-        <ConfirmationDialog
-            open=delete_state.show
-            title="Delete Dataset"
-            description=format!("Are you sure you want to delete this dataset? This action cannot be undone.")
-            severity=ConfirmationSeverity::Destructive
-            confirm_text="Delete"
-            cancel_text="Cancel"
-            on_confirm=on_confirm_delete
-            on_cancel=on_cancel_delete
-            loading=Signal::derive(move || delete_state_for_loading.deleting.try_get().unwrap_or(false))
-        />
-    }
-    .into_any()
+fn is_text_mime(mime: Option<&str>) -> bool {
+    let m = mime.unwrap_or("").trim().to_ascii_lowercase();
+    m.starts_with("text/")
+        || m == "application/json"
+        || m == "application/jsonl"
+        || m == "application/x-ndjson"
 }
 
-#[component]
-fn DatasetsTable(
-    datasets: Vec<crate::api::DatasetResponse>,
-    delete_state: DeleteDialogState,
-) -> impl IntoView {
-    let navigate = use_navigate();
-
-    view! {
-        <Card>
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>"Name"</TableHead>
-                        <TableHead>"Readiness"</TableHead>
-                        <TableHead>"Type"</TableHead>
-                        <TableHead>"Format"</TableHead>
-                        <TableHead>"Size"</TableHead>
-                        <TableHead>"Created"</TableHead>
-                        <TableHead class="text-right">"Actions"</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {datasets.into_iter().map(|dataset| {
-                        let gating = dataset_gating(&dataset);
-                        let readiness_label = gating.readiness_label;
-                        let readiness_variant = gating.readiness_variant;
-                        let is_trainable = gating.is_trainable;
-                        let inline_reason = gating.inline_reason.clone();
-                        let id_for_nav = dataset.id.clone();
-                        let id_for_train = dataset.id.clone();
-                        let id_for_delete = dataset.id.clone();
-                        let name = dataset.name.clone();
-                        let name_for_delete = name.clone();
-                        let name_for_title = name.clone();
-                        let name_for_view_aria = name.clone();
-                        let name_for_train_aria = name.clone();
-                        let inline_reason_for_readiness = inline_reason.clone();
-                        let inline_reason_for_actions = inline_reason.clone();
-
-                        let size_display = dataset
-                            .total_size_bytes
-                            .map(format_bytes)
-                            .unwrap_or_else(|| "—".to_string());
-
-                        let nav = navigate.clone();
-                        let nav_for_train = navigate.clone();
-                        let train_tooltip: String = if is_trainable {
-                            "Train an adapter from this dataset".to_string()
-                        } else {
-                            inline_reason.clone()
-                        };
-
-                        view! {
-                            <TableRow>
-                                <TableCell>
-                                    <button
-                                        class="font-medium text-primary hover:underline text-left truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
-                                        title=name_for_title
-                                        aria-label=format!("View dataset {}", name_for_view_aria.as_str())
-                                        on:click=move |_| {
-                                            nav(&format!("/datasets/{}", id_for_nav), Default::default());
-                                        }
-                                    >
-                                        {name.clone()}
-                                    </button>
-                                    {dataset.description.as_ref().filter(|d| !d.is_empty()).map(|desc| {
-                                        let truncated = if desc.len() > 80 {
-                                            format!("{}...", &desc[..80])
-                                        } else {
-                                            desc.clone()
-                                        };
-                                        view! {
-                                            <div class="text-xs text-muted-foreground truncate max-w-xs">{truncated}</div>
-                                        }
-                                    })}
-                                    <div class="text-xs text-muted-foreground font-mono truncate max-w-xs">
-                                        {adapteros_id::short_id(&dataset.id)}
-                                    </div>
-                                </TableCell>
-                                <TableCell>
-                                    <div class="space-y-1">
-                                        <Badge variant=readiness_variant>
-                                            {readiness_label}
-                                        </Badge>
-                                        <div class="text-xs text-muted-foreground">
-                                            {inline_reason_for_readiness.clone()}
-                                        </div>
-                                        {dataset.validation_errors.as_ref()
-                                            .map(|errs| errs.len())
-                                            .filter(|count| *count > 0)
-                                            .map(|count| view! {
-                                                <div class="text-xs text-destructive">
-                                                    {format!("{} validation error(s)", count)}
-                                                </div>
-                                            })}
-                                    </div>
-                                </TableCell>
-                                <TableCell>
-                                    {match dataset.dataset_type.as_deref() {
-                                        Some("identity") => view! { <Badge variant=BadgeVariant::Secondary>"Identity"</Badge> }.into_any(),
-                                        _ => view! { <Badge variant=BadgeVariant::Outline>"Standard"</Badge> }.into_any(),
-                                    }}
-                                </TableCell>
-                                <TableCell>
-                                    <span class="text-sm text-muted-foreground">{dataset.format.to_uppercase()}</span>
-                                </TableCell>
-                                <TableCell>
-                                    <span class="text-sm">{size_display}</span>
-                                </TableCell>
-                                <TableCell>
-                                    <span class="text-sm text-muted-foreground">{format_date(&dataset.created_at)}</span>
-                                </TableCell>
-                                <TableCell class="text-right">
-                                    <div class="inline-flex items-center gap-2 justify-end">
-                                        <span class="inline-flex items-center gap-1" title=train_tooltip>
-                                            <Button
-                                                variant=ButtonVariant::Ghost
-                                                aria_label=format!("Train adapter from {}", name_for_train_aria.clone())
-                                                disabled=!is_trainable
-                                                on_click=Callback::new({
-                                                    let nav = nav_for_train.clone();
-                                                    let id = id_for_train.clone();
-                                                    move |_| {
-                                                        nav(&format!("/training?open_wizard=1&dataset_id={}", id), Default::default());
-                                                    }
-                                                })
-                                            >
-                                                <svg
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    class="h-4 w-4"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    stroke-width="2"
-                                                    stroke-linecap="round"
-                                                    stroke-linejoin="round"
-                                                >
-                                                    <polygon points="5 3 19 12 5 21 5 3"/>
-                                                </svg>
-                                            </Button>
-                                            <span class="text-xs text-muted-foreground hidden md:inline">
-                                                {if is_trainable { "Train".to_string() } else { inline_reason_for_actions.clone() }}
-                                            </span>
-                                        </span>
-                                        <Button
-                                            variant=ButtonVariant::Ghost
-                                            aria_label=format!("Delete dataset {}", name_for_delete.clone())
-                                            on_click=Callback::new(move |_| {
-                                                delete_state.confirm(id_for_delete.clone(), name_for_delete.clone());
-                                            })
-                                        >
-                                            <svg
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                class="h-4 w-4 text-destructive"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                stroke-width="2"
-                                            >
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                            </svg>
-                                        </Button>
-                                    </div>
-                                </TableCell>
-                            </TableRow>
-                        }
-                    }).collect::<Vec<_>>()}
-                </TableBody>
-            </Table>
-        </Card>
-    }
-}
-
-#[component]
-fn DatasetsCardGrid(
-    datasets: Vec<crate::api::DatasetResponse>,
-    delete_state: DeleteDialogState,
-) -> impl IntoView {
-    let navigate = use_navigate();
-
-    view! {
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {datasets.into_iter().map(|dataset| {
-                let gating = dataset_gating(&dataset);
-                let readiness_label = gating.readiness_label;
-                let readiness_variant = gating.readiness_variant;
-                let is_trainable = gating.is_trainable;
-                let inline_reason = gating.inline_reason.clone();
-
-                let name = dataset.name.clone();
-                let card_description = dataset.description.clone();
-                let created_at = dataset.created_at.clone();
-                let format = dataset.format.clone();
-                let status = dataset.status.clone();
-                let dtype = dataset_type_label(&dataset).to_string();
-                let validation_status = dataset.validation_status.clone();
-                let trust_state = dataset.trust_state.clone();
-
-                let status_variant = match status.as_str() {
-                    "ready" | "indexed" => BadgeVariant::Success,
-                    "processing" => BadgeVariant::Warning,
-                    "failed" | "error" => BadgeVariant::Destructive,
-                    _ => BadgeVariant::Secondary,
-                };
-                let validation_variant = validation_status.as_deref().map(validation_badge_variant);
-                let trust_variant = trust_state.as_deref().map(trust_state_badge_variant);
-
-                let id_for_nav = dataset.id.clone();
-                let id_for_train = dataset.id.clone();
-                let id_for_delete = dataset.id.clone();
-                let name_for_delete = name.clone();
-
-                let nav_to_detail = navigate.clone();
-                let nav_to_issues = navigate.clone();
-                let nav_for_train = navigate.clone();
-
-                let size_display = dataset
-                    .total_size_bytes
-                    .map(format_bytes)
-                    .unwrap_or_else(|| "—".to_string());
-
-                view! {
-                    <Card>
-                        <div class="p-4 space-y-3">
-                            <div class="flex items-start justify-between gap-3">
-                                <div class="min-w-0">
-                                    <button
-                                        class="font-medium text-primary hover:underline text-left truncate w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
-                                        on:click=move |_| nav_to_detail(&format!("/datasets/{}", id_for_nav), Default::default())
-                                        title=name.clone()
-                                    >
-                                        {name.clone()}
-                                    </button>
-                                    {card_description.as_ref().filter(|d| !d.is_empty()).map(|desc| {
-                                        let truncated = if desc.len() > 80 {
-                                            format!("{}...", &desc[..80])
-                                        } else {
-                                            desc.clone()
-                                        };
-                                        view! {
-                                            <div class="text-xs text-muted-foreground truncate">{truncated}</div>
-                                        }
-                                    })}
-                                    <div class="text-xs text-muted-foreground">
-                                        {format_date(&created_at)} " · " {size_display}
-                                    </div>
-                                </div>
-                                <Badge variant=readiness_variant>{readiness_label}</Badge>
-                            </div>
-
-                            <div class="flex flex-wrap items-center gap-1.5">
-                                <Badge variant=if dtype == "Identity" { BadgeVariant::Secondary } else { BadgeVariant::Outline }>
-                                    {dtype.clone()}
-                                </Badge>
-                                <Badge variant=status_variant>{status.clone()}</Badge>
-                                {validation_status.clone().map(|s| {
-                                    let v = validation_variant.unwrap_or(BadgeVariant::Secondary);
-                                    view! { <Badge variant=v>{format!("Validation: {}", humanize(&s))}</Badge> }
-                                })}
-                                {trust_state.clone().map(|s| {
-                                    let v = trust_variant.unwrap_or(BadgeVariant::Secondary);
-                                    view! { <Badge variant=v>{format!("Trust: {}", humanize(&s))}</Badge> }
-                                })}
-                                <Badge variant=BadgeVariant::Outline>{format.to_uppercase()}</Badge>
-                            </div>
-
-                            <div class="text-xs text-muted-foreground">
-                                {inline_reason.clone()}
-                            </div>
-
-                            <div class="flex items-center justify-between gap-2 pt-1">
-                                {if is_trainable {
-                                    view! {
-                                        <Button
-                                            variant=ButtonVariant::Primary
-                                            on_click=Callback::new(move |_| {
-                                                nav_for_train(&format!("/training?open_wizard=1&dataset_id={}", id_for_train), Default::default());
-                                            })
-                                        >
-                                            "Train Adapter"
-                                        </Button>
-                                    }.into_any()
-                                } else {
-                                    view! {
-                                        <Button
-                                            variant=ButtonVariant::Outline
-                                            on_click=Callback::new(move |_| {
-                                                nav_to_issues(&format!("/datasets/{}?tab=issues#validation-errors", id_for_train), Default::default());
-                                            })
-                                        >
-                                            "View Issues"
-                                        </Button>
-                                    }.into_any()
-                                }}
-                                <Button
-                                    variant=ButtonVariant::Ghost
-                                    aria_label=format!("Delete dataset {}", name_for_delete.clone())
-                                    on_click=Callback::new(move |_| {
-                                        delete_state.confirm(id_for_delete.clone(), name_for_delete.clone());
-                                    })
-                                >
-                                    "Delete"
-                                </Button>
-                            </div>
-                        </div>
-                    </Card>
-                }
-            }).collect::<Vec<_>>()}
-        </div>
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DatasetDetailTab {
-    Preview,
-    Issues,
-    Versions,
-    Files,
-    Details,
-}
-
-impl DatasetDetailTab {
-    fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "preview" => Some(Self::Preview),
-            "issues" => Some(Self::Issues),
-            "versions" => Some(Self::Versions),
-            "files" => Some(Self::Files),
-            "details" => Some(Self::Details),
-            _ => None,
+fn is_pdf_file(file: &DatasetFileResponse) -> bool {
+    if let Some(mime) = file.mime_type.as_deref() {
+        if mime.eq_ignore_ascii_case("application/pdf") {
+            return true;
         }
     }
-
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Preview => "preview",
-            Self::Issues => "issues",
-            Self::Versions => "versions",
-            Self::Files => "files",
-            Self::Details => "details",
-        }
-    }
+    file.file_name.to_ascii_lowercase().trim().ends_with(".pdf")
 }
 
-impl fmt::Display for DatasetDetailTab {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
+fn metadata_string(row: &CanonicalRow, key: &str) -> Option<String> {
+    row.metadata
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
 }
 
-/// Dataset detail page
-#[component]
-pub fn DatasetDetail() -> impl IntoView {
-    let params = use_params_map();
-    let navigate = use_navigate();
-    let navigate_store = StoredValue::new(navigate);
+fn metadata_i32(row: &CanonicalRow, key: &str) -> Option<i32> {
+    row.metadata.get(key).and_then(|raw| match raw {
+        serde_json::Value::Number(num) => num.as_i64().and_then(|n| i32::try_from(n).ok()),
+        serde_json::Value::String(text) => text.trim().parse::<i32>().ok(),
+        _ => None,
+    })
+}
 
-    let dataset_id = move || {
-        params
-            .try_get()
-            .unwrap_or_default()
-            .get("id")
-            .unwrap_or_default()
-    };
-    let query = use_query_map();
-    let is_draft = Signal::derive(move || {
-        let id = dataset_id();
-        id == "draft" || id.starts_with("draft-")
-    });
-    let draft_source = Signal::derive(move || {
-        query
-            .try_get()
-            .unwrap_or_default()
-            .get("source")
-            .unwrap_or_else(|| "unknown".to_string())
-    });
-    let draft_items = Signal::derive(move || {
-        query
-            .try_get()
-            .unwrap_or_default()
-            .get("items")
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(0)
-    });
-    let draft_name = Signal::derive(move || {
-        query.try_get().unwrap_or_default().get("name").map(|raw| {
-            js_sys::decode_uri_component(&raw)
-                .map(|s| s.as_string().unwrap_or_else(|| raw.clone()))
-                .unwrap_or_else(|_| raw)
-        })
-    });
-    let draft_document_ids = Signal::derive(move || {
-        let params = query.try_get().unwrap_or_default();
-        let mut ids = Vec::new();
-        if let Some(id) = params.get("document_id") {
-            let trimmed = id.trim();
-            if !trimmed.is_empty() {
-                ids.push(trimmed.to_string());
-            }
-        }
-        if let Some(raw_ids) = params.get("document_ids") {
-            for id in raw_ids.split(',') {
-                let trimmed = id.trim();
-                if !trimmed.is_empty() {
-                    ids.push(trimmed.to_string());
-                }
-            }
-        }
-        ids
-    });
-    let draft_dataset_id =
-        Signal::derive(move || query.try_get().unwrap_or_default().get("dataset_id"));
-    let draft_base_model_id = Signal::derive(move || {
-        query
-            .try_get()
-            .unwrap_or_default()
-            .get("base_model_id")
-            .and_then(|raw| {
-                js_sys::decode_uri_component(&raw)
-                    .ok()
-                    .and_then(|s| s.as_string())
-            })
-    });
+fn row_source_file_hint(row: &CanonicalRow) -> Option<String> {
+    metadata_string(row, "source_file")
+        .or_else(|| metadata_string(row, "source_document_name"))
+        .or_else(|| metadata_string(row, "file_path"))
+}
 
-    // Detail tab state (progressive disclosure)
-    let active_tab = RwSignal::new(DatasetDetailTab::Preview);
-    let tab_initialized = RwSignal::new(false);
+fn row_source_page_start(row: &CanonicalRow) -> Option<i32> {
+    metadata_i32(row, "source_page_number").or_else(|| metadata_i32(row, "page_start"))
+}
 
-    // Initialize tab from query param (?tab=issues), once.
-    Effect::new(move |_| {
-        if tab_initialized.try_get().unwrap_or(true) {
-            return;
-        }
-        let Some(q) = query.try_get() else { return };
-        if let Some(raw) = q.get("tab") {
-            if let Some(tab) = DatasetDetailTab::from_str(raw.as_str()) {
-                let _ = active_tab.try_set(tab);
-                let _ = tab_initialized.try_set(true);
-            }
-        }
-    });
+fn row_source_span_label(row: &CanonicalRow) -> String {
+    let page_start = row_source_page_start(row);
+    let page_end = metadata_i32(row, "source_page_end").or(page_start);
+    let char_start =
+        metadata_i32(row, "source_start_offset").or_else(|| metadata_i32(row, "char_start"));
+    let char_end = metadata_i32(row, "source_end_offset").or_else(|| metadata_i32(row, "char_end"));
 
-    // Keep ?tab= in sync when user clicks tabs (replace, not push).
-    Effect::new(move |_| {
-        if !tab_initialized.try_get().unwrap_or(false) {
-            return;
-        }
-        let Some(tab) = active_tab.try_get() else {
-            return;
-        };
-        let Some(q) = query.try_get() else { return };
-        let mut params: HashMap<String, String> =
-            q.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-        params.insert("tab".to_string(), tab.as_str().to_string());
-        let qs = build_query_string(&params);
-        navigate_store.with_value(|nav| {
-            nav(
-                &format!("/datasets/{}{}", dataset_id(), qs),
-                leptos_router::NavigateOptions {
-                    replace: true,
-                    ..Default::default()
-                },
-            );
-        });
-    });
-
-    let (dataset, refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let id = dataset_id();
-        async move { client.get_dataset(&id).await }
-    });
-
-    let (stats, stats_refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let id = dataset_id();
-        async move { client.get_dataset_statistics(&id).await }
-    });
-    let (versions, versions_refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let id = dataset_id();
-        async move { client.list_dataset_versions(&id).await }
-    });
-
-    // Refresh trigger for Preview tab (when main Refresh is clicked)
-    let preview_refresh_trigger = RwSignal::new(0u32);
-
-    // Files list
-    let (files, files_refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let id = dataset_id();
-        async move { client.list_dataset_files(&id).await }
-    });
-
-    // If no explicit tab is requested, pick a default based on trainability.
-    Effect::new(move |_| {
-        if tab_initialized.try_get().unwrap_or(true) {
-            return;
-        }
-        let Some(LoadingState::Loaded(data)) = dataset.try_get() else {
-            return;
-        };
-        let g = dataset_gating(&data);
-        if g.status_ok && (!g.validation_ok || !g.trust_ok) {
-            let _ = active_tab.try_set(DatasetDetailTab::Issues);
+    let mut parts = Vec::new();
+    if let Some(file) = row_source_file_hint(row) {
+        parts.push(file);
+    }
+    if let Some(page) = page_start {
+        if page_end.unwrap_or(page) > page {
+            parts.push(format!("p{}-{}", page, page_end.unwrap_or(page)));
         } else {
-            let _ = active_tab.try_set(DatasetDetailTab::Preview);
+            parts.push(format!("p{}", page));
         }
-        let _ = tab_initialized.try_set(true);
-    });
+    }
+    if let Some(start) = char_start {
+        if let Some(end) = char_end {
+            parts.push(format!("chars {}-{}", start, end));
+        } else {
+            parts.push(format!("char {}", start));
+        }
+    }
 
-    let refetch_trigger = RwSignal::new(0u32);
-    let refetch_stored = StoredValue::new(refetch);
-    let stats_refetch_stored = StoredValue::new(stats_refetch);
-    let versions_refetch_stored = StoredValue::new(versions_refetch);
-    let files_refetch_stored = StoredValue::new(files_refetch);
+    if parts.is_empty() {
+        "-".to_string()
+    } else {
+        parts.join(" · ")
+    }
+}
 
-    Effect::new(move |_| {
-        let Some(_) = refetch_trigger.try_get() else {
-            return;
-        };
-        refetch_stored.with_value(|f| f.run(()));
-        stats_refetch_stored.with_value(|f| f.run(()));
-        versions_refetch_stored.with_value(|f| f.run(()));
-        preview_refresh_trigger.update(|n| *n = n.wrapping_add(1));
-        files_refetch_stored.with_value(|f| f.run(()));
-    });
+fn shorten_text(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+    let mut out = String::new();
+    for ch in value.chars().take(max_chars) {
+        out.push(ch);
+    }
+    out.push_str("...");
+    out
+}
 
-    let trigger_refresh = move || {
-        refetch_trigger.update(|n| *n = n.wrapping_add(1));
-    };
+fn resolve_source_file_for_row(
+    row: &CanonicalRow,
+    files: &[DatasetFileResponse],
+) -> Option<DatasetFileResponse> {
+    let hint = row_source_file_hint(row)?;
+    let needle = hint.to_ascii_lowercase();
 
-    // Delete state (using standard hook)
-    let client = use_api();
-    let detail_delete_state = use_delete_dialog();
-    let detail_delete_for_cancel = detail_delete_state;
-    let on_cancel_delete = Callback::new(move |_| detail_delete_for_cancel.cancel());
-
-    let detail_delete_for_confirm = detail_delete_state;
-    let on_confirm_delete = {
-        let client = Arc::clone(&client);
-        let nav_store = navigate_store;
-        Callback::new(move |_| {
-            if let Some(id) = detail_delete_for_confirm.get_pending_id() {
-                detail_delete_for_confirm.start_delete();
-                let client = Arc::clone(&client);
-                let delete_state = detail_delete_for_confirm;
-                let nav_store = nav_store;
-                wasm_bindgen_futures::spawn_local(async move {
-                    match client.delete_dataset(&id).await {
-                        Ok(_) => {
-                            delete_state.finish_delete(Ok(()));
-                            nav_store.with_value(|nav| nav("/datasets", Default::default()));
-                        }
-                        Err(e) => {
-                            delete_state.finish_delete(Err(format!("Failed to delete: {}", e)));
-                        }
-                    }
-                });
-            }
+    files
+        .iter()
+        .find(|file| {
+            let name = file.file_name.to_ascii_lowercase();
+            name == needle
+                || name.ends_with(&needle)
+                || needle.ends_with(&name)
+                || name.contains(&needle)
+                || needle.contains(&name)
         })
-    };
-    let detail_delete_for_loading = detail_delete_state;
-    let detail_delete_for_button = detail_delete_state;
+        .cloned()
+}
+
+#[component]
+fn DatasetFilesTable(
+    dataset_id: String,
+    client: std::sync::Arc<ApiClient>,
+    files: ReadSignal<LoadingState<Vec<DatasetFileResponse>>>,
+    refetch: Refetch,
+) -> impl IntoView {
+    let view_dialog_open = RwSignal::new(false);
+    let view_file = RwSignal::new(None::<DatasetFileResponse>);
+    let view_content = RwSignal::new(None::<Result<String, ApiError>>);
+    let view_loading = RwSignal::new(false);
+
+    let open_view = Callback::new({
+        let client = client.clone();
+        let dataset_id = dataset_id.clone();
+        move |file: DatasetFileResponse| {
+            view_file.set(Some(file.clone()));
+            view_dialog_open.set(true);
+            view_content.set(None);
+            view_loading.set(true);
+
+            let client = client.clone();
+            let dataset_id = dataset_id.clone();
+            let file_id = file.file_id.clone();
+            let content_signal = view_content;
+            let loading_signal = view_loading;
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = client.get_dataset_file_content(&dataset_id, &file_id).await;
+                content_signal.set(Some(result));
+                loading_signal.set(false);
+            });
+        }
+    });
 
     view! {
-        <div class="space-y-6">
-            // Breadcrumb navigation
-            <BreadcrumbTrail items=vec![
-                PageBreadcrumbItem::new("Data", "/datasets"),
-                PageBreadcrumbItem::new("Datasets", "/datasets"),
-                PageBreadcrumbItem::current(dataset_id()),
-            ]/>
-
-            {move || {
-                if is_draft.try_get().unwrap_or(false) {
-                    view! {
-                        <DatasetDraftView
-                            source=draft_source.try_get().unwrap_or_default()
-                            name=draft_name.try_get().flatten()
-                            items=draft_items.try_get().unwrap_or(0)
-                            document_ids=draft_document_ids.try_get().unwrap_or_default()
-                            dataset_id=draft_dataset_id.try_get().flatten()
-                            base_model_id=draft_base_model_id.try_get().flatten()
-                        />
-                    }.into_any()
+        {move || match files.get() {
+            LoadingState::Idle | LoadingState::Loading => {
+                view! { <p class="text-sm text-muted-foreground">"Loading files..."</p> }.into_any()
+            }
+            LoadingState::Error(e) => {
+                view! { <ErrorDisplay error=e on_retry=Callback::new(move |_| refetch.run(())) /> }
+                    .into_any()
+            }
+            LoadingState::Loaded(rows) => {
+                if rows.is_empty() {
+                    view! { <p class="text-sm text-muted-foreground">"No files found."</p> }
+                        .into_any()
                 } else {
-                    match dataset.try_get().unwrap_or(LoadingState::Idle) {
-                        LoadingState::Idle | LoadingState::Loading => {
-                            view! { <SkeletonDetailSection rows=6 has_title=true/> }.into_any()
-                        }
-                        LoadingState::Loaded(data) => {
-                            let gating = dataset_gating(&data);
-                            let dataset_version_id = data.dataset_version_id.clone();
-                            let dataset_version_id_display =
-                                dataset_version_id.clone().unwrap_or_else(|| "—".to_string());
-                            let trust_state = data.trust_state.clone();
-                            let dataset_id_for_train = data.id.clone();
-                            let data_for_details = data.clone();
-                            let data_for_issues = (data.validation_errors.clone(), data.validation_diagnostics.clone());
-
-                            view! {
-                                <div class="space-y-4">
-                                    <PageHeader
-                                        title=data.name.clone()
-                                        subtitle=data.description.clone().unwrap_or_else(|| "Training dataset".to_string())
-                                    >
-                                        <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
-                                        {gating.is_trainable.then(|| {
-                                            let nav_store = navigate_store;
-                                            let id = dataset_id_for_train.clone();
-                                            view! {
-                                            <Button
-                                                variant=ButtonVariant::Primary
-                                                on_click=Callback::new(move |_| {
-                                                    nav_store.with_value(|nav| {
-                                                        nav(
-                                                            &format!(
-                                                                "/training?open_wizard=1&dataset_id={}",
-                                                                id
-                                                            ),
-                                                            Default::default(),
-                                                        );
-                                                    });
-                                                })
-                                            >
-                                                "Train Adapter"
-                                            </Button>
-                                            }
-                                        })}
-                                        <Button
-                                            variant=ButtonVariant::Destructive
-                                            on_click=Callback::new({
-                                                let ds = detail_delete_for_button;
-                                                move |_| ds.confirm(dataset_id(), dataset_id())
-                                            })
-                                        >
-                                            "Delete"
-                                        </Button>
-                                    </PageHeader>
-
-                                    // Readiness banner
-                                    <Card>
-                                        <div class="p-4 flex items-start justify-between gap-4 flex-wrap">
-                                            <div class="space-y-2 min-w-0">
-                                                {move || {
-                                                    // Use the real trust_state string for copy.
-                                                    let trust = trust_state
-                                                        .clone()
-                                                        .unwrap_or_else(|| "unknown".to_string());
-                                                    let trust_label = if gating.trust_ok {
-                                                        "OK".to_string()
-                                                    } else if trust == "blocked" {
-                                                        "Blocked".to_string()
-                                                    } else if trust == "needs_approval" {
-                                                        "Needs approval".to_string()
-                                                    } else if trust == "allowed_with_warning" {
-                                                        "Review warning".to_string()
+                    view! {
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>"File"</TableHead>
+                                    <TableHead>"Type"</TableHead>
+                                    <TableHead>"Size"</TableHead>
+                                    <TableHead>"Created"</TableHead>
+                                    <TableHead>"Actions"</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {rows
+                                    .into_iter()
+                                    .map(|file| {
+                                        let file_clone = file.clone();
+                                        let can_view = is_text_mime(file.mime_type.as_deref());
+                                        view! {
+                                            <TableRow>
+                                                <TableCell>{file.file_name}</TableCell>
+                                                <TableCell>
+                                                    {file.mime_type.unwrap_or_else(|| "-".to_string())}
+                                                </TableCell>
+                                                <TableCell>{format_bytes(file.size_bytes)}</TableCell>
+                                                <TableCell>
+                                                    <span class="text-xs text-muted-foreground">
+                                                        {format_datetime(&file.created_at)}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {if can_view {
+                                                        view! {
+                                                            <Button
+                                                                button_type=ButtonType::Button
+                                                                variant=ButtonVariant::Ghost
+                                                                on_click=Callback::new(move |_| open_view.run(file_clone.clone()))
+                                                            >
+                                                                "View"
+                                                            </Button>
+                                                        }.into_any()
                                                     } else {
-                                                        "Needs trust".to_string()
-                                                    };
-                                                    view! {
-                                                        <div class="flex items-center gap-2">
-                                                            <Badge variant=gating.readiness_variant>
-                                                                {if gating.is_trainable { "Trainable" } else { "Not trainable" }}
-                                                            </Badge>
-                                                            <span class="text-sm text-muted-foreground">
-                                                                {gating.inline_reason.clone()}
+                                                        view! {
+                                                            <span class="text-xs text-muted-foreground" title="Binary file – download to view">
+                                                                "Download"
                                                             </span>
-                                                        </div>
-                                                        <div class="grid gap-1 text-sm mt-2">
-                                                            <div class="flex items-center justify-between gap-3">
-                                                                <span class="text-muted-foreground">"Status gate"</span>
-                                                                <Badge variant=if gating.status_ok { BadgeVariant::Success } else { BadgeVariant::Secondary }>
-                                                                    {if gating.status_ok { "OK" } else { "Needs ready/indexed" }}
-                                                                </Badge>
-                                                            </div>
-                                                            <div class="flex items-center justify-between gap-3">
-                                                                <span class="text-muted-foreground">"Validation gate"</span>
-                                                                <Badge variant=if gating.validation_ok { BadgeVariant::Success } else { BadgeVariant::Warning }>
-                                                                    {if gating.validation_ok { "OK" } else { "Needs valid" }}
-                                                                </Badge>
-                                                            </div>
-                                                            <div class="flex items-center justify-between gap-3">
-                                                                <span class="text-muted-foreground">"Trust gate"</span>
-                                                                <Badge variant=if gating.trust_ok { BadgeVariant::Success } else { BadgeVariant::Warning }>
-                                                                    {trust_label}
-                                                                </Badge>
-                                                            </div>
-                                                        </div>
-                                                    }
-                                                }}
-                                            </div>
-
-                                            {(!gating.is_trainable).then(|| {
-                                                view! {
-                                                    <div class="flex items-center gap-2">
-                                                        <Button
-                                                            variant=ButtonVariant::Outline
-                                                            on_click=Callback::new(move |_| {
-                                                                active_tab.set(DatasetDetailTab::Issues);
-                                                                scroll_to_element_id("validation-errors");
-                                                            })
-                                                        >
-                                                            "See Validation Errors"
-                                                        </Button>
-                                                        <Button
-                                                            variant=ButtonVariant::Outline
-                                                            on_click=Callback::new(move |_| {
-                                                                active_tab.set(DatasetDetailTab::Details);
-                                                                scroll_to_element_id("trust-state");
-                                                            })
-                                                        >
-                                                            "See Trust State"
-                                                        </Button>
-                                                    </div>
-                                                }
-                                            })}
-                                        </div>
-                                    </Card>
-
-                                    // Tabs
-                                    <div class="border-b border-border">
-                                        <TabNav
-                                            tabs=vec![
-                                                (DatasetDetailTab::Preview, "Preview"),
-                                                (DatasetDetailTab::Issues, "Issues"),
-                                                (DatasetDetailTab::Versions, "Versions"),
-                                                (DatasetDetailTab::Files, "Files"),
-                                                (DatasetDetailTab::Details, "Details"),
-                                            ]
-                                            active=active_tab
-                                            aria_label="Dataset detail tabs".to_string()
-                                        />
-                                    </div>
-
-                                    <TabPanel tab=DatasetDetailTab::Preview active=active_tab tab_id="preview".to_string() class="pt-4 space-y-4">
-                                        <components::DatasetDetailTabPreview
-                                            dataset_id=dataset_id()
-                                            on_refresh=Callback::new(move |_| trigger_refresh())
-                                            refresh_trigger=preview_refresh_trigger.read_only()
-                                        />
-                                    </TabPanel>
-
-                                    <TabPanel tab=DatasetDetailTab::Issues active=active_tab tab_id="issues".to_string() class="pt-4 space-y-4">
-                                        <components::DatasetDetailTabIssues
-                                            validation_errors=data_for_issues.0
-                                            validation_diagnostics=data_for_issues.1
-                                        />
-                                    </TabPanel>
-
-                                    <TabPanel tab=DatasetDetailTab::Versions active=active_tab tab_id="versions".to_string() class="pt-4 space-y-4">
-                                        <components::DatasetDetailTabVersions
-                                            dataset_id=dataset_id()
-                                            versions=versions
-                                            dataset_version_id=dataset_version_id.clone()
-                                            on_refresh=Callback::new(move |_| trigger_refresh())
-                                        />
-                                    </TabPanel>
-
-                                    <TabPanel tab=DatasetDetailTab::Files active=active_tab tab_id="files".to_string() class="pt-4 space-y-4">
-                                        <components::DatasetDetailTabFiles
-                                            dataset_id=dataset_id()
-                                            files=files
-                                            on_refresh=Callback::new(move |_| trigger_refresh())
-                                        />
-                                    </TabPanel>
-
-                                    <TabPanel tab=DatasetDetailTab::Details active=active_tab tab_id="details".to_string() class="pt-4 space-y-4">
-                                        <components::DatasetDetailTabDetails
-                                            data=data_for_details
-                                            stats=stats
-                                            dataset_version_id_display=dataset_version_id_display.clone()
-                                        />
-                                    </TabPanel>
-
-                                    <ConfirmationDialog
-                                        open=detail_delete_for_loading.show
-                                        title="Delete Dataset"
-                                        description=format!("Are you sure you want to delete this dataset? This action cannot be undone.")
-                                        severity=ConfirmationSeverity::Destructive
-                                        confirm_text="Delete"
-                                        cancel_text="Cancel"
-                                        on_confirm=on_confirm_delete
-                                        on_cancel=on_cancel_delete
-                                        loading=Signal::derive(move || detail_delete_for_loading.deleting.try_get().unwrap_or(false))
-                                    />
-                                </div>
-                            }.into_any()
-                        }
-                        LoadingState::Error(e) if e.is_not_found() => {
-                            view! {
-                                <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
-                                    <Card class="p-8 max-w-md w-full text-center">
-                                        <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
-                                        <h2 class="heading-3 mb-2">"Dataset not found"</h2>
-                                        <p class="text-muted-foreground mb-6">
-                                            "This dataset may have been deleted or doesn't exist."
-                                        </p>
-                                        <ButtonLink
-                                            href="/datasets"
-                                            variant=ButtonVariant::Primary
-                                            size=ButtonSize::Md
-                                        >
-                                            "View all datasets"
-                                        </ButtonLink>
-                                    </Card>
-                                </div>
-                            }
-                                .into_any()
-                        }
-                        LoadingState::Error(e) => {
-                            view! {
-                                <ErrorDisplay
-                                    error=e
-                                    on_retry=Callback::new(move |_| trigger_refresh())
-                                />
-                            }
-                                .into_any()
-                        }
+                                                        }.into_any()
+                                                    }}
+                                                </TableCell>
+                                            </TableRow>
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()}
+                            </TableBody>
+                        </Table>
                     }
+                    .into_any()
+                }
+            }
+        }}
+
+        <Dialog
+            open=view_dialog_open
+            title="File content".to_string()
+            size=DialogSize::Xl
+            scrollable=true
+        >
+            {move || {
+                let filename = view_file.get().map(|f| f.file_name.clone()).unwrap_or_default();
+                if view_loading.get() {
+                    return view! { <p class="text-sm text-muted-foreground">"Loading..."</p> }.into_any();
+                }
+                match view_content.get() {
+                    None => view! { <p class="text-sm text-muted-foreground">"Loading..."</p> }.into_any(),
+                    Some(Err(e)) => view! {
+                        <p class="text-sm text-destructive">
+                            {format!("Failed to load content: {}", e.user_message())}
+                        </p>
+                        <p class="text-xs text-muted-foreground mt-2">
+                            "Binary files cannot be displayed. Use the download link from the dataset API."
+                        </p>
+                    }.into_any(),
+                    Some(Ok(content)) => view! {
+                        <div class="space-y-2">
+                            {if !filename.is_empty() {
+                                view! {
+                                    <p class="text-xs text-muted-foreground font-mono">{filename}</p>
+                                }.into_any()
+                            } else {
+                                view! {}.into_any()
+                            }}
+                            <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-words max-h-[70vh] bg-muted/20 p-3 rounded-md">
+                                {content}
+                            </pre>
+                        </div>
+                    }.into_any(),
                 }
             }}
-        </div>
+        </Dialog>
     }
 }
 
-/// Dataset draft view (minimal training integration)
 #[component]
-fn DatasetDraftView(
-    source: String,
-    name: Option<String>,
-    items: usize,
-    document_ids: Vec<String>,
-    dataset_id: Option<String>,
-    base_model_id: Option<String>,
+#[allow(dead_code)]
+fn DatasetPreviewPanel(
+    preview: ReadSignal<LoadingState<DatasetPreviewResponse>>,
+    refetch: Refetch,
 ) -> impl IntoView {
-    let pii_scrub = RwSignal::new(true);
-    let dedupe = RwSignal::new(true);
-    let adapter_type = RwSignal::new("identify".to_string());
-    let base_model = RwSignal::new(base_model_id.unwrap_or_default());
-    let training_status = RwSignal::new(None::<String>);
-    let training_error = RwSignal::new(None::<String>);
-    let training_job_id = RwSignal::new(None::<String>);
-    let training_job_status = RwSignal::new(None::<String>);
-    let is_training = RwSignal::new(false);
-    let safety_check_result = RwSignal::new(None::<DatasetSafetyCheckResult>);
-    #[cfg(target_arch = "wasm32")]
-    let safety_warning_acknowledged = RwSignal::new(false);
-    let dataset_id_state = RwSignal::new(dataset_id);
-    let document_ids_store = StoredValue::new(document_ids);
-    let client = use_api();
-    #[cfg(target_arch = "wasm32")]
-    let query = use_query_map();
-    #[cfg(target_arch = "wasm32")]
-    let navigate = use_navigate();
-    #[cfg(target_arch = "wasm32")]
-    let navigate_store = StoredValue::new(navigate);
-    let poll_nonce = RwSignal::new(0u64);
-    #[cfg(target_arch = "wasm32")]
-    let on_dataset_created = Callback::new(move |new_dataset_id: String| {
-        let mut params: HashMap<String, String> = query
-            .try_get()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
-        params.insert("dataset_id".to_string(), new_dataset_id);
-        let qs = build_query_string(&params);
-        navigate_store.with_value(|nav| {
-            nav(
-                &format!("/datasets/draft{}", qs),
-                leptos_router::NavigateOptions {
-                    replace: true,
-                    ..Default::default()
-                },
-            );
-        });
-    });
-
-    // Statistics state
-    let stats_state = RwSignal::new(LoadingState::<DatasetStatisticsResponse>::Idle);
-
-    // Fetch available models for combobox
-    let (models_resource, _) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_models().await });
-    let models_state =
-        Signal::derive(
-            move || match models_resource.try_get().unwrap_or(LoadingState::Idle) {
-                LoadingState::Loaded(resp) => resp.models,
-                _ => vec![],
-            },
-        );
-
-    // Fetch statistics when dataset_id_state changes
-    {
-        let client = Arc::clone(&client);
-        Effect::new(move |_| {
-            let Some(dataset_id) = dataset_id_state.try_get() else {
-                return;
-            };
-            if let Some(id) = dataset_id {
-                let _ = stats_state.try_set(LoadingState::Loading);
-                let client = Arc::clone(&client);
-                #[cfg(target_arch = "wasm32")]
-                wasm_bindgen_futures::spawn_local(async move {
-                    match client.get_dataset_statistics(&id).await {
-                        Ok(stats) => {
-                            stats_state.set(LoadingState::Loaded(stats));
-                        }
-                        Err(e) => {
-                            stats_state.set(LoadingState::Error(e));
-                        }
-                    }
-                });
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    let _ = (client, id);
-                }
-            } else {
-                let _ = stats_state.try_set(LoadingState::Idle);
-            }
-        });
-    }
-
-    // Fetch safety check when dataset_id_state changes
-    {
-        let client = Arc::clone(&client);
-        Effect::new(move |_| {
-            let Some(dataset_id) = dataset_id_state.try_get() else {
-                return;
-            };
-            if let Some(id) = dataset_id {
-                let client = Arc::clone(&client);
-                #[cfg(target_arch = "wasm32")]
-                wasm_bindgen_futures::spawn_local(async move {
-                    match client.check_dataset_safety(&id).await {
-                        Ok(result) => {
-                            safety_check_result.set(Some(result));
-                        }
-                        Err(_) => {
-                            // Safety check failed - allow training with unknown state
-                            safety_check_result.set(None);
-                        }
-                    }
-                });
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    let _ = (client, id);
-                }
-            } else {
-                safety_check_result.set(None);
-            }
-        });
-    }
-
-    // Training configuration signals
-    let epochs = RwSignal::new("10".to_string());
-    let learning_rate = RwSignal::new("0.0001".to_string());
-    let show_advanced = RwSignal::new(false);
-    let validation_split = RwSignal::new("0.1".to_string());
-    let batch_size = RwSignal::new("4".to_string());
-    let rank = RwSignal::new("8".to_string());
-    let alpha = RwSignal::new("16".to_string());
-    let training_form_state = use_form_state();
-    let epochs_error = use_field_error(training_form_state, "epochs");
-    let learning_rate_error = use_field_error(training_form_state, "learning_rate");
-    let on_epochs_blur = Callback::new(move |_| {
-        validate_on_blur(
-            "epochs",
-            &epochs.get(),
-            &[
-                ValidationRule::Required,
-                ValidationRule::IntRange { min: 1, max: 1000 },
-            ],
-            training_form_state,
-        );
-    });
-    let on_learning_rate_blur = Callback::new(move |_| {
-        validate_on_blur(
-            "learning_rate",
-            &learning_rate.get(),
-            &[
-                ValidationRule::Required,
-                ValidationRule::PositiveNumber,
-                ValidationRule::Range {
-                    min: 1e-10,
-                    max: 1.0,
-                },
-            ],
-            training_form_state,
-        );
-    });
-
-    let source_label = match source.as_str() {
-        "file" => "File upload",
-        "paste" => "Pasted text",
-        "chat" => "Chat selection",
-        _ => "Unknown source",
-    };
-
-    let name_label = name.unwrap_or_else(|| "Untitled draft".to_string());
-    let item_label = if items == 0 {
-        "Unknown".to_string()
-    } else {
-        items.to_string()
-    };
-
-    let train_disabled = Signal::derive(move || {
-        is_training.try_get().unwrap_or(false)
-            || base_model.try_get().unwrap_or_default().trim().is_empty()
-            || (dataset_id_state.try_get().flatten().is_none()
-                && document_ids_store.with_value(|ids| ids.is_empty()))
-    });
-
-    // Reason why train button is disabled (for user hint)
-    let train_disabled_reason = Signal::derive(move || {
-        if is_training.try_get().unwrap_or(false) {
-            Some("Training in progress...".to_string())
-        } else if base_model.try_get().unwrap_or_default().trim().is_empty() {
-            Some("Select a base model to enable training".to_string())
-        } else if dataset_id_state.try_get().flatten().is_none()
-            && document_ids_store.with_value(|ids| ids.is_empty())
-        {
-            Some("Attach a document or select a dataset first".to_string())
-        } else {
-            None
-        }
-    });
-
-    // Poll training job status when a job id is available
-    {
-        let client = Arc::clone(&client);
-        Effect::new(move |_| {
-            let Some(job_id) = training_job_id.try_get() else {
-                return;
-            };
-            let _ = poll_nonce.try_update(|v| *v = v.wrapping_add(1));
-
-            if let Some(job_id) = job_id {
-                training_job_status.set(Some("pending".to_string()));
-                training_status.set(Some("Training queued".to_string()));
-
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let nonce = poll_nonce.get_untracked();
-                    let client = Arc::clone(&client);
-                    let training_status = training_status;
-                    let training_job_status = training_job_status;
-                    let training_error = training_error;
-                    let poll_nonce = poll_nonce;
-                    wasm_bindgen_futures::spawn_local(async move {
-                        loop {
-                            if poll_nonce.get_untracked() != nonce {
-                                break;
-                            }
-                            match client.get_training_job(&job_id).await {
-                                Ok(job) => {
-                                    let status = job.status.clone();
-                                    training_job_status.set(Some(status.clone()));
-                                    training_status.set(Some(format!("Training {}", status)));
-                                    if matches!(
-                                        status.as_str(),
-                                        "completed" | "failed" | "cancelled"
-                                    ) {
-                                        break;
-                                    }
-                                }
-                                Err(e) => {
-                                    training_error.set(Some(format!(
-                                        "Failed to refresh training status: {}",
-                                        e
-                                    )));
-                                    break;
-                                }
-                            }
-                            gloo_timers::future::TimeoutFuture::new(3000).await;
-                        }
-                    });
-                }
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    let _ = (&client, job_id);
-                }
-            }
-        });
-    }
-
-    let on_train = {
-        let client = Arc::clone(&client);
-        let name_label = name_label.clone();
-        Callback::new(move |_| {
-            if is_training.get() {
-                return;
-            }
-
-            training_error.set(None);
-            let base_model_val = base_model.get();
-            if base_model_val.trim().is_empty() {
-                training_error.set(Some("Base model ID is required.".to_string()));
-                return;
-            }
-
-            is_training.set(true);
-            training_status.set(Some("Preparing training...".to_string()));
-
-            #[cfg(target_arch = "wasm32")]
-            {
-                let adapter_type_val = adapter_type.get();
-                let existing_dataset_id = dataset_id_state.get();
-                let document_ids = document_ids_store.with_value(|ids| ids.clone());
-                let epochs_val: u32 = epochs.get().parse().unwrap_or(10);
-                let learning_rate_val: f64 = learning_rate.get().parse().unwrap_or(0.0001);
-                let batch_size_val: u32 = batch_size.get().parse().unwrap_or(4);
-                let rank_val: u32 = rank.get().parse().unwrap_or(8);
-                let alpha_val: u32 = alpha.get().parse().unwrap_or(16);
-                let pii_scrub_val = pii_scrub.get();
-                let dedupe_val = dedupe.get();
-
-                let client = Arc::clone(&client);
-                let name_label = name_label.clone();
-                let dataset_id_state = dataset_id_state;
-                let training_status = training_status;
-                let training_error = training_error;
-                let training_job_id = training_job_id;
-                let is_training = is_training;
-                let safety_check_result = safety_check_result;
-                let safety_warning_acknowledged = safety_warning_acknowledged;
-                let on_dataset_created = on_dataset_created;
-
-                wasm_bindgen_futures::spawn_local(async move {
-                    let dataset_id = if let Some(id) = existing_dataset_id {
-                        id
-                    } else if !document_ids.is_empty() {
-                        training_status.set(Some("Creating dataset...".to_string()));
-                        match client
-                            .create_dataset_from_documents(document_ids, Some(name_label.clone()))
-                            .await
-                        {
-                            Ok(ds) => {
-                                dataset_id_state.set(Some(ds.id.clone()));
-                                on_dataset_created.run(ds.id.clone());
-                                ds.id
-                            }
-                            Err(e) => {
-                                report_error_with_toast(
-                                    &e,
-                                    "Dataset creation failed",
-                                    Some("/datasets"),
-                                    true,
-                                );
-                                training_error.set(Some(format!("Dataset error: {}", e)));
-                                is_training.set(false);
-                                return;
-                            }
-                        }
-                    } else {
-                        training_error
-                            .set(Some("No documents attached to this draft.".to_string()));
-                        is_training.set(false);
-                        return;
-                    };
-
-                    // Run preprocessing if enabled (PII scrub or deduplication)
-                    if pii_scrub_val || dedupe_val {
-                        training_status.set(Some("Preprocessing dataset...".to_string()));
-                        match client
-                            .start_dataset_preprocessing(&dataset_id, pii_scrub_val, dedupe_val)
-                            .await
-                        {
-                            Ok(_preprocess_response) => {
-                                // Poll for preprocessing completion (max 5 minutes = 300 polls)
-                                const MAX_PREPROCESS_POLLS: usize = 300;
-                                for poll_count in 0..MAX_PREPROCESS_POLLS {
-                                    gloo_timers::future::TimeoutFuture::new(1000).await;
-                                    match client.get_dataset_preprocess_status(&dataset_id).await {
-                                        Ok(status) => {
-                                            let lines_info = if status.lines_removed > 0 {
-                                                format!(
-                                                    " ({} lines processed, {} removed)",
-                                                    status.lines_processed, status.lines_removed
-                                                )
-                                            } else {
-                                                format!(
-                                                    " ({} lines processed)",
-                                                    status.lines_processed
-                                                )
-                                            };
-                                            training_status.set(Some(format!(
-                                                "Preprocessing: {}{}",
-                                                status.status, lines_info
-                                            )));
-                                            if status.status == "completed" {
-                                                break;
-                                            } else if status.status == "failed" {
-                                                let error_msg =
-                                                    status.error_message.unwrap_or_else(|| {
-                                                        "Preprocessing failed".to_string()
-                                                    });
-                                                training_error.set(Some(error_msg));
-                                                is_training.set(false);
-                                                return;
-                                            }
-                                        }
-                                        Err(e) => {
-                                            // If we can't get status, continue polling
-                                            leptos::logging::log!(
-                                                "Preprocessing status check failed: {}",
-                                                e
-                                            );
-                                        }
-                                    }
-                                    // Timeout after max polls
-                                    if poll_count == MAX_PREPROCESS_POLLS - 1 {
-                                        training_error.set(Some(
-                                            "Preprocessing timed out after 5 minutes".to_string(),
-                                        ));
-                                        is_training.set(false);
-                                        return;
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                // If preprocessing fails to start, log but proceed
-                                // (preprocessing is optional enhancement)
-                                leptos::logging::log!(
-                                    "Preprocessing failed to start, proceeding: {}",
-                                    e
-                                );
-                            }
-                        }
-                    }
-
-                    // Safety gate check before training
-                    training_status.set(Some("Checking dataset safety...".to_string()));
-                    match client.check_dataset_safety(&dataset_id).await {
-                        Ok(safety_result) => {
-                            safety_check_result.set(Some(safety_result.clone()));
-                            match safety_result.trust_state.as_str() {
-                                "blocked" => {
-                                    let reasons = if safety_result.blocking_reasons.is_empty() {
-                                        "Dataset safety check failed".to_string()
-                                    } else {
-                                        safety_result.blocking_reasons.join("; ")
-                                    };
-                                    training_error
-                                        .set(Some(format!("Training blocked: {}", reasons)));
-                                    is_training.set(false);
-                                    return;
-                                }
-                                "needs_approval" => {
-                                    training_error.set(Some(
-                                        "Dataset requires approval before training. Please contact an administrator.".to_string()
-                                    ));
-                                    is_training.set(false);
-                                    return;
-                                }
-                                "allowed_with_warning" => {
-                                    // Show warning but proceed if acknowledged
-                                    if !safety_warning_acknowledged.get_untracked() {
-                                        // Set warning acknowledged so next attempt proceeds
-                                        safety_warning_acknowledged.set(true);
-                                        let warnings = if safety_result.warnings.is_empty() {
-                                            "Dataset has safety warnings".to_string()
-                                        } else {
-                                            safety_result.warnings.join("; ")
-                                        };
-                                        training_error.set(Some(format!(
-                                            "Warning: {}. Click Train again to proceed.",
-                                            warnings
-                                        )));
-                                        is_training.set(false);
-                                        return;
-                                    }
-                                }
-                                // "allowed" or "unknown" - proceed
-                                _ => {}
-                            }
-                        }
-                        Err(e) => {
-                            // Log but don't block on safety check failure
-                            leptos::logging::log!("Safety check failed, proceeding: {}", e);
-                        }
-                    }
-
-                    training_status.set(Some("Starting training...".to_string()));
-                    let request = json!({
-                        "base_model_id": base_model_val,
-                        "dataset_id": dataset_id,
-                        "config": {
-                            "rank": rank_val,
-                            "alpha": alpha_val,
-                            "targets": ["q_proj", "v_proj"],
-                            "training_contract_version": adapteros_api_types::TRAINING_DATA_CONTRACT_VERSION,
-                            "pad_token_id": 0,
-                            "ignore_index": -100,
-                            "epochs": epochs_val,
-                            "learning_rate": learning_rate_val,
-                            "batch_size": batch_size_val
-                        },
-                        "adapter_type": adapter_type_val,
-                        "category": "docs",
-                    });
-
-                    match client
-                        .post::<_, TrainingJobResponse>("/v1/training/jobs", &request)
-                        .await
-                    {
-                        Ok(job) => {
-                            training_status.set(Some("Training queued".to_string()));
-                            training_job_id.set(Some(job.id));
-                        }
-                        Err(e) => {
-                            training_error.set(Some(format!("Training error: {}", e)));
-                        }
-                    }
-                    is_training.set(false);
-                });
-            }
-
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                // Reference captured variables to silence unused warnings without moving
-                let _ = (
-                    &client,
-                    &base_model_val,
-                    &name_label,
-                    &dataset_id_state,
-                    &training_status,
-                    &training_job_id,
-                    &training_error,
-                );
-                training_error.set(Some(
-                    "Training is only available in the web UI.".to_string(),
-                ));
-                is_training.set(false);
-            }
-        })
-    };
-
     view! {
-        <PageScaffold
-            title="Dataset Draft"
-            subtitle="Review draft data before training an adapter."
-            breadcrumbs=vec![
-                PageBreadcrumbItem::new("Data", "/datasets"),
-                PageBreadcrumbItem::new("Datasets", "/datasets"),
-                PageBreadcrumbItem::current("Draft"),
-            ]
-        >
-            <PageScaffoldActions slot>
-                <div>
-                    <Button
-                        variant=ButtonVariant::Primary
-                        disabled=train_disabled
-                        loading=Signal::derive(move || is_training.try_get().unwrap_or(false))
-                        on_click=on_train
-                    >
-                        "Train Adapter"
-                    </Button>
-                    {move || train_disabled_reason.try_get().flatten().map(|reason| view! {
-                        <p class="text-xs text-muted-foreground mt-1">{reason}</p>
-                    })}
-                </div>
-            </PageScaffoldActions>
-
-            // Draft readiness banner
-            <Card>
-                <div class="p-4 flex items-start justify-between gap-4 flex-wrap">
-                    <div class="space-y-2">
-                        <div class="flex items-center gap-2">
-                            <Badge variant=BadgeVariant::Secondary>"Draft"</Badge>
-                            <span class="text-sm text-muted-foreground">
-                                "Complete the gates below to enable training."
-                            </span>
-                        </div>
-                            <div class="grid gap-1 text-sm">
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="text-muted-foreground">"Base model gate"</span>
-                                    {move || {
-                                        let empty = base_model.try_get().unwrap_or_default().trim().is_empty();
-                                        let variant = if empty { BadgeVariant::Warning } else { BadgeVariant::Success };
-                                        view! {
-                                            <Badge variant=variant>
-                                                {if empty { "Select a model" } else { "OK" }}
-                                            </Badge>
-                                        }
-                                    }}
-                                </div>
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="text-muted-foreground">"Data gate"</span>
-                                    {move || {
-                                        let has_dataset = dataset_id_state.try_get().flatten().is_some();
-                                        let has_docs = document_ids_store.with_value(|ids| !ids.is_empty());
-                                        let variant = if has_dataset || has_docs { BadgeVariant::Success } else { BadgeVariant::Warning };
-                                        let label = if has_dataset {
-                                            "Dataset attached"
-                                        } else if has_docs {
-                                            "Documents attached"
-                                        } else {
-                                            "Attach data"
-                                        };
-                                        view! { <Badge variant=variant>{label}</Badge> }
-                                    }}
-                                </div>
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="text-muted-foreground">"Safety gate"</span>
-                                    {move || {
-                                        let trust = safety_check_result
-                                            .try_get()
-                                            .flatten()
-                                            .map(|r| r.trust_state)
-                                            .unwrap_or_else(|| "unknown".to_string());
-                                        let variant = match trust.as_str() {
-                                            "blocked" => BadgeVariant::Destructive,
-                                            "needs_approval" | "allowed_with_warning" => BadgeVariant::Warning,
-                                            "unknown" => BadgeVariant::Secondary,
-                                            _ => BadgeVariant::Success,
-                                        };
-                                        view! { <Badge variant=variant>{trust}</Badge> }
-                                    }}
-                                </div>
-                            </div>
-                    </div>
-                </div>
-            </Card>
-
-            {move || training_error.try_get().flatten().map(|msg| {
-                // Determine heading based on error phase (Dataset vs Training)
-                let is_dataset_error = msg.starts_with("Dataset");
-                let heading = if is_dataset_error {
-                    "Dataset creation failed"
+        {move || match preview.get() {
+            LoadingState::Idle | LoadingState::Loading => {
+                view! { <p class="text-sm text-muted-foreground">"Loading preview..."</p> }.into_any()
+            }
+            LoadingState::Error(e) => {
+                view! { <ErrorDisplay error=e on_retry=Callback::new(move |_| refetch.run(())) /> }
+                    .into_any()
+            }
+            LoadingState::Loaded(data) => {
+                if data.examples.is_empty() {
+                    view! {
+                        <EmptyState
+                            variant=EmptyStateVariant::Empty
+                            title="No preview examples"
+                            description="Preview endpoint returned no examples for this dataset."
+                        />
+                    }
+                    .into_any()
                 } else {
-                    "Training blocked"
-                };
-                view! {
-                    <Card>
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="heading-4 text-destructive">{heading}</h3>
-                                <p class="text-sm text-muted-foreground">{msg}</p>
-                            </div>
-                            <Badge variant=BadgeVariant::Destructive>"Error"</Badge>
-                        </div>
-                    </Card>
-                }
-            })}
-
-            {move || training_status.try_get().flatten().map(|status| view! {
-                <Card>
-                    <div class="flex items-center justify-between gap-4">
-                        <div>
-                            <h3 class="heading-4">{status.clone()}</h3>
-                            <p class="text-sm text-muted-foreground">
-                                "Track training progress in the Training Jobs view."
+                    view! {
+                        <div class="space-y-2">
+                            <p class="text-xs text-muted-foreground">
+                                {format!("Showing {} of {} examples", data.examples.len(), data.total_examples)}
                             </p>
+                            {data
+                                .examples
+                                .into_iter()
+                                .enumerate()
+                                .map(|(idx, example)| {
+                                    let pretty = serde_json::to_string_pretty(&example)
+                                        .unwrap_or_else(|_| "{}".to_string());
+                                    view! {
+                                        <div class="rounded-md border border-border/70 bg-muted/20 p-3">
+                                            <p class="text-xs text-muted-foreground mb-2">{format!("Example {}", idx + 1)}</p>
+                                            <pre class="text-xs overflow-x-auto whitespace-pre-wrap">{pretty}</pre>
+                                        </div>
+                                    }
+                                })
+                                .collect::<Vec<_>>()}
                         </div>
-                        <Badge variant=BadgeVariant::Secondary>
-                            {move || training_job_status.try_get().flatten().unwrap_or_else(|| "queued".to_string())}
-                        </Badge>
-                    </div>
-                    {move || training_job_id.try_get().flatten().map(|job_id| {
-                        let href = format!("/training?job_id={}", job_id);
-                        view! {
-                            <div class="mt-3 flex items-center gap-4">
-                                <CopyableId id=job_id label="Training job".to_string() truncate=24 />
-                                <a href=href class="text-primary hover:underline text-sm">"View job →"</a>
-                            </div>
-                        }
-                    })}
-                </Card>
-            })}
-
-            // Safety Gate Card - shows trust state and any warnings
-            {move || safety_check_result.try_get().flatten().map(|result| {
-                let trust_state = result.trust_state.clone();
-                let badge_variant = trust_state_badge_variant(&trust_state);
-                let has_warnings = !result.warnings.is_empty();
-                let has_blocking_reasons = !result.blocking_reasons.is_empty();
-                let is_blocked = trust_state == "blocked";
-                let needs_approval = trust_state == "needs_approval";
-                let has_warning_state = trust_state == "allowed_with_warning";
-
-                view! {
-                    <Card>
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="heading-4">"Safety Gate"</h3>
-                            <Badge variant=badge_variant>{trust_state.clone()}</Badge>
-                        </div>
-
-                        {is_blocked.then(|| view! {
-                            <div class="p-3 rounded-md bg-destructive/10 border border-destructive/20 mb-3">
-                                <p class="text-sm text-destructive font-medium">
-                                    "Training is blocked for this dataset."
-                                </p>
-                            </div>
-                        })}
-
-                        {needs_approval.then(|| view! {
-                            <div class="p-3 rounded-md bg-status-warning/10 border border-status-warning/20 mb-3">
-                                <p class="text-sm text-status-warning font-medium">
-                                    "This dataset requires approval before training can proceed."
-                                </p>
-                            </div>
-                        })}
-
-                        {has_warning_state.then(|| view! {
-                            <div class="p-3 rounded-md bg-status-warning/10 border border-status-warning/20 mb-3">
-                                <p class="text-sm text-status-warning font-medium">
-                                    "Training allowed with warnings. Review before proceeding."
-                                </p>
-                            </div>
-                        })}
-
-                        {has_blocking_reasons.then(|| {
-                            let reasons = result.blocking_reasons.clone();
-                            view! {
-                                <div class="mb-3">
-                                    <h4 class="text-sm font-medium text-destructive mb-2">"Blocking Reasons"</h4>
-                                    <ul class="space-y-1 text-sm text-muted-foreground">
-                                        {reasons.into_iter().map(|reason| view! {
-                                            <li class="flex items-start gap-2">
-                                                <span class="text-destructive">"•"</span>
-                                                <span>{reason}</span>
-                                            </li>
-                                        }).collect_view()}
-                                    </ul>
-                                </div>
-                            }
-                        })}
-
-                        {has_warnings.then(|| {
-                            let warnings = result.warnings.clone();
-                            view! {
-                                <div>
-                                    <h4 class="text-sm font-medium text-status-warning mb-2">"Warnings"</h4>
-                                    <ul class="space-y-1 text-sm text-muted-foreground">
-                                        {warnings.into_iter().map(|warning| view! {
-                                            <li class="flex items-start gap-2">
-                                                <span class="text-status-warning">"•"</span>
-                                                <span>{warning}</span>
-                                            </li>
-                                        }).collect_view()}
-                                    </ul>
-                                </div>
-                            }
-                        })}
-
-                        {(!has_warnings && !has_blocking_reasons && !is_blocked && !needs_approval).then(|| view! {
-                            <p class="text-sm text-muted-foreground">
-                                "No safety concerns detected."
-                            </p>
-                        })}
-                    </Card>
+                    }
+                    .into_any()
                 }
-            })}
-
-            <div class="grid gap-6 md:grid-cols-2">
-                <Card>
-                    <h3 class="heading-4 mb-4">"Draft Summary"</h3>
-                    <dl class="space-y-3 text-sm">
-                        <div class="flex justify-between">
-                            <dt class="text-muted-foreground">"Name"</dt>
-                            <dd>{name_label}</dd>
-                        </div>
-                        <div class="flex justify-between">
-                            <dt class="text-muted-foreground">"Source"</dt>
-                            <dd>
-                                <Badge variant=BadgeVariant::Outline>{source_label}</Badge>
-                            </dd>
-                        </div>
-                        <div class="flex justify-between">
-                            <dt class="text-muted-foreground">"Item count"</dt>
-                            <dd>{item_label}</dd>
-                        </div>
-                        <div class="flex flex-col gap-1">
-                            <dt class="text-muted-foreground">"Sources"</dt>
-                            <dd class="space-y-1">
-                                {move || {
-                                    let mut sources = Vec::new();
-                                    if let Some(ds_id) = dataset_id_state.try_get().flatten() {
-                                        sources.push(format!("Dataset {}", ds_id));
-                                    }
-                                    let doc_ids = document_ids_store.with_value(|ids| ids.clone());
-                                    sources.extend(doc_ids);
-                                    if sources.is_empty() {
-                                        sources.push("Unknown".to_string());
-                                    }
-                                    sources
-                                        .into_iter()
-                                        .map(|item| {
-                                            view! { <div class="font-mono text-xs">{item}</div> }
-                                        })
-                                        .collect::<Vec<_>>()
-                                }}
-                            </dd>
-                        </div>
-                    </dl>
-                </Card>
-
-                <Card>
-                    <h3 class="heading-4 mb-4">"Training"</h3>
-                    <div class="space-y-4 text-sm">
-                        <div class="space-y-2">
-                            <label class="text-xs text-muted-foreground" for="dataset-train-base-model">
-                                "Base model"
-                            </label>
-                            <Combobox
-                                id="dataset-train-base-model".to_string()
-                                value=base_model
-                                options=Signal::derive(move || {
-                                    models_state.try_get().unwrap_or_default()
-                                        .into_iter()
-                                        .map(|m| {
-                                            let desc = match (&m.format, &m.backend) {
-                                                (Some(f), Some(b)) => format!("{} / {}", f, b),
-                                                (Some(f), None) => f.clone(),
-                                                (None, Some(b)) => b.clone(),
-                                                (None, None) => String::new(),
-                                            };
-                                            ComboboxOption {
-                                                value: m.id.clone(),
-                                                label: m.name.clone(),
-                                                description: if desc.is_empty() { None } else { Some(desc) },
-                                            }
-                                        })
-                                        .collect::<Vec<_>>()
-                                })
-                                placeholder="Select or type a model ID".to_string()
-                                allow_free_text=true
-                            />
-                        </div>
-                        <div class="flex items-center justify-between gap-3">
-                            <div>
-                                <p class="text-xs text-muted-foreground">"Adapter type"</p>
-                                <p class="text-xs text-muted-foreground">
-                                    "Identify focuses style; Behavior focuses Q/A."
-                                </p>
-                            </div>
-                            <div class="flex items-center rounded-full border border-border bg-muted/30 p-0.5 text-xs">
-                                <button
-                                    class=move || if adapter_type.try_get().unwrap_or_default() == "identify" {
-                                        "rounded-full px-2 py-1 text-foreground bg-background shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                    } else {
-                                        "rounded-full px-2 py-1 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                    }
-                                    on:click=move |_| adapter_type.set("identify".to_string())
-                                >
-                                    "Identify"
-                                </button>
-                                <button
-                                    class=move || if adapter_type.try_get().unwrap_or_default() == "behavior" {
-                                        "rounded-full px-2 py-1 text-foreground bg-background shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                    } else {
-                                        "rounded-full px-2 py-1 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                    }
-                                    on:click=move |_| adapter_type.set("behavior".to_string())
-                                >
-                                    "Behavior"
-                                </button>
-                            </div>
-                        </div>
-                        {move || {
-                            if base_model.try_get().unwrap_or_default().trim().is_empty() {
-                                Some(view! {
-                                    <p class="text-xs text-muted-foreground">
-                                        "Add a base model ID to enable training."
-                                    </p>
-                                })
-                            } else if dataset_id_state.try_get().flatten().is_none()
-                                && document_ids_store.with_value(|ids| ids.is_empty())
-                            {
-                                Some(view! {
-                                    <p class="text-xs text-muted-foreground">
-                                        "Attach documents to enable training."
-                                    </p>
-                                })
-                            } else {
-                                None
-                            }
-                        }}
-                    </div>
-                </Card>
-            </div>
-
-            // Statistics card - only shown when dataset_id is available
-            {move || dataset_id_state.try_get().flatten().map(|_| view! {
-                <Card>
-                    <h3 class="heading-4 mb-4">"Statistics"</h3>
-                    {move || match stats_state.try_get().unwrap_or(LoadingState::Idle) {
-                        LoadingState::Idle => {
-                            view! { <p class="text-sm text-muted-foreground">"No dataset selected"</p> }.into_any()
-                        }
-                        LoadingState::Loading => {
-                            view! { <SkeletonDetailSection rows=3/> }.into_any()
-                        }
-                        LoadingState::Loaded(stats_data) => {
-                            view! {
-                                <dl class="space-y-3 text-sm">
-                                    <div class="flex justify-between">
-                                        <dt class="text-muted-foreground">"Examples"</dt>
-                                        <dd>{stats_data.num_examples.to_string()}</dd>
-                                    </div>
-                                    <div class="flex justify-between">
-                                        <dt class="text-muted-foreground">"Total Tokens"</dt>
-                                        <dd>{stats_data.total_tokens.to_string()}</dd>
-                                    </div>
-                                    <div class="flex justify-between">
-                                        <dt class="text-muted-foreground">"Avg Input Length"</dt>
-                                        <dd>{format!("{:.1}", stats_data.avg_input_length)}</dd>
-                                    </div>
-                                    <div class="flex justify-between">
-                                        <dt class="text-muted-foreground">"Avg Target Length"</dt>
-                                        <dd>{format!("{:.1}", stats_data.avg_target_length)}</dd>
-                                    </div>
-                                </dl>
-                            }.into_any()
-                        }
-                        LoadingState::Error(_) => {
-                            view! {
-                                <p class="text-sm text-muted-foreground">"Statistics unavailable"</p>
-                            }.into_any()
-                        }
-                    }}
-                </Card>
-            })}
-
-            <Card>
-                <h3 class="heading-4 mb-4">"Training Configuration"</h3>
-                <div class="space-y-4 text-sm">
-                    // Basic config: epochs and learning_rate
-                    <div class="grid gap-4 md:grid-cols-2">
-                        <div class="space-y-2">
-                            <label class="text-xs text-muted-foreground" for="dataset-train-epochs">
-                                "Epochs"
-                            </label>
-                            <Input
-                                id="dataset-train-epochs".to_string()
-                                value=epochs
-                                input_type="number".to_string()
-                                placeholder="10".to_string()
-                                on_blur=on_epochs_blur
-                            />
-                            <p class="text-xs text-muted-foreground">"Number of training epochs"</p>
-                            {move || epochs_error.try_get().flatten().map(|msg| view! {
-                                <p class="text-xs text-destructive">{msg}</p>
-                            })}
-                        </div>
-                        <div class="space-y-2">
-                            <label class="text-xs text-muted-foreground" for="dataset-train-learning-rate">
-                                "Learning Rate"
-                            </label>
-                            <Input
-                                id="dataset-train-learning-rate".to_string()
-                                value=learning_rate
-                                input_type="text".to_string()
-                                placeholder="0.0001".to_string()
-                                on_blur=on_learning_rate_blur
-                            />
-                            <p class="text-xs text-muted-foreground">"Learning rate for optimizer"</p>
-                            {move || learning_rate_error.try_get().flatten().map(|msg| view! {
-                                <p class="text-xs text-destructive">{msg}</p>
-                            })}
-                        </div>
-                    </div>
-
-                    // Advanced toggle
-                    <Toggle
-                        checked=show_advanced
-                        label="Show advanced options".to_string()
-                        description="Configure LoRA rank, alpha, batch size, and validation split".to_string()
-                    />
-
-                    // Advanced options (conditionally shown)
-                    {move || show_advanced.try_get().unwrap_or(false).then(|| view! {
-                        <div class="pt-4 border-t border-border space-y-4">
-                            <div class="grid gap-4 md:grid-cols-2">
-                                <div class="space-y-2">
-                                    <label class="text-xs text-muted-foreground" for="dataset-train-rank">
-                                        "LoRA Rank"
-                                    </label>
-                                    <Input
-                                        id="dataset-train-rank".to_string()
-                                        value=rank
-                                        input_type="number".to_string()
-                                        placeholder="8".to_string()
-                                    />
-                                    <p class="text-xs text-muted-foreground">"Low-rank adaptation dimension"</p>
-                                </div>
-                                <div class="space-y-2">
-                                    <label class="text-xs text-muted-foreground" for="dataset-train-alpha">
-                                        "LoRA Alpha"
-                                    </label>
-                                    <Input
-                                        id="dataset-train-alpha".to_string()
-                                        value=alpha
-                                        input_type="number".to_string()
-                                        placeholder="16".to_string()
-                                    />
-                                    <p class="text-xs text-muted-foreground">"Scaling factor for LoRA weights"</p>
-                                </div>
-                            </div>
-                            <div class="grid gap-4 md:grid-cols-2">
-                                <div class="space-y-2">
-                                    <label class="text-xs text-muted-foreground" for="dataset-train-batch-size">
-                                        "Batch Size"
-                                    </label>
-                                    <Input
-                                        id="dataset-train-batch-size".to_string()
-                                        value=batch_size
-                                        input_type="number".to_string()
-                                        placeholder="4".to_string()
-                                    />
-                                    <p class="text-xs text-muted-foreground">"Training batch size"</p>
-                                </div>
-                                <div class="space-y-2">
-                                    <label class="text-xs text-muted-foreground" for="dataset-train-validation-split">
-                                        "Validation Split"
-                                    </label>
-                                    <Input
-                                        id="dataset-train-validation-split".to_string()
-                                        value=validation_split
-                                        input_type="text".to_string()
-                                        placeholder="0.1".to_string()
-                                    />
-                                    <p class="text-xs text-muted-foreground">"Fraction held out for validation"</p>
-                                </div>
-                            </div>
-                        </div>
-                    })}
-                </div>
-            </Card>
-
-            <Card>
-                <h3 class="heading-4 mb-4">"Preprocessing"</h3>
-                <div class="space-y-3 text-sm">
-                    <Checkbox
-                        checked=Signal::derive(move || pii_scrub.try_get().unwrap_or(false))
-                        on_change=Callback::new(move |val| pii_scrub.set(val))
-                        label="PII scrub".to_string()
-                    />
-                    <Checkbox
-                        checked=Signal::derive(move || dedupe.try_get().unwrap_or(false))
-                        on_change=Callback::new(move |val| dedupe.set(val))
-                        label="Dedupe".to_string()
-                    />
-                    <p class="text-xs text-muted-foreground">
-                        "These settings are UI-only in the MVP."
-                    </p>
-                </div>
-            </Card>
-        </PageScaffold>
-    }
-}
-
-fn validation_badge_variant(status: &str) -> BadgeVariant {
-    match status {
-        "valid" | "ready" => BadgeVariant::Success,
-        "invalid" | "failed" => BadgeVariant::Destructive,
-        "pending" | "processing" => BadgeVariant::Warning,
-        _ => BadgeVariant::Secondary,
-    }
-}
-
-fn trust_state_badge_variant(state: &str) -> BadgeVariant {
-    match state {
-        "allowed" | "trusted" | "approved" => BadgeVariant::Success,
-        "needs_approval" | "pending" => BadgeVariant::Warning,
-        "blocked" | "rejected" => BadgeVariant::Destructive,
-        _ => BadgeVariant::Secondary,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_ds(
-        status: &str,
-        validation: Option<&str>,
-        trust: Option<&str>,
-    ) -> crate::api::DatasetResponse {
-        crate::api::DatasetResponse {
-            schema_version: String::new(),
-            id: "ds_123".to_string(),
-            dataset_version_id: None,
-            name: "Test".to_string(),
-            description: None,
-            format: "jsonl".to_string(),
-            hash_b3: None,
-            dataset_hash_b3: None,
-            storage_path: None,
-            status: status.to_string(),
-            workspace_id: None,
-            validation_status: validation.map(|s| s.to_string()),
-            validation_errors: None,
-            validation_diagnostics: None,
-            trust_state: trust.map(|s| s.to_string()),
-            file_count: None,
-            total_size_bytes: None,
-            dataset_type: None,
-            created_by: None,
-            created_at: "2026-02-06T00:00:00Z".to_string(),
-            updated_at: None,
-            display_name: None,
-        }
-    }
-
-    #[test]
-    fn gating_trainable_when_all_gates_ok() {
-        let ds = make_ds("ready", Some("valid"), None);
-        let g = dataset_gating(&ds);
-        assert!(g.is_trainable);
-        assert!(g.status_ok);
-        assert!(g.validation_ok);
-        assert!(g.trust_ok);
-    }
-
-    #[test]
-    fn gating_blocks_on_status() {
-        let ds = make_ds("processing", Some("valid"), Some("allowed"));
-        let g = dataset_gating(&ds);
-        assert!(!g.is_trainable);
-        assert!(!g.status_ok);
-    }
-
-    #[test]
-    fn gating_blocks_on_validation() {
-        let ds = make_ds("indexed", Some("invalid"), Some("allowed"));
-        let g = dataset_gating(&ds);
-        assert!(!g.is_trainable);
-        assert!(g.status_ok);
-        assert!(!g.validation_ok);
-    }
-
-    #[test]
-    fn gating_blocks_on_trust() {
-        let ds = make_ds("indexed", Some("valid"), Some("blocked"));
-        let g = dataset_gating(&ds);
-        assert!(!g.is_trainable);
-        assert!(g.status_ok);
-        assert!(g.validation_ok);
-        assert!(!g.trust_ok);
+            }
+        }}
     }
 }

@@ -65,3 +65,47 @@ pub async fn get_ui_config(
     };
     Ok(Json(response))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_ui_profile, UI_PROFILE_ENV};
+    use adapteros_api_types::UiProfile;
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.previous {
+                std::env::set_var(self.key, value);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_ui_profile_defaults_to_primary() {
+        let _guard = EnvGuard::set(UI_PROFILE_ENV, None);
+        assert_eq!(resolve_ui_profile(), UiProfile::Primary);
+    }
+
+    #[test]
+    fn resolve_ui_profile_invalid_env_falls_back_to_primary() {
+        let _guard = EnvGuard::set(UI_PROFILE_ENV, Some("invalid-profile"));
+        assert_eq!(resolve_ui_profile(), UiProfile::Primary);
+    }
+}

@@ -123,6 +123,56 @@
         ],
         "type": "object"
       },
+      "AdapterAttachReason": {
+        "description": "Why an adapter was attached to an inference response.",
+        "enum": [
+          "requested",
+          "pinned",
+          "stack_routing",
+          "fallback_routing",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "AdapterAttachment": {
+        "description": "Adapter-level trust attachment metadata.",
+        "properties": {
+          "adapter_id": {
+            "description": "Adapter ID used during this response.",
+            "type": "string"
+          },
+          "adapter_label": {
+            "description": "Human-readable label when available.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "adapter_repo_id": {
+            "description": "Adapter repository ID when immutable pin metadata is available.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "adapter_version_id": {
+            "description": "Exact adapter version ID when immutable pin metadata is available.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attach_reason": {
+            "$ref": "#/components/schemas/AdapterAttachReason",
+            "description": "Why this adapter was attached."
+          }
+        },
+        "required": [
+          "adapter_id",
+          "attach_reason"
+        ],
+        "type": "object"
+      },
       "AdapterBackendHealth": {
         "description": "Backend/CoreML info for debugging surfaced on the adapter detail view.",
         "properties": {
@@ -1959,6 +2009,29 @@
         ],
         "type": "object"
       },
+      "AdapterVersionBinding": {
+        "description": "Immutable adapter version binding for deterministic receipts.",
+        "properties": {
+          "adapter_id": {
+            "description": "Resolved adapter ID selected for execution.",
+            "type": "string"
+          },
+          "adapter_repo_id": {
+            "description": "Adapter repository identifier.",
+            "type": "string"
+          },
+          "adapter_version_id": {
+            "description": "Immutable adapter version identifier.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "adapter_repo_id",
+          "adapter_version_id",
+          "adapter_id"
+        ],
+        "type": "object"
+      },
       "AdapterVersionResponse": {
         "description": "Adapter version response (server only - uses DatasetVersionTrustSnapshot)",
         "properties": {
@@ -2295,6 +2368,16 @@
           "ssrf_protection": {
             "type": "boolean"
           },
+          "streaming_circuit_failure_threshold": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "streaming_circuit_recovery_timeout_secs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "streaming_heartbeat_interval_secs": {
             "format": "int64",
             "minimum": 0,
@@ -2331,6 +2414,8 @@
           "worker_heartbeat_interval_secs",
           "streaming_heartbeat_interval_secs",
           "streaming_idle_timeout_secs",
+          "streaming_circuit_failure_threshold",
+          "streaming_circuit_recovery_timeout_secs",
           "self_hosting_mode",
           "self_hosting_repo_allowlist_count"
         ],
@@ -8195,10 +8280,27 @@
         "additionalProperties": false,
         "description": "Request to create a dataset version",
         "properties": {
+          "base_dataset_version_id": {
+            "description": "Optional base dataset version to edit from. Defaults to latest when omitted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "manifest_json": {},
           "manifest_path": {
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "row_edits": {
+            "description": "Optional row edits. When provided, the server creates a new immutable version from\nthe base version rows with these edits applied.",
+            "items": {
+              "$ref": "#/components/schemas/DatasetRowEditRequest"
+            },
+            "type": [
+              "array",
               "null"
             ]
           },
@@ -9166,6 +9268,190 @@
         ],
         "type": "string"
       },
+      "DatasetEvaluationArtifact": {
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetEvaluationCitation"
+            },
+            "type": "array"
+          },
+          "coverage_stats": {
+            "$ref": "#/components/schemas/DatasetEvaluationCoverageStats"
+          },
+          "dataset_id": {
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "type": "string"
+          },
+          "duplication_stats": {
+            "$ref": "#/components/schemas/DatasetEvaluationDuplicationStats"
+          },
+          "example_rows": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetEvaluationExampleRow"
+            },
+            "type": "array"
+          },
+          "generated_at": {
+            "type": "string"
+          },
+          "generator_version": {
+            "type": "string"
+          },
+          "leakage_risk": {
+            "$ref": "#/components/schemas/DatasetEvaluationLeakageRisk"
+          },
+          "schema_anomalies": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetSchemaAnomaly"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "dataset_id",
+          "dataset_version_id",
+          "generated_at",
+          "generator_version",
+          "coverage_stats",
+          "duplication_stats",
+          "leakage_risk",
+          "schema_anomalies",
+          "example_rows",
+          "citations"
+        ],
+        "type": "object"
+      },
+      "DatasetEvaluationCitation": {
+        "properties": {
+          "issue": {
+            "type": "string"
+          },
+          "row_id": {
+            "type": "string"
+          },
+          "source_span": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatasetSourceSpan"
+              }
+            ]
+          }
+        },
+        "required": [
+          "issue",
+          "row_id"
+        ],
+        "type": "object"
+      },
+      "DatasetEvaluationCoverageStats": {
+        "properties": {
+          "rows_with_provenance_metadata": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rows_with_response": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rows_with_source_span": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_rows": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_rows",
+          "rows_with_response",
+          "rows_with_source_span",
+          "rows_with_provenance_metadata"
+        ],
+        "type": "object"
+      },
+      "DatasetEvaluationDuplicationStats": {
+        "properties": {
+          "duplicate_prompt_only": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "duplicate_prompt_response_pairs": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "duplicate_prompt_response_pairs",
+          "duplicate_prompt_only"
+        ],
+        "type": "object"
+      },
+      "DatasetEvaluationExampleRow": {
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "response": {
+            "type": "string"
+          },
+          "row_id": {
+            "type": "string"
+          },
+          "source_span": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatasetSourceSpan"
+              }
+            ]
+          },
+          "split": {
+            "type": "string"
+          },
+          "weight": {
+            "format": "float",
+            "type": "number"
+          }
+        },
+        "required": [
+          "row_id",
+          "prompt",
+          "response",
+          "split",
+          "weight"
+        ],
+        "type": "object"
+      },
+      "DatasetEvaluationLeakageRisk": {
+        "properties": {
+          "risk_score": {
+            "format": "float",
+            "type": "number"
+          },
+          "risky_row_count": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "risky_row_count",
+          "risk_score"
+        ],
+        "type": "object"
+      },
       "DatasetFileResponse": {
         "description": "Dataset file response",
         "properties": {
@@ -9249,6 +9535,18 @@
           },
           "normalization": {
             "$ref": "#/components/schemas/NormalizationNotes"
+          },
+          "openapi_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repo_commit": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "splits": {
             "additionalProperties": {
@@ -9457,6 +9755,109 @@
         ],
         "type": "object"
       },
+      "DatasetRowEditRequest": {
+        "additionalProperties": false,
+        "description": "Row-level edit request for versioned dataset updates.",
+        "properties": {
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "response": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "row_id": {
+            "description": "Canonical row identifier from the base dataset version.",
+            "type": "string"
+          },
+          "split": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weight": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "row_id"
+        ],
+        "type": "object"
+      },
+      "DatasetSchemaAnomaly": {
+        "properties": {
+          "issue": {
+            "type": "string"
+          },
+          "row_id": {
+            "type": "string"
+          },
+          "source_span": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatasetSourceSpan"
+              }
+            ]
+          }
+        },
+        "required": [
+          "issue",
+          "row_id"
+        ],
+        "type": "object"
+      },
+      "DatasetSourceSpan": {
+        "properties": {
+          "char_end": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "char_start": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "page_end": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "page_start": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "source_file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "DatasetSourceType": {
         "description": "Dataset source type",
         "enum": [
@@ -9538,11 +9939,48 @@
         ],
         "type": "string"
       },
+      "DatasetVersionCompareSummary": {
+        "properties": {
+          "base_dataset_version_id": {
+            "type": "string"
+          },
+          "changed_rows": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetVersionRowChange"
+            },
+            "type": "array"
+          },
+          "compare_dataset_version_id": {
+            "type": "string"
+          },
+          "total_changed_rows": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "base_dataset_version_id",
+          "compare_dataset_version_id",
+          "total_changed_rows",
+          "changed_rows"
+        ],
+        "type": "object"
+      },
       "DatasetVersionDetailResponse": {
         "description": "Response for a single dataset version with full details",
         "properties": {
           "anomaly_status": {
             "type": "string"
+          },
+          "compare": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatasetVersionCompareSummary"
+              }
+            ]
           },
           "created_at": {
             "type": "string"
@@ -9558,6 +9996,16 @@
           },
           "dataset_version_id": {
             "type": "string"
+          },
+          "evaluation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatasetEvaluationArtifact"
+              }
+            ]
           },
           "hash_b3": {
             "type": "string"
@@ -9585,6 +10033,13 @@
           },
           "pii_status": {
             "type": "string"
+          },
+          "row_count": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "schema_version": {
             "type": "string"
@@ -9642,6 +10097,32 @@
           "trust_state",
           "overall_trust_status",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "DatasetVersionRowChange": {
+        "properties": {
+          "change_type": {
+            "type": "string"
+          },
+          "changed_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "provenance_impact": {
+            "type": "string"
+          },
+          "row_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "row_id",
+          "change_type",
+          "changed_fields",
+          "provenance_impact"
         ],
         "type": "object"
       },
@@ -9717,6 +10198,20 @@
       "DatasetVersionTrustSnapshot": {
         "description": "Trust snapshot for a dataset version captured at training time.",
         "properties": {
+          "dataset_id": {
+            "description": "Parent dataset ID (resolved from dataset_version_id)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataset_name": {
+            "description": "Dataset display name (resolved from dataset_id)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "dataset_version_id": {
             "type": "string"
           },
@@ -9772,6 +10267,54 @@
           "stack_id"
         ],
         "type": "object"
+      },
+      "DegradedNotice": {
+        "description": "Explicit degraded/fallback notice payload.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/DegradedNoticeKind",
+            "description": "Taxonomy key for deterministic client handling."
+          },
+          "level": {
+            "$ref": "#/components/schemas/DegradedNoticeLevel",
+            "description": "Severity for rendering priority."
+          },
+          "meaning_changed": {
+            "description": "True when behavior may differ semantically from the expected path.",
+            "type": "boolean"
+          },
+          "message": {
+            "description": "Plain-language operator message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "level",
+          "message"
+        ],
+        "type": "object"
+      },
+      "DegradedNoticeKind": {
+        "description": "Machine-readable degraded/failure taxonomy for chat trust surfaces.",
+        "enum": [
+          "attach_failure",
+          "worker_semantic_fallback",
+          "routing_override",
+          "blocked_pins",
+          "worker_unavailable",
+          "ffi_attach_failure"
+        ],
+        "type": "string"
+      },
+      "DegradedNoticeLevel": {
+        "description": "Severity level for degraded/failure notices.",
+        "enum": [
+          "info",
+          "warning",
+          "critical"
+        ],
+        "type": "string"
       },
       "DegradedReason": {
         "description": "Degraded component reason.",
@@ -9873,6 +10416,28 @@
         ],
         "type": "object"
       },
+      "DeterminismFreshnessReason": {
+        "description": "Machine-readable reason for determinism freshness classification.",
+        "enum": [
+          "recent_run",
+          "stale_last_run",
+          "missing_last_run",
+          "invalid_last_run_format",
+          "future_last_run",
+          "no_determinism_checks",
+          "query_error"
+        ],
+        "type": "string"
+      },
+      "DeterminismFreshnessStatus": {
+        "description": "Freshness status for determinism diagnostics.",
+        "enum": [
+          "fresh",
+          "stale",
+          "unknown"
+        ],
+        "type": "string"
+      },
       "DeterminismPolicy": {
         "description": "Determinism policy configuration\n\nControls which determinism modes are allowed for inference requests\nand how strict mode constraints are enforced.",
         "properties": {
@@ -9923,40 +10488,77 @@
         "type": "object"
       },
       "DeterminismStatusResponse": {
-        "description": "Determinism check status response",
+        "description": "Determinism check status response.",
         "properties": {
           "divergences": {
+            "description": "Divergence count for latest determinism check.",
             "minimum": 0,
             "type": [
               "integer",
               "null"
             ]
           },
+          "freshness_age_seconds": {
+            "description": "Age of `last_run` in seconds when parseable.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "freshness_reason": {
+            "$ref": "#/components/schemas/DeterminismFreshnessReason",
+            "description": "Machine-readable reason for freshness status."
+          },
+          "freshness_status": {
+            "$ref": "#/components/schemas/DeterminismFreshnessStatus",
+            "description": "Freshness classification for determinism status."
+          },
           "last_run": {
+            "description": "Last persisted determinism check timestamp.",
             "type": [
               "string",
               "null"
             ]
           },
           "result": {
+            "description": "Determinism result: \"pass\" | \"fail\" | null.",
             "type": [
               "string",
               "null"
             ]
           },
           "runs": {
+            "description": "Number of runs used for latest determinism check.",
             "minimum": 0,
             "type": [
               "integer",
               "null"
             ]
+          },
+          "stale_after_seconds": {
+            "description": "Threshold in seconds after which a check is stale.",
+            "format": "int64",
+            "type": "integer"
           }
         },
+        "required": [
+          "freshness_status",
+          "freshness_reason",
+          "stale_after_seconds"
+        ],
         "type": "object"
       },
       "DeterministicReceipt": {
         "description": "Deterministic inference receipt (metadata only).",
         "properties": {
+          "adapter_version_bindings": {
+            "description": "Immutable adapter version bindings resolved for this inference.\n\nIn bit-identical mode, this binds each adapter to an explicit\n`(repo_id, version_id)` pair used for routing and replay.",
+            "items": {
+              "$ref": "#/components/schemas/AdapterVersionBinding"
+            },
+            "type": "array"
+          },
           "adapters_used": {
             "description": "Adapter identifiers selected/used during inference.",
             "items": {
@@ -10822,6 +11424,50 @@
         "required": [
           "text",
           "source"
+        ],
+        "type": "object"
+      },
+      "DocumentLink": {
+        "description": "Clickable source document link tied to inference provenance.",
+        "properties": {
+          "adapter_id": {
+            "description": "Adapter ID that contributed this document link.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataset_version_id": {
+            "description": "Dataset version through which this document was linked to the adapter.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "description": "Document identifier.",
+            "type": "string"
+          },
+          "document_name": {
+            "description": "Display name for UI rendering.",
+            "type": "string"
+          },
+          "download_url": {
+            "description": "Tenant-scoped download route.",
+            "type": "string"
+          },
+          "source_file": {
+            "description": "Source file marker from training dataset rows, when available.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "document_id",
+          "document_name",
+          "download_url"
         ],
         "type": "object"
       },
@@ -13934,6 +14580,13 @@
               }
             ]
           },
+          "bit_identical": {
+            "description": "Request bit-identical deterministic execution semantics.\n\nWhen true, callers must provide explicit immutable adapter pins\n(`adapter_repo_id@adapter_version_id`) and strict validation is enforced.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "collection_id": {
             "description": "Collection ID for scoped RAG retrieval (requires rag_enabled = true)",
             "type": [
@@ -14129,6 +14782,13 @@
       "InferResponse": {
         "description": "Inference response",
         "properties": {
+          "adapter_attachments": {
+            "description": "Adapter attachment provenance for trust/detail views.",
+            "items": {
+              "$ref": "#/components/schemas/AdapterAttachment"
+            },
+            "type": "array"
+          },
           "adapters_used": {
             "description": "Adapters used for this inference (also available in trace)",
             "items": {
@@ -14171,6 +14831,13 @@
               "null"
             ]
           },
+          "degraded_notices": {
+            "description": "Explicit degraded/fallback notices for trust/detail views.",
+            "items": {
+              "$ref": "#/components/schemas/DegradedNotice"
+            },
+            "type": "array"
+          },
           "determinism_mode_applied": {
             "description": "Determinism mode that was applied after resolution",
             "type": [
@@ -14188,6 +14855,13 @@
                 "description": "Deterministic receipt for audit/replay metadata.\n\nIncludes seeds, resolved parameters, and execution selection. This is\nintended to be deterministic given the same prompt+system+params and\nruntime state."
               }
             ]
+          },
+          "document_links": {
+            "description": "Source documents tied to adapters used during inference.\n\nEach entry includes a tenant-scoped download URL that the UI can render\nas a clickable link for operator review.",
+            "items": {
+              "$ref": "#/components/schemas/DocumentLink"
+            },
+            "type": "array"
           },
           "error": {
             "description": "Error message if inference failed",
@@ -14468,6 +15142,76 @@
           "rank",
           "context_hash",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "InferenceMetricsResponse": {
+        "description": "Inference metrics response",
+        "properties": {
+          "failed_requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_updated": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_mean_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "latency_p50_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_p95_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_p99_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "successful_requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tokens_per_second": {
+            "format": "double",
+            "type": "number"
+          },
+          "total_requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "total_requests",
+          "successful_requests",
+          "failed_requests",
+          "total_tokens",
+          "tokens_per_second",
+          "latency_p50_ms",
+          "latency_p95_ms",
+          "latency_p99_ms",
+          "latency_mean_ms",
+          "last_updated"
         ],
         "type": "object"
       },
@@ -18093,6 +18837,19 @@
       },
       "OpenAiChatCompletionsRequest": {
         "properties": {
+          "frequency_penalty": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "logprobs": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "max_completion_tokens": {
             "format": "int32",
             "minimum": 0,
@@ -18129,6 +18886,41 @@
               "null"
             ]
           },
+          "presence_penalty": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "response_format": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenAiResponseFormat"
+              }
+            ]
+          },
+          "seed": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stop": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenAiStop"
+              }
+            ]
+          },
           "stream": {
             "type": [
               "boolean",
@@ -18139,6 +18931,25 @@
             "format": "float",
             "type": [
               "number",
+              "null"
+            ]
+          },
+          "tool_choice": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenAiToolChoice"
+              }
+            ]
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/OpenAiTool"
+            },
+            "type": [
+              "array",
               "null"
             ]
           },
@@ -18221,15 +19032,26 @@
       "OpenAiChatMessageResponse": {
         "properties": {
           "content": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "role": {
             "type": "string"
+          },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/OpenAiToolCall"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
-          "role",
-          "content"
+          "role"
         ],
         "type": "object"
       },
@@ -18270,6 +19092,19 @@
       },
       "OpenAiCompletionsRequest": {
         "properties": {
+          "frequency_penalty": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "logprobs": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "max_tokens": {
             "format": "int32",
             "minimum": 0,
@@ -18292,8 +19127,33 @@
               "null"
             ]
           },
+          "presence_penalty": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "prompt": {
             "$ref": "#/components/schemas/OpenAiCompletionPrompt"
+          },
+          "seed": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stop": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenAiStop"
+              }
+            ]
           },
           "stream": {
             "type": [
@@ -18515,6 +19375,27 @@
         ],
         "type": "object"
       },
+      "OpenAiJsonSchemaFormat": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "object"
+          },
+          "strict": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "schema"
+        ],
+        "type": "object"
+      },
       "OpenAiModel": {
         "description": "OpenAI-compatible model object.\n\nSee: <https://platform.openai.com/docs/api-reference/models/object>",
         "properties": {
@@ -18562,6 +19443,145 @@
         "required": [
           "object",
           "data"
+        ],
+        "type": "object"
+      },
+      "OpenAiNamedToolChoice": {
+        "properties": {
+          "function": {
+            "$ref": "#/components/schemas/OpenAiNamedToolFunction"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "function"
+        ],
+        "type": "object"
+      },
+      "OpenAiNamedToolFunction": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "OpenAiResponseFormat": {
+        "properties": {
+          "json_schema": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenAiJsonSchemaFormat"
+              }
+            ]
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "OpenAiStop": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ]
+      },
+      "OpenAiTool": {
+        "properties": {
+          "function": {
+            "$ref": "#/components/schemas/OpenAiToolFunction"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "function"
+        ],
+        "type": "object"
+      },
+      "OpenAiToolCall": {
+        "properties": {
+          "function": {
+            "$ref": "#/components/schemas/OpenAiToolCallFunction"
+          },
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "function"
+        ],
+        "type": "object"
+      },
+      "OpenAiToolCallFunction": {
+        "properties": {
+          "arguments": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "arguments"
+        ],
+        "type": "object"
+      },
+      "OpenAiToolChoice": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "$ref": "#/components/schemas/OpenAiNamedToolChoice"
+          }
+        ]
+      },
+      "OpenAiToolFunction": {
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -22261,6 +23281,17 @@
           },
           "ready": {
             "type": "boolean"
+          },
+          "replay_guard": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReplayGuardCheck",
+                "description": "Replay determinism guard state (strict mode only)."
+              }
+            ]
           }
         },
         "required": [
@@ -22833,6 +23864,81 @@
         ],
         "type": "string"
       },
+      "ReplayGuardCheck": {
+        "description": "Replay determinism guard status surfaced via `/readyz`.",
+        "properties": {
+          "age_seconds": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "divergences": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_run": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stale_after_seconds": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ReplayGuardState"
+          }
+        },
+        "required": [
+          "ok",
+          "state",
+          "stale_after_seconds"
+        ],
+        "type": "object"
+      },
+      "ReplayGuardState": {
+        "description": "Replay guard freshness state for determinism health signaling.",
+        "enum": [
+          "fresh",
+          "failing",
+          "stale",
+          "missing",
+          "unknown"
+        ],
+        "type": "string"
+      },
       "ReplayHistoryResponse": {
         "description": "Response containing replay execution history",
         "properties": {
@@ -22903,7 +24009,7 @@
             ]
           },
           "router_seed": {
-            "description": "Router seed for audit purposes (stored but currently unused)\n\nThe router uses a deterministic algorithm (sorted by score, then by\nstable_id for tie-breaking). This seed is stored for audit trail purposes\nbut does NOT currently affect routing decisions.",
+            "description": "Router seed for audit and adaptive tie-break replay.\n\nDeterministic routing mode uses score/stable_id ordering and does not\ndepend on this seed. Adaptive routing mode derives reproducible tie-break\nordering from this value.",
             "type": [
               "string",
               "null"
@@ -28369,6 +29475,10 @@
               }
             ]
           },
+          "bit_identical": {
+            "description": "Request strict bit-identical deterministic behavior.",
+            "type": "boolean"
+          },
           "collection_id": {
             "description": "Collection ID for scoping RAG retrieval to specific document collection",
             "type": [
@@ -32607,7 +33717,8 @@
         "description": "UI profile for navigation and surface filtering.",
         "enum": [
           "primary",
-          "full"
+          "full",
+          "hud"
         ],
         "type": "string"
       },
@@ -32951,6 +34062,27 @@
           "success",
           "updated_count"
         ],
+        "type": "object"
+      },
+      "UpdateDatasetRequest": {
+        "additionalProperties": false,
+        "description": "Request to update dataset metadata (name, description)",
+        "properties": {
+          "description": {
+            "description": "New dataset description (optional)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "New dataset name (optional)",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "UpdateDatasetSafetyRequest": {
@@ -34649,7 +35781,7 @@
               "null"
             ]
           },
-          "last_heartbeat_at": {
+          "last_seen_at": {
             "type": [
               "string",
               "null"
@@ -34939,6 +36071,13 @@
       "WorkerRegistrationRequest": {
         "description": "Worker registration request\n\nSent by worker on startup to register with the control plane.\nThe control plane validates manifest_hash against the plan's expected manifest.",
         "properties": {
+          "active_model_id": {
+            "description": "Active model identifier at registration time (for restart continuity)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "api_version": {
             "description": "API version for CP-worker protocol (e.g., \"1.0\")",
             "type": "string"
@@ -35171,6 +36310,20 @@
       "WorkerResponse": {
         "description": "Worker response",
         "properties": {
+          "active_model_hash": {
+            "description": "Runtime active model hash currently serving on this worker.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active_model_id": {
+            "description": "Runtime active model identifier currently serving on this worker.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "backend": {
             "description": "Backend selected by the worker (e.g., mlx, metal, coreml)",
             "type": [
@@ -35262,6 +36415,21 @@
               "null"
             ]
           },
+          "model_error": {
+            "description": "Last model lifecycle error reported by worker runtime.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_generation": {
+            "description": "Lifecycle generation counter for worker model transitions.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "model_hash": {
             "description": "Base model hash (BLAKE3 hex) expected/loaded by this worker (from manifest/worker)",
             "type": [
@@ -35274,6 +36442,17 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "model_load_state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkerModelLoadState",
+                "description": "Runtime model load state for routing/readiness visibility."
+              }
             ]
           },
           "model_loaded": {
@@ -35339,6 +36518,20 @@
       "WorkerStatusNotification": {
         "description": "Worker status notification\n\nSent by worker to notify control plane of status changes.",
         "properties": {
+          "active_model_hash": {
+            "description": "Runtime active model hash currently serving on this worker.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active_model_id": {
+            "description": "Runtime active model identifier currently serving on this worker.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "cache_active_entries": {
             "description": "Number of active cache entries (in-use, cannot be evicted)",
             "format": "int32",
@@ -35410,6 +36603,21 @@
             "description": "BLAKE3 hash of the currently loaded model (for routing affinity)",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "model_error": {
+            "description": "Last model runtime error reported by worker.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_generation": {
+            "description": "Lifecycle generation counter for model switch serialization on worker.",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -36594,6 +37802,50 @@
               }
             },
             "description": "Repository not found"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/v1/adapter-repositories/{repo_id}/versions/checkout": {
+      "post": {
+        "operationId": "checkout_adapter_version_handler",
+        "parameters": [
+          {
+            "description": "Repository ID",
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Checkout succeeded"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Repository or version not found"
           }
         },
         "tags": [
@@ -37788,6 +39040,16 @@
               }
             },
             "description": "Invalid request"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal error"
           }
         },
         "summary": "Register new adapter",
@@ -38350,7 +39612,7 @@
     },
     "/v1/adapters/{adapter_id}/duplicate": {
       "post": {
-        "description": "Creates a copy of an adapter with a new ID. The duplicate will have\nthe original adapter set as its parent and fork_type=\"duplicate\".",
+        "description": "Creates a copy of an adapter with a new ID. The duplicate will have\nthe original adapter set as its parent and fork_type=\"extension\".",
         "operationId": "duplicate_adapter",
         "parameters": [
           {
@@ -40679,7 +41941,7 @@
     },
     "/v1/auth/tenants": {
       "get": {
-        "description": "In real auth mode, this returns the user's tenant (from claims) and any\ntenants they have been granted access to. For admins with wildcard access,\nit returns all tenants.",
+        "description": "In real auth mode, this returns the user's tenant (from claims) and any\ntenants they have been granted access to. Reserved internal tenants are\nexcluded from user-facing output. For admins with wildcard access, it\nreturns all workspace tenants.",
         "operationId": "list_user_tenants_handler",
         "responses": {
           "200": {
@@ -40690,7 +41952,7 @@
                 }
               }
             },
-            "description": "List of accessible tenants"
+            "description": "List of accessible workspace tenants"
           },
           "500": {
             "description": "Database error"
@@ -44597,7 +45859,7 @@
     },
     "/v1/datasets/from-documents": {
       "post": {
-        "description": "Converts RAG documents into JSONL training format. Either `document_id` or\n`collection_id` must be provided (mutually exclusive). The resulting dataset\nis immediately marked as valid since the source documents are already indexed.\n\nThe JSONL format is: `{\"text\": \"<chunk_text>\"}` for each chunk, ordered\ndeterministically by (document_id ASC, chunk_index ASC) for reproducibility.",
+        "description": "Converts RAG documents into JSONL training format. Either `document_id` or\n`collection_id` must be provided (mutually exclusive). The resulting dataset\nis immediately marked as valid since the source documents are already indexed.\n\nThe JSONL format stores prompt/completion rows with source metadata for each\nchunk, ordered deterministically by (document_id ASC, chunk_index ASC).",
         "operationId": "create_dataset_from_documents",
         "requestBody": {
           "content": {
@@ -44821,6 +46083,48 @@
           }
         },
         "summary": "Get a specific dataset",
+        "tags": [
+          "datasets"
+        ]
+      },
+      "patch": {
+        "operationId": "update_dataset",
+        "parameters": [
+          {
+            "description": "Dataset ID",
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDatasetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Dataset updated"
+          },
+          "403": {
+            "description": "Tenant isolation violation"
+          },
+          "404": {
+            "description": "Dataset not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Update dataset metadata (name, description)",
         "tags": [
           "datasets"
         ]
@@ -45293,6 +46597,30 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional comparison target version (version id, version number, or \"latest\")",
+            "in": "query",
+            "name": "compare_to",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Regenerate and persist dataset evaluation before returning detail.",
+            "in": "query",
+            "name": "regenerate_evaluation",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
             }
           }
         ],
@@ -50556,6 +51884,38 @@
         ]
       }
     },
+    "/v1/metrics/inference": {
+      "get": {
+        "description": "Returns overall inference performance metrics including:\n- Request counts (total, success, failed)\n- Throughput (tokens/sec)\n- Latency percentiles (p50, p95, p99)",
+        "operationId": "get_inference_metrics_handler",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InferenceMetricsResponse"
+                }
+              }
+            },
+            "description": "Inference metrics retrieved"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Permission denied"
+          }
+        },
+        "summary": "GET /v1/metrics/inference",
+        "tags": [
+          "metrics"
+        ]
+      }
+    },
     "/v1/metrics/quality": {
       "get": {
         "operationId": "get_quality_metrics",
@@ -55737,7 +57097,7 @@
             }
           },
           {
-            "description": "Search scope: all, adapters, pages",
+            "description": "Search scope: all, adapters, models, pages",
             "in": "query",
             "name": "scope",
             "required": false,
@@ -57773,7 +59133,7 @@
                 }
               }
             },
-            "description": "Tenants list"
+            "description": "Workspace tenants list (internal tenants excluded)"
           },
           "403": {
             "content": {

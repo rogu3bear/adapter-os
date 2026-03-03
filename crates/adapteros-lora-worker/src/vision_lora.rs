@@ -277,7 +277,7 @@ mod tests {
                 .unwrap(),
             ),
         ];
-        let serialized = serialize(tensors, &Default::default()).unwrap();
+        let serialized = serialize(tensors, Default::default()).unwrap();
 
         let weights = load_vision_lora(&serialized, VisionTask::Detection, 4).unwrap();
         assert_eq!(Arc::as_ref(&weights.weights)[0], 1.0);
@@ -302,7 +302,7 @@ mod tests {
         .unwrap();
         let base_bytes = safetensors::serialize(
             vec![("dummy.weight".to_string(), tensor)],
-            &Default::default(),
+            Default::default(),
         )
         .unwrap();
         let hash_before = B3Hash::hash(&base_bytes);

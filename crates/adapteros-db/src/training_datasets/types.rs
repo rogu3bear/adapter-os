@@ -61,31 +61,6 @@ pub struct TrainingDataset {
     pub scan_roots_updated_at: Option<String>,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TrainingDatasetType {
-    Standard,
-    Identity,
-}
-
-#[allow(dead_code)]
-impl TrainingDatasetType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            TrainingDatasetType::Standard => "standard",
-            TrainingDatasetType::Identity => "identity",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "identity" => TrainingDatasetType::Identity,
-            _ => TrainingDatasetType::Standard,
-        }
-    }
-}
-
 // ============================================================================
 // Dataset Version
 // ============================================================================

@@ -10,12 +10,10 @@ pub(crate) mod lifecycle;
 pub(crate) mod services;
 mod utils;
 
-use crate::api::{
-    use_sse_json_events, ApiClient, SseState,
-};
+use crate::api::{use_sse_json_events, ApiClient, SseState};
 use crate::components::{
     Button, ButtonVariant, ErrorDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
-    Spinner,
+    SkeletonCard, SkeletonStatsGrid,
 };
 use crate::hooks::{
     use_api_resource, use_health_endpoints, use_polling, use_sse_notifications, use_system_status,
@@ -83,6 +81,7 @@ pub fn System() -> impl IntoView {
     let last_sse_update = RwSignal::new(Option::<String>::None);
 
     // SSE connection for worker status stream
+    // Use try_ variants to avoid panic when signals are disposed during navigation
     let (sse_status, _reconnect) = use_sse_json_events::<WorkerStreamEvent, _>(
         "/v1/stream/workers",
         &["workers"],
@@ -91,13 +90,13 @@ pub fn System() -> impl IntoView {
                 WorkerStreamEvent::FullList { workers: _ } => {
                     // When we receive a full list, clear overrides and trigger refetch
                     // to get the complete worker data
-                    worker_status_overrides.set(HashMap::new());
-                    last_sse_update.set(Some(crate::utils::now_utc().to_rfc3339()));
+                    let _ = worker_status_overrides.try_set(HashMap::new());
+                    let _ = last_sse_update.try_set(Some(crate::utils::now_utc().to_rfc3339()));
                     refetch_workers.run(());
                 }
                 WorkerStreamEvent::StatusUpdate(update) => {
                     // Apply incremental status update
-                    worker_status_overrides.update(|overrides| {
+                    let _ = worker_status_overrides.try_update(|overrides| {
                         overrides.insert(
                             update.worker_id.clone(),
                             (update.status.clone(), update.timestamp.clone()),
@@ -132,17 +131,17 @@ pub fn System() -> impl IntoView {
     });
 
     // Debug logging for list sizes
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, target_arch = "wasm32"))]
     Effect::new(move |_| {
         if let Some(LoadingState::Loaded(ref w)) = workers.try_get() {
-            web_sys::console::log_1(&format!("[list] system/workers: {} items", w.len()).into());
+            crate::debug_log!("[list] system/workers: {} items", w.len());
         }
     });
 
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, target_arch = "wasm32"))]
     Effect::new(move |_| {
         if let Some(LoadingState::Loaded(ref n)) = nodes.try_get() {
-            web_sys::console::log_1(&format!("[list] system/nodes: {} items", n.len()).into());
+            crate::debug_log!("[list] system/nodes: {} items", n.len());
         }
     });
 
@@ -157,18 +156,23 @@ pub fn System() -> impl IntoView {
         refetch_models_status.run(());
         refetch_health_endpoints.run(());
         // Worker polling is fallback-only while the worker stream is not connected.
-        if is_polling_fallback_active(sse_status.get_untracked()) {
+        // Use try_get_untracked to avoid panic if signal is disposed during navigation.
+        let sse_disposed_or_fallback = sse_status
+            .try_get_untracked()
+            .is_none_or(is_polling_fallback_active);
+        if sse_disposed_or_fallback {
             refetch_workers.run(());
         }
     });
 
     view! {
         <PageScaffold
-            title="Infrastructure"
+            title="System"
             breadcrumbs=vec![
-                PageBreadcrumbItem::label("Org"),
-                PageBreadcrumbItem::current("Infrastructure"),
+                PageBreadcrumbItem::new("System", "/system"),
+                PageBreadcrumbItem::current("System"),
             ]
+            full_width=true
         >
             <PageScaffoldActions slot>
                 <SseIndicator state=sse_status/>
@@ -200,8 +204,10 @@ pub fn System() -> impl IntoView {
                     match status_state {
                         LoadingState::Idle | LoadingState::Loading => {
                             view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
+                                <div class="space-y-6">
+                                    <SkeletonStatsGrid count=5 />
+                                    <SkeletonCard has_header=true />
+                                    <SkeletonCard has_header=true />
                                 </div>
                             }.into_any()
                         }
