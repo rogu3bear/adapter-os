@@ -1,12 +1,17 @@
 //! Dataset version handlers.
 
-use super::types::{CreateDatasetVersionRequest, CreateDatasetVersionResponse, DatasetRowEditRequest};
+use super::types::{
+    CreateDatasetVersionRequest, CreateDatasetVersionResponse, DatasetRowEditRequest,
+};
 use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::services::dataset_domain::DatasetDomain;
-use crate::services::{CanonicalRow, DatasetDomainService, RawDialect, RawFileDescriptor, RawIngestRequest, SamplingConfig};
+use crate::services::{
+    CanonicalRow, DatasetDomainService, RawDialect, RawFileDescriptor, RawIngestRequest,
+    SamplingConfig,
+};
 use crate::state::AppState;
 use crate::types::{DatasetVersionSummary, DatasetVersionsResponse};
 use adapteros_db::training_datasets::{CreateTrainingDatasetRowParams, EvidenceFilter, SampleRole};
@@ -464,11 +469,11 @@ fn extract_source_span(metadata: &Map<String, Value>) -> Option<DatasetSourceSpa
     let source_file = metadata_string(metadata, "source_file")
         .or_else(|| metadata_string(metadata, "source_document_name"))
         .or_else(|| metadata_string(metadata, "file_path"));
-    let page_start =
-        metadata_i32(metadata, "source_page_number").or_else(|| metadata_i32(metadata, "page_start"));
+    let page_start = metadata_i32(metadata, "source_page_number")
+        .or_else(|| metadata_i32(metadata, "page_start"));
     let page_end = metadata_i32(metadata, "source_page_end").or(page_start);
-    let char_start =
-        metadata_i32(metadata, "source_start_offset").or_else(|| metadata_i32(metadata, "char_start"));
+    let char_start = metadata_i32(metadata, "source_start_offset")
+        .or_else(|| metadata_i32(metadata, "char_start"));
     let char_end =
         metadata_i32(metadata, "source_end_offset").or_else(|| metadata_i32(metadata, "char_end"));
 
@@ -515,7 +520,10 @@ fn push_unique_citation(
     issue: &str,
     row: &CanonicalRow,
 ) {
-    if citations.iter().any(|c| c.issue == issue && c.row_id == row.row_id) {
+    if citations
+        .iter()
+        .any(|c| c.issue == issue && c.row_id == row.row_id)
+    {
         return;
     }
     citations.push(DatasetEvaluationCitation {
@@ -657,7 +665,10 @@ async fn persist_dataset_evaluation(
     let artifact_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Dst, "eval");
     let evaluation = evaluate_rows(artifact_id, dataset_id, dataset_version_id, rows);
     let payload = serde_json::to_string(&evaluation).map_err(|e| {
-        ApiError::internal(format!("Failed to serialize dataset evaluation artifact: {}", e))
+        ApiError::internal(format!(
+            "Failed to serialize dataset evaluation artifact: {}",
+            e
+        ))
     })?;
     let summary = format!(
         "coverage={} duplicates={} leakage={:.3}",
@@ -770,10 +781,8 @@ fn apply_row_edits(
                 || (next.weight - original_weight).abs() > f32::EPSILON
                 || next.split != original_split;
             if changed {
-                next.metadata.insert(
-                    "provenance_invalidated".to_string(),
-                    Value::Bool(true),
-                );
+                next.metadata
+                    .insert("provenance_invalidated".to_string(), Value::Bool(true));
                 next.metadata.insert(
                     "provenance_invalidated_reason".to_string(),
                     Value::String("row_edited".to_string()),
@@ -815,29 +824,33 @@ async fn write_rows_to_temp_file(
         .duration_since(UNIX_EPOCH)
         .map_err(|e| ApiError::internal(format!("Clock drift while creating temp file: {}", e)))?
         .as_nanos();
-    let path = paths
-        .temp
-        .join(format!("dataset-row-edit-{}-{}.jsonl", dataset_id, timestamp));
+    let path = paths.temp.join(format!(
+        "dataset-row-edit-{}-{}.jsonl",
+        dataset_id, timestamp
+    ));
 
-    let mut file = fs::File::create(&path)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to create temp dataset rows file: {}", e)))?;
+    let mut file = fs::File::create(&path).await.map_err(|e| {
+        ApiError::internal(format!("Failed to create temp dataset rows file: {}", e))
+    })?;
 
     for row in rows {
         let line = serde_json::to_string(row).map_err(|e| {
-            ApiError::internal(format!("Failed to serialize canonical row for temp file: {}", e))
+            ApiError::internal(format!(
+                "Failed to serialize canonical row for temp file: {}",
+                e
+            ))
         })?;
-        file.write_all(line.as_bytes())
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to write temp dataset rows file: {}", e)))?;
-        file.write_all(b"\n")
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to write temp dataset rows file: {}", e)))?;
+        file.write_all(line.as_bytes()).await.map_err(|e| {
+            ApiError::internal(format!("Failed to write temp dataset rows file: {}", e))
+        })?;
+        file.write_all(b"\n").await.map_err(|e| {
+            ApiError::internal(format!("Failed to write temp dataset rows file: {}", e))
+        })?;
     }
 
-    file.flush()
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to flush temp dataset rows file: {}", e)))?;
+    file.flush().await.map_err(|e| {
+        ApiError::internal(format!("Failed to flush temp dataset rows file: {}", e))
+    })?;
     Ok(path)
 }
 
@@ -1006,10 +1019,14 @@ fn compare_rows(
     base_rows: &[CanonicalRow],
     compare_rows: &[CanonicalRow],
 ) -> DatasetVersionCompareSummary {
-    let base_map: HashMap<&str, &CanonicalRow> =
-        base_rows.iter().map(|row| (row.row_id.as_str(), row)).collect();
-    let compare_map: HashMap<&str, &CanonicalRow> =
-        compare_rows.iter().map(|row| (row.row_id.as_str(), row)).collect();
+    let base_map: HashMap<&str, &CanonicalRow> = base_rows
+        .iter()
+        .map(|row| (row.row_id.as_str(), row))
+        .collect();
+    let compare_map: HashMap<&str, &CanonicalRow> = compare_rows
+        .iter()
+        .map(|row| (row.row_id.as_str(), row))
+        .collect();
     let mut row_ids: Vec<&str> = base_map
         .keys()
         .chain(compare_map.keys())
@@ -1218,19 +1235,14 @@ pub async fn get_dataset_version(
 
     if evaluation.is_none() {
         evaluation = Some(
-            persist_dataset_evaluation(
-                &state,
-                &dataset_id,
-                &version.id,
-                &rows,
-                Some(&claims.sub),
-            )
-            .await?,
+            persist_dataset_evaluation(&state, &dataset_id, &version.id, &rows, Some(&claims.sub))
+                .await?,
         );
     }
 
     let compare = if let Some(compare_to_raw) = query.compare_to.as_deref() {
-        let compare_revision = crate::id_resolver::resolve_any_id(&state.db, compare_to_raw).await?;
+        let compare_revision =
+            crate::id_resolver::resolve_any_id(&state.db, compare_to_raw).await?;
         let compare_version =
             resolve_version_by_revision(&state, tenant_key, &dataset_id, &compare_revision).await?;
         let mut target_rows = domain

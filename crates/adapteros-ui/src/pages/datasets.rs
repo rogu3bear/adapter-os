@@ -351,7 +351,8 @@ pub fn DatasetDetail() -> impl IntoView {
     let selected_source_file_id = RwSignal::new(None::<String>);
     let selected_source_page = RwSignal::new(None::<i32>);
     let selected_source_row_id = RwSignal::new(None::<String>);
-    let pending_row_edits = RwSignal::new(HashMap::<String, crate::api::types::DatasetRowEditRequest>::new());
+    let pending_row_edits =
+        RwSignal::new(HashMap::<String, crate::api::types::DatasetRowEditRequest>::new());
 
     let (version_rows, refetch_version_rows) = use_api_resource(move |client: Arc<ApiClient>| {
         let version_id = selected_version_id.get();
@@ -381,12 +382,7 @@ pub fn DatasetDetail() -> impl IntoView {
                     Some(compare_to.clone())
                 };
                 client
-                    .get_dataset_version_detail(
-                        &dataset_id,
-                        &revision,
-                        compare.as_deref(),
-                        false,
-                    )
+                    .get_dataset_version_detail(&dataset_id, &revision, compare.as_deref(), false)
                     .await
             }
         });
@@ -722,8 +718,10 @@ pub fn DatasetDetail() -> impl IntoView {
                         refetch_preview.run(());
                     }
                     Err(e) => {
-                        action_error
-                            .set(Some(action_error_message("save row edits as a new version", &e)));
+                        action_error.set(Some(action_error_message(
+                            "save row edits as a new version",
+                            &e,
+                        )));
                     }
                 }
 
@@ -740,7 +738,9 @@ pub fn DatasetDetail() -> impl IntoView {
             }
             let revision = selected_version_id.get();
             if revision.trim().is_empty() {
-                action_error.set(Some("Select a version before regenerating evaluation.".to_string()));
+                action_error.set(Some(
+                    "Select a version before regenerating evaluation.".to_string(),
+                ));
                 return;
             }
 
@@ -766,8 +766,10 @@ pub fn DatasetDetail() -> impl IntoView {
                         refetch_version_detail.run(());
                     }
                     Err(e) => {
-                        action_error
-                            .set(Some(action_error_message("regenerate dataset evaluation", &e)));
+                        action_error.set(Some(action_error_message(
+                            "regenerate dataset evaluation",
+                            &e,
+                        )));
                     }
                 }
                 regenerating_evaluation.set(false);
@@ -1881,10 +1883,7 @@ fn is_pdf_file(file: &DatasetFileResponse) -> bool {
             return true;
         }
     }
-    file.file_name
-        .to_ascii_lowercase()
-        .trim()
-        .ends_with(".pdf")
+    file.file_name.to_ascii_lowercase().trim().ends_with(".pdf")
 }
 
 fn metadata_string(row: &CanonicalRow, key: &str) -> Option<String> {
@@ -1917,7 +1916,8 @@ fn row_source_page_start(row: &CanonicalRow) -> Option<i32> {
 fn row_source_span_label(row: &CanonicalRow) -> String {
     let page_start = row_source_page_start(row);
     let page_end = metadata_i32(row, "source_page_end").or(page_start);
-    let char_start = metadata_i32(row, "source_start_offset").or_else(|| metadata_i32(row, "char_start"));
+    let char_start =
+        metadata_i32(row, "source_start_offset").or_else(|| metadata_i32(row, "char_start"));
     let char_end = metadata_i32(row, "source_end_offset").or_else(|| metadata_i32(row, "char_end"));
 
     let mut parts = Vec::new();

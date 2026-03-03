@@ -21,7 +21,7 @@ test('login page loads and authenticates', { tag: ['@smoke'] }, async ({ page })
   // Post-login can land on /chat or dashboard fallback depending on readiness.
   const path = new URL(page.url()).pathname;
   expect(path).toMatch(/^\/($|dashboard(\/|$)|chat(\/|$))/);
-  await expect(page.getByRole('link', { name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^(Home|Dashboard)$/ })).toBeVisible();
   if (/^\/chat(\/|$)/.test(path)) {
     const contract = await resolveChatEntryContract(page);
     if (contract.state === 'unavailable') {

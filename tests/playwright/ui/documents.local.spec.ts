@@ -4,7 +4,7 @@ import { firstDocumentId, gotoAndBootstrap } from './utils';
 test('documents ingest surface (local)', { tag: ['@local', '@smoke'] }, async ({ page }) => {
   await gotoAndBootstrap(page, '/documents', { mode: 'ui-only' });
 
-  await expect(page.getByRole('heading', { name: 'Documents', level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^(Documents|Files)$/, level: 1 })).toBeVisible();
 
   // Pipeline summary strip
   await expect(page.getByRole('button', { name: /Ready\/Indexed/i })).toBeVisible();
@@ -21,7 +21,7 @@ test('documents ingest surface (local)', { tag: ['@local', '@smoke'] }, async ({
   if (docId) {
     await gotoAndBootstrap(page, `/documents/${docId}`, { mode: 'ui-only' });
     await expect(
-      page.getByRole('heading', { name: 'Document Details', level: 1, exact: true })
+      page.getByRole('heading', { name: /^(Document Details|File Details)$/, level: 1 })
     ).toBeVisible();
   }
 });

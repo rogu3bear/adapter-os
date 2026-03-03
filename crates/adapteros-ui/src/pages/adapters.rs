@@ -31,7 +31,9 @@ use crate::hooks::{use_api_resource, use_cached_api_resource, CacheTtl, LoadingS
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
 use crate::signals::{try_use_route_context, use_ui_profile, SelectedEntity};
 use crate::utils::{chat_path_with_adapter, format_datetime, humanize};
-use adapteros_api_types::{AdapterResponse, LifecycleState, TrainingJobResponse, TrainingListParams};
+use adapteros_api_types::{
+    AdapterResponse, LifecycleState, TrainingJobResponse, TrainingListParams,
+};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use std::collections::HashMap;
@@ -228,7 +230,10 @@ fn AdaptersListInteractive(
                 page_size: Some(100),
                 ..Default::default()
             };
-            client.list_training_jobs(Some(&params)).await.map(|resp| resp.jobs)
+            client
+                .list_training_jobs(Some(&params))
+                .await
+                .map(|resp| resp.jobs)
         },
     );
 

@@ -10,7 +10,9 @@
 //! Uses Liquid Glass Tier 2 (panels) with 12px blur and 78% alpha.
 //! Deterministic content - no random elements, consistent ordering.
 
-use adapteros_api_types::{AdapterResponse, LifecycleState, TrainingJobResponse, TrainingListParams};
+use adapteros_api_types::{
+    AdapterResponse, LifecycleState, TrainingJobResponse, TrainingListParams,
+};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_location, use_navigate};
@@ -217,7 +219,8 @@ fn AdapterDetailContent(
     let adapter_stats_for_overview = adapter.stats.clone();
     let adapter_chat_path = chat_path_with_adapter(&adapter_id);
     let compatibility_text = describe_adapter_compatibility(framework.as_deref(), &languages);
-    let readiness_text = lifecycle_readiness_text(adapter.lifecycle_state, adapter.runtime_state.as_deref());
+    let readiness_text =
+        lifecycle_readiness_text(adapter.lifecycle_state, adapter.runtime_state.as_deref());
     let relationship_version = version.clone();
 
     // Related training context for relationship surfaces.
@@ -229,12 +232,12 @@ fn AdapterDetailContent(
         let adapter_name_for_lookup = name.clone();
         let adapter_id_for_lookup = adapter_id.clone();
         spawn_local(async move {
-                let params = TrainingListParams {
-                    page: Some(1),
-                    page_size: Some(100),
-                    adapter_name: Some(adapter_name_for_lookup.clone()),
-                    ..Default::default()
-                };
+            let params = TrainingListParams {
+                page: Some(1),
+                page_size: Some(100),
+                adapter_name: Some(adapter_name_for_lookup.clone()),
+                ..Default::default()
+            };
             match client.list_training_jobs(Some(&params)).await {
                 Ok(resp) => {
                     let latest = resp

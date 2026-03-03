@@ -1760,7 +1760,12 @@ impl ApiClient {
     }
 
     /// Build an absolute URL for dataset file content (useful for iframe/object embeds).
-    pub fn dataset_file_content_url(&self, dataset_id: &str, file_id: &str, inline: bool) -> String {
+    pub fn dataset_file_content_url(
+        &self,
+        dataset_id: &str,
+        file_id: &str,
+        inline: bool,
+    ) -> String {
         let mut path = format!(
             "{}/v1/datasets/{}/files/{}/content",
             self.base_url,

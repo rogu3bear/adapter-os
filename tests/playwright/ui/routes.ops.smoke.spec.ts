@@ -4,9 +4,9 @@ import { runRouteCheck, seeded, type RouteCheck } from './utils';
 const opsRoutes: RouteCheck[] = [
   { path: '/admin', heading: 'Administration' },
   { path: '/audit', heading: 'Audit Log' },
-  { path: '/runs', heading: 'System Execution Records' },
+  { path: '/runs', heading: 'Execution Records' },
   { path: `/runs/${seeded.runId}`, heading: 'Execution Record Detail', headingLevel: 2 },
-  { path: '/flight-recorder', heading: 'System Execution Records' },
+  { path: '/flight-recorder', heading: 'Execution Records' },
   { path: `/flight-recorder/${seeded.runId}`, heading: 'Execution Record Detail', headingLevel: 2 },
   { path: '/workers', testId: 'workers-page-heading' },
   {
@@ -17,7 +17,7 @@ const opsRoutes: RouteCheck[] = [
     path: '/workers/worker-missing',
     testId: 'worker-detail-error-state',
   },
-  { path: '/welcome', heading: 'Welcome' },
+  { path: '/welcome', heading: 'Welcome Home' },
   { path: '/safe', testId: 'safe-page' },
 ];
 

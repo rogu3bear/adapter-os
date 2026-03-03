@@ -291,7 +291,7 @@ async function readAuthSurfaceState(page: Page): Promise<AuthSurfaceState> {
   const authTimeout = page.getByRole('heading', { name: 'Authentication Timeout' });
   const loginHeading = page.getByRole('heading', { name: 'Login', exact: true });
   const signingIn = page.getByText('Signing you in', { exact: false });
-  const shellLink = page.getByRole('link', { name: /^Dashboard$/ }).first();
+  const shellLink = page.getByRole('link', { name: /^(Home|Dashboard)$/ }).first();
   const shellNav = page.getByRole('navigation', { name: 'Main navigation' });
   const accountButton = page
     .getByRole('button', { name: new RegExp(AUTH_TEST_USERNAME, 'i') })
@@ -553,7 +553,7 @@ export async function bootstrapAuth(
     }
 
     // If the Shell is visible, we consider auth "good enough" for E2E flows.
-    const shellLink = page.getByRole('link', { name: 'Dashboard' });
+    const shellLink = page.getByRole('link', { name: /^(Home|Dashboard)$/ });
     if (await shellLink.isVisible().catch(() => false)) {
       return;
     }
@@ -873,7 +873,9 @@ async function readUnavailableReason(page: Page): Promise<string | undefined> {
     const text = (await reasonLocator.textContent())?.trim();
     if (text) return text;
   }
-  const heading = page.getByRole('heading', { name: 'Chat unavailable', exact: true }).first();
+  const heading = page
+    .getByRole('heading', { name: /^(Chat|Conversation) unavailable$/i })
+    .first();
   if (await heading.isVisible().catch(() => false)) {
     const text = (await heading.textContent())?.trim();
     if (text) return text;
@@ -959,11 +961,11 @@ export async function resolveChatEntryContract(
     // re-check for the active anchor before committing to `unavailable`.
     const unavailableTestId = await page.getByTestId('chat-unavailable-state').isVisible().catch(() => false);
     const unavailableHeading = !unavailableTestId && await page
-      .getByRole('heading', { name: 'Chat unavailable', level: 2, exact: true })
+      .getByRole('heading', { name: /^(Chat|Conversation) unavailable$/i, level: 2 })
       .isVisible()
       .catch(() => false);
     const unavailableText = !unavailableTestId && !unavailableHeading
-      && await page.getByText('Chat unavailable', { exact: false }).isVisible().catch(() => false);
+      && await page.getByText(/(Chat|Conversation) unavailable/i, { exact: false }).isVisible().catch(() => false);
 
     if (unavailableTestId || unavailableHeading || unavailableText) {
       // Give the app a moment to process a pending status response that might
@@ -992,7 +994,7 @@ export async function resolveChatEntryContract(
 
     const onDashboard = /^\/($|dashboard(\/|$))/.test(path);
     if (onDashboard) {
-      const chatUnavailableBanner = page.getByText('Chat unavailable', { exact: false });
+        const chatUnavailableBanner = page.getByText(/(Chat|Conversation) unavailable/i, { exact: false });
       if (await chatUnavailableBanner.isVisible().catch(() => false)) {
         // Same stabilization: wait and re-check before committing to unavailable.
         await sleep(500);
@@ -1151,7 +1153,7 @@ export async function runRouteCheck(page: Page, route: RouteCheck): Promise<void
       } else {
         await expect(
           // /login redirects to /chat when already authenticated; assert on the Shell sidebar.
-          page.getByRole('link', { name: 'Dashboard' })
+          page.getByRole('link', { name: /^(Home|Dashboard)$/ })
         ).toBeVisible({ timeout: 20_000 });
       }
     } else {

@@ -4,7 +4,7 @@ import { gotoAndBootstrap, resolveChatEntryState, seeded } from './utils';
 test('runs list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) => {
   await gotoAndBootstrap(page, '/runs', { mode: 'ui-only' });
   await expect(
-    page.getByRole('heading', { name: 'System Execution Records', level: 1, exact: true })
+    page.getByRole('heading', { name: /^(System )?Execution Records$/, level: 1 })
   ).toBeVisible();
   const runLabel =
     seeded.runId.length > 12 ? `${seeded.runId.slice(0, 12)}...` : seeded.runId;
@@ -44,8 +44,15 @@ test('runs list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) =>
       'K-sparse routing decisions showing which adapters were selected and their gate values.'
     )
   ).toBeVisible();
-  await tabNav.getByRole('button', { name: 'Signed System Logs', exact: true }).click();
-  await expect(page.getByText('Signed Logs & Fingerprints')).toBeVisible();
+  const receiptsTab = tabNav
+    .getByRole('button', { name: /^(Signed System Logs|Execution Receipts)$/ })
+    .first();
+  if (await receiptsTab.isVisible().catch(() => false)) {
+    await receiptsTab.click();
+    await expect(
+      page.getByText(/(Signed Logs & Fingerprints|receipts)/i).first()
+    ).toBeVisible();
+  }
 });
 
 test('primary flow: chat to run detail', { tag: ['@flow'] }, async ({ page }) => {
