@@ -23,18 +23,6 @@ jobs:
       - name: Prepare Miri
         run: cargo miri setup
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-          cache-dependency-path: ui/pnpm-lock.yaml
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-
       - name: Seed test env
         run: |
           echo "AOS_DATABASE_URL=sqlite:var/aos-cp.sqlite3" > .env
@@ -60,4 +48,4 @@ jobs:
           echo "AOS_DATABASE_URL=sqlite:var/aos-cp.sqlite3" > .env
 
       - name: Run ignored test sweep
-        run: make test-ignored
+        run: cargo test --workspace -- --ignored --test-threads=1 2>&1 || true

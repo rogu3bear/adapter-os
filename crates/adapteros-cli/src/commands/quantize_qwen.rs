@@ -9,10 +9,8 @@ use crate::output::OutputWriter;
 use adapteros_core::AosError;
 use adapteros_db::{Db, SetupSeedOptions};
 use adapteros_types::training::{
-    TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS,
-    TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED,
-    TRAINING_QUANTIZATION_PROBE_STATUS_FAILED,
-    TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS,
+    TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS, TRAINING_QUANTIZATION_PROBE_STATUS_DISABLED,
+    TRAINING_QUANTIZATION_PROBE_STATUS_FAILED, TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS,
     TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE,
 };
 use anyhow::{anyhow, Context, Result};
@@ -2332,7 +2330,9 @@ mod tests {
             // Multi-backend builds may return failed/unavailable/success depending on runtime/model.
             assert!(matches!(
                 probe.status.as_str(),
-                TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE | TRAINING_QUANTIZATION_PROBE_STATUS_FAILED | TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS
+                TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE
+                    | TRAINING_QUANTIZATION_PROBE_STATUS_FAILED
+                    | TRAINING_QUANTIZATION_PROBE_STATUS_SUCCESS
             ));
         }
     }
@@ -2363,8 +2363,14 @@ mod tests {
             .expect("dry-run outcome");
         assert_eq!(outcome.exit_code, 0);
         assert_eq!(outcome.report.phase, "dry_run");
-        assert_eq!(outcome.report.gate_source, TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS);
-        assert_eq!(outcome.report.probe_status, TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE);
+        assert_eq!(
+            outcome.report.gate_source,
+            TRAINING_QUANTIZATION_GATE_SOURCE_POLICY_METRICS
+        );
+        assert_eq!(
+            outcome.report.probe_status,
+            TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE
+        );
     }
 
     fn sample_validation() -> DatasetValidation {

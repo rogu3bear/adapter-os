@@ -7,7 +7,7 @@ use adapteros_core::seed::{derive_seed_full, hash_adapter_dir};
 use adapteros_core::B3Hash;
 use rand::Rng;
 use rand_chacha::ChaCha20Rng;
-use rand_core::SeedableRng;
+use rand::SeedableRng;
 use smallvec::SmallVec;
 use std::path::Path;
 

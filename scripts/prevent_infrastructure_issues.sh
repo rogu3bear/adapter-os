@@ -139,7 +139,12 @@ echo "✅ Workspace members consistent"
 # 4. Test compilation across workspace
 echo ""
 echo "🔨 Testing compilation across workspace..."
-if ! cargo check --workspace --quiet; then
+CARGO_CHECK_ARGS="--workspace --quiet"
+# Exclude macOS-only crates when running on Linux (e.g. ubuntu CI runners)
+if [ "$(uname)" != "Darwin" ]; then
+    CARGO_CHECK_ARGS="$CARGO_CHECK_ARGS --exclude adapteros-lora-kernel-mtl --exclude adapteros-lora-mlx-ffi --exclude adapteros-lora-kernel-coreml"
+fi
+if ! cargo check $CARGO_CHECK_ARGS; then
     echo "❌ Workspace compilation failed"
     exit 1
 fi

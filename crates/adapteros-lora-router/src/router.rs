@@ -13,7 +13,7 @@ use adapteros_telemetry::writer::RouterDecisionWriter;
 use adapteros_types::routing::RouterModelType;
 use rand::Rng;
 use rand_chacha::ChaCha20Rng;
-use rand_core::SeedableRng;
+use rand::SeedableRng;
 use smallvec::SmallVec;
 use std::collections::HashSet;
 use std::sync::OnceLock;
