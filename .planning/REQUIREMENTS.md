@@ -1,11 +1,38 @@
 # Requirements: adapterOS
 
-**Defined:** 2026-02-28
+**Defined:** 2026-03-04
 **Core Value:** Deterministic, verifiable LoRA inference on Apple Silicon so every operator action and model response is reproducible and auditable
 
-## v1.1.16 Requirements (Completed)
+## v1.1.18 Requirements
 
-Milestone focus: deterministic and operationally safe adapter training execution for the primary 27B path.
+Milestone focus: stabilize runtime — fix training worker spawn, clean stale state, commit dirty tree.
+
+### Worker Lifecycle
+
+- [ ] **WRK-01**: Training worker spawns successfully when backend starts (binary resolution fixed)
+- [ ] **WRK-02**: Training worker reports healthy in service status after boot
+
+### Runtime Hygiene
+
+- [ ] **RTH-01**: Stale SecD socket is cleaned up on boot when no backing process exists
+- [ ] **RTH-02**: Training worker degraded marker is cleared when worker successfully starts
+- [ ] **RTH-03**: Backend restart counter reflects actual crash count, not dev-rebuild kickstarts
+
+### Tree Commit
+
+- [ ] **GIT-01**: All modified files committed in logical, atomic commits
+- [ ] **GIT-02**: Working tree is clean after commit series
+
+## v1.1.17 Requirements (Completed)
+
+### Production Cut Contract
+
+- [x] **REL-47-01**: Prod-mode release gate is strict/no-skip and blocks governance `blocked_external` outcomes.
+- [x] **API-47-01**: Runtime/OpenAPI route closure matrix and strict allowlist policy are enforced.
+- [x] **SEC-47-01**: Release-safe auth posture and tenant-isolation assertions are blocking.
+- [x] **OPS-47-01**: Runbook drill evidence and release artifact signing/provenance checks are release-required.
+
+## v1.1.16 Requirements (Completed)
 
 ### Training Worker and Enqueue Safety
 
@@ -25,24 +52,22 @@ Milestone focus: deterministic and operationally safe adapter training execution
 
 ## v1.1.15 Requirements (Completed)
 
-Milestone focus: operator-visible command timeline, command-deck adapter operation parity, and dataset-version-aware typed training submission.
-
 ### AdapterOps Timeline Continuity
 
-- [x] **UX-41-01**: Adapter detail shows repository command timeline history (latest-first) so operators can inspect recent promote/checkout transitions.
+- [x] **UX-41-01**: Adapter detail shows repository command timeline history (latest-first).
 
 ### Command Deck AdapterOps Parity
 
-- [x] **UX-41-02**: Command deck provides adapter operation actions (`Run Promote`, `Run Checkout`, `Feed Dataset`) in adapter/update-center contexts.
-- [x] **A11Y-41-01**: Command intent routing remains explicit and assistive-friendly when command actions open Update Center.
+- [x] **UX-41-02**: Command deck provides adapter operation actions in adapter/update-center contexts.
+- [x] **A11Y-41-01**: Command intent routing remains explicit and assistive-friendly.
 
 ### Dataset Version Contract Continuity
 
-- [x] **VC-41-01**: Training wizard submits via typed `CreateTrainingJobRequest` and includes `dataset_version_id` when available.
+- [x] **VC-41-01**: Training wizard submits via typed `CreateTrainingJobRequest` with `dataset_version_id`.
 
 ### Documentation and Grounding Discipline
 
-- [x] **DOC-41-01**: Phase artifacts include concrete code citations and best-practice references for command and contract claims.
+- [x] **DOC-41-01**: Phase artifacts include concrete code citations and best-practice references.
 
 ## Future Requirements
 
@@ -55,18 +80,29 @@ Milestone focus: operator-visible command timeline, command-deck adapter operati
 
 - `GOV-16` remains accepted external debt from governance milestones until canonical required-check API capability changes from `blocked_external`.
 
-## Out of Scope (v1.1.15)
+## Out of Scope (v1.1.18)
 
 | Feature | Reason |
 |---------|--------|
-| Backend schema changes for timeline storage | Existing timeline endpoint contract was sufficient for required UX closure. |
-| New standalone adapter operations page | Must reuse Dashboard/Update Center/Detail surfaces to avoid parallel UI paths. |
-| Governance capability debt closure (`GOV-16`) | Tracked as accepted external debt outside this milestone scope. |
+| New features or capabilities | Stabilization only — fix what's broken |
+| Architecture refactoring | Out of scope for this pass |
+| Governance debt closure (`GOV-16`) | Remains accepted external debt |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| WRK-01 | Phase 49 | Pending |
+| WRK-02 | Phase 49 | Pending |
+| RTH-01 | Phase 50 | Pending |
+| RTH-02 | Phase 50 | Pending |
+| RTH-03 | Phase 50 | Pending |
+| GIT-01 | Phase 48 | Pending |
+| GIT-02 | Phase 48 | Pending |
+| REL-47-01 | Phase 47 | Complete |
+| API-47-01 | Phase 47 | Complete |
+| SEC-47-01 | Phase 47 | Complete |
+| OPS-47-01 | Phase 47 | Complete |
 | TRN-46-01 | Phase 46 | Complete |
 | DET-46-01 | Phase 46 | Complete |
 | OPS-46-01 | Phase 46 | Complete |
@@ -78,10 +114,10 @@ Milestone focus: operator-visible command timeline, command-deck adapter operati
 | DOC-41-01 | Phase 45 | Complete |
 
 **Coverage:**
-- v1.1.16 requirements: 4 total (completed)
-- v1.1.16 requirements mapped to phases: 4
-- v1.1.16 requirements unmapped: 0
+- v1.1.18 requirements: 7 total
+- Mapped to phases: 7
+- Unmapped: 0
 
 ---
-*Requirements defined: 2026-02-28*
-*Last updated: 2026-02-28 after v1.1.16 phase-46 completion reconciliation*
+*Requirements defined: 2026-03-04*
+*Last updated: 2026-03-04 after v1.1.18 milestone initialization*

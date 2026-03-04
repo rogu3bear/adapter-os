@@ -10,48 +10,46 @@ Deterministic, verifiable LoRA inference on Apple Silicon so every operator acti
 
 ## Current State
 
-**Latest shipped milestone:** v1.1.16 Training Pipeline Execution Hardening (shipped 2026-02-28)
-**Current execution milestone:** v1.1.17 Production Cut Closure (in progress; canonical spec in `.planning/PROD_CUT.md`)
-**Current go/no-go posture (2026-03-02):** local release governance preflight is optional and defaults to disabled for local packaging.
+**Latest shipped milestone:** v1.1.17 Production Cut Closure (shipped 2026-03-04)
+**Current execution milestone:** v1.1.18 System Stabilization (in progress)
 
-v1.1.16 is complete in top-level planning artifacts with phase-46 outputs under `.planning/phases/46-training-pipeline-execution-hardening/`.
+**Known blockers:**
+- Training worker binary exists but spawner fails PATH resolution (`os error 2`).
+- SecD socket stale — process gone, socket/heartbeat lingering in `var/run/`.
+- 84 uncommitted files (+3265/-1548) across 12+ crates. Compiles clean but never committed.
 
-**Accepted external debt posture:**
-- `GOV-16` remains accepted external debt (`blocked_external`, `HTTP 403`) and is out of scope for v1.1.15.
-- `GOV-16` remains accepted external debt (`blocked_external`, `HTTP 403`) and remains out of scope for v1.1.16.
-- For v1.1.17 local execution, governance preflight is configurable (`LOCAL_RELEASE_GOVERNANCE_MODE=off|warn|enforce`) and defaults to `off`.
+## Current Milestone: v1.1.18 System Stabilization
 
-## Current Milestone: v1.1.17 Production Cut Closure (In Progress)
-
-**Goal:** Deliver one production cut with strict no-skip release gating, route contract closure governance, hardened startup/determinism/security controls, runbook drill evidence requirements, and signed release artifacts.
+**Goal:** Fix runtime blockers preventing full-stack operation: training worker spawn, stale runtime state cleanup, and commit the large accumulated diff.
 
 **Target features:**
-- Route closure artifacts and strict route/openapi contract checks.
-- Prod-mode release gate (`scripts/ci/local_release_gate_prod.sh`) with inference + full smoke enforcement.
-- Startup negative-path, determinism allowlist governance, and release security assertions in required checks.
-- SBOM/provenance/signing enforcement with verification-log output.
-- Runbook drill evidence validation in `.planning/prod-cut/evidence/runbooks/`.
-
-**Current receipt state (2026-03-02):**
-- Runbook strict evidence: pass.
-- Signed release artifacts + verification log: pass.
-- Prod required checks (prod profile, all-targets clippy): pass.
-- Governance preflight: optional in local release path (default `off`), with `warn` and `enforce` modes available.
-- Final receipt: `.planning/prod-cut/evidence/final-go-no-go.md`.
+- Training worker binary resolution so it spawns on backend boot.
+- Stale socket/marker cleanup on boot (SecD, degraded markers).
+- Atomic commits for the 84-file dirty tree to establish a clean baseline.
 
 ## Requirements
 
+### Validated
+
+- `UX-41-01`: Adapter detail surfaces repository command timeline history — v1.1.15
+- `TRN-46-01`: Training start fails closed with explicit API error — v1.1.16
+- `DET-46-01`: Preflight validates dataset algorithm versions — v1.1.16
+- `OPS-46-01`: Primary model resolution canonicalized — v1.1.16
+- `DOC-46-01`: Terminal training failures expose actionable reasons — v1.1.16
+- `REL-47-01`: Prod-mode release gate strict/no-skip — v1.1.17
+- `API-47-01`: Route closure matrix and allowlist policy enforced — v1.1.17
+- `SEC-47-01`: Release-safe auth posture blocking — v1.1.17
+- `OPS-47-01`: Runbook drill evidence and signing checks release-required — v1.1.17
+
 ### Active Requirements
 
-- `UX-41-01`: Adapter detail surfaces repository command timeline history to support command-aware decisions.
-- `TRN-46-01`: Training start fails closed with explicit API error when no healthy training worker is available.
-- `DET-46-01`: Preflight validates dataset algorithm versions before enqueue.
-- `OPS-46-01`: Primary model resolution is canonicalized across training and model-status paths.
-- `DOC-46-01`: Terminal training failures expose actionable reasons and are citation-grounded.
-- `REL-47-01`: Prod-mode release gate is strict/no-skip and blocks governance `blocked_external` outcomes.
-- `API-47-01`: Runtime/OpenAPI route closure matrix and strict allowlist policy are enforced.
-- `SEC-47-01`: Release-safe auth posture and tenant-isolation assertions are blocking.
-- `OPS-47-01`: Runbook drill evidence and release artifact signing/provenance checks are release-required.
+- `WRK-01`: Training worker spawns successfully when backend starts (binary resolution fixed).
+- `WRK-02`: Training worker reports healthy in service status after boot.
+- `RTH-01`: Stale SecD socket is cleaned up on boot when no backing process exists.
+- `RTH-02`: Training worker degraded marker is cleared when worker successfully starts.
+- `RTH-03`: Backend restart counter reflects actual crash count, not dev-rebuild kickstarts.
+- `GIT-01`: All modified files committed in logical, atomic commits.
+- `GIT-02`: Working tree is clean after commit series.
 
 ## Grounding Anchors (Current Implementation)
 
@@ -80,4 +78,4 @@ v1.1.16 is complete in top-level planning artifacts with phase-46 outputs under 
 | Keep plain-language command vocabulary aligned across UI controls and command deck | Reduces operator ambiguity and improves assistive consistency | Active |
 
 ---
-*Last updated: 2026-03-02 after prod-cut rehearsal receipts and final no-go publication.*
+*Last updated: 2026-03-04 after v1.1.18 milestone initialization (system stabilization).*
