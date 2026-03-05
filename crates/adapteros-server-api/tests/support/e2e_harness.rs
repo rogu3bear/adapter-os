@@ -435,6 +435,7 @@ async fn build_state(paths: &HarnessPaths) -> Result<AppState> {
             datasets_root: paths.datasets_root.to_string_lossy().to_string(),
             documents_root: paths.documents_root.to_string_lossy().to_string(),
             synthesis_model_path: None,
+            training_worker_bin: None,
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,
