@@ -6857,7 +6857,7 @@
             "type": "string"
           },
           "name": {
-            "description": "Dataset name (optional, defaults to file name)",
+            "description": "Dataset name hint (optional). Naming is source-derived from uploaded file names.",
             "type": [
               "string",
               "null"
@@ -17231,17 +17231,6 @@
         ],
         "type": "object"
       },
-      "LogsQuery": {
-        "description": "Query parameters for logs endpoint",
-        "properties": {
-          "lines": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
       "LoraTier": {
         "description": "LoRA adapter tier for routing and UI badges.\n\n# OpenAPI\n\nThis enum is exposed in the OpenAPI schema with proper enum constraints\nrather than as a plain string type. Valid values: `micro`, `standard`, `max`.",
         "enum": [
@@ -18188,6 +18177,32 @@
           "total_requests",
           "avg_latency_ms"
         ],
+        "type": "object"
+      },
+      "ModelSettings": {
+        "description": "Model discovery and selection settings",
+        "properties": {
+          "discovery_roots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "selected_manifest_path": {
+            "description": "Optional explicit worker manifest path used for startup when env overrides are unset.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selected_model_path": {
+            "description": "Optional worker base-model directory used for startup when env overrides are unset.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "ModelStatusResponse": {
@@ -20296,6 +20311,18 @@
         "required": [
           "namespace",
           "full_name"
+        ],
+        "type": "object"
+      },
+      "PatchModelRequest": {
+        "description": "Patch model request (for PATCH /v1/models/{model_id})",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -30283,6 +30310,9 @@
           "general": {
             "$ref": "#/components/schemas/GeneralSettings"
           },
+          "models": {
+            "$ref": "#/components/schemas/ModelSettings"
+          },
           "pending_restart_fields": {
             "items": {
               "type": "string"
@@ -30310,6 +30340,7 @@
         },
         "required": [
           "general",
+          "models",
           "server",
           "security",
           "performance"
@@ -34721,6 +34752,16 @@
               }
             ]
           },
+          "models": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ModelSettings"
+              }
+            ]
+          },
           "performance": {
             "oneOf": [
               {
@@ -35146,6 +35187,13 @@
           "created_at": {
             "description": "Session creation timestamp (RFC3339)",
             "type": "string"
+          },
+          "error_code": {
+            "description": "Structured error code when session is failed",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "expected_chunks": {
             "description": "Expected number of chunks",
@@ -52725,6 +52773,55 @@
         "tags": [
           "models"
         ]
+      },
+      "patch": {
+        "description": "Updates the registry name only; model files are not moved on disk.\n\n# Endpoint\nPATCH /v1/models/{model_id}\n\n# Errors\n- `FORBIDDEN` (403): User lacks required role\n- `BAD_REQUEST` (400): Invalid model name\n- `NOT_FOUND` (404): Model does not exist or is not visible to tenant\n- `CONFLICT` (409): Model name already exists\n- `INTERNAL_ERROR` (500): Database error",
+        "operationId": "patch_model",
+        "parameters": [
+          {
+            "description": "Model ID (or name) to rename",
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Model renamed"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Model not found"
+          },
+          "409": {
+            "description": "Name conflict"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "summary": "Rename a model",
+        "tags": [
+          "models"
+        ]
       }
     },
     "/v1/models/{model_id}/load": {
@@ -57501,73 +57598,6 @@
         ]
       }
     },
-    "/v1/services/{service_id}/logs": {
-      "get": {
-        "description": "GET /v1/services/:service_id/logs?lines=100",
-        "operationId": "get_service_logs",
-        "parameters": [
-          {
-            "description": "Service ID",
-            "in": "path",
-            "name": "service_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Number of log lines to retrieve (default: 100)",
-            "in": "query",
-            "name": "lines",
-            "required": false,
-            "schema": {
-              "format": "int32",
-              "minimum": 0,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Service logs retrieved"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service not found"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Internal server error"
-          }
-        },
-        "summary": "Get service logs",
-        "tags": [
-          "handlers::services"
-        ]
-      }
-    },
     "/v1/services/{service_id}/restart": {
       "post": {
         "description": "POST /v1/services/:service_id/restart",
@@ -61960,52 +61990,6 @@
           }
         },
         "summary": "Trigger a CoreML export for a completed training job",
-        "tags": [
-          "training"
-        ]
-      }
-    },
-    "/v1/training/jobs/{job_id}/logs": {
-      "get": {
-        "description": "Note: Training stdout/stderr logs are not currently persisted in the database.\nThis endpoint returns job status information. For training metrics (loss, accuracy, etc.),\nuse the `/v1/training/jobs/{job_id}/metrics` endpoint instead.",
-        "operationId": "get_training_logs",
-        "parameters": [
-          {
-            "description": "Training job ID",
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Training job status (logs not persisted)"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Training job not found"
-          }
-        },
-        "summary": "Get training logs for a job",
         "tags": [
           "training"
         ]

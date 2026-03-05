@@ -6,7 +6,8 @@
     "/admin",
     "/audit",
     "/chat",
-    "/chat/:session_id",
+    "/chat/history",
+    "/chat/s/:session_id",
     "/dashboard",
     "/datasets",
     "/datasets/:id",
@@ -18,6 +19,7 @@
     "/models",
     "/models/:id",
     "/policies",
+    "/routing",
     "/runs",
     "/runs/:id",
     "/safe",
@@ -32,8 +34,8 @@
     "/workers/:id"
   ],
   "counts": {
-    "all": 30,
-    "protected": 28,
+    "all": 32,
+    "protected": 30,
     "public": 2
   },
   "parent_routes": [
@@ -46,7 +48,8 @@
     "/admin",
     "/audit",
     "/chat",
-    "/chat/:session_id",
+    "/chat/history",
+    "/chat/s/:session_id",
     "/dashboard",
     "/datasets",
     "/datasets/:id",
@@ -57,6 +60,7 @@
     "/models",
     "/models/:id",
     "/policies",
+    "/routing",
     "/runs",
     "/runs/:id",
     "/settings",

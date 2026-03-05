@@ -6,7 +6,7 @@ This repository uses local, script-driven gates as the canonical validation path
 
 - Remote GitHub Actions workflow execution is not used for release governance in this repo.
 - Required checks must run locally via repository scripts.
-- Governance preflight is optional in local mode and defaults to disabled (`LOCAL_RELEASE_GOVERNANCE_MODE=off`).
+- Governance preflight defaults to enforced (`LOCAL_RELEASE_GOVERNANCE_MODE=enforce`) and fails closed unless explicitly overridden, except for repo/branch entries that carry an approved `blocked_external` exception in `docs/governance/target-manifest.json`.
 
 ## Required Local Entrypoints
 
@@ -18,6 +18,7 @@ This repository uses local, script-driven gates as the canonical validation path
 
 - Port drift contract: `scripts/contracts/check_port_contract.sh`
 - Rectification contracts: `scripts/contracts/check_all.sh`
+  - Includes retired log-endpoint guard: `scripts/contracts/check_removed_log_endpoints.sh`
 - Formatting/linting/tests (selected lanes) via local required checks
 - Release smoke lane via `local_release_gate.sh`
 
@@ -37,7 +38,7 @@ bash scripts/ci/local_release_gate_prod.sh
 - strict inference smoke (`SMOKE_INFERENCE_STRICT=1`)
 - release artifact integrity (`scripts/release/sbom.sh` with `SBOM_REQUIRE_SIGNING=1`)
 - release verification log capture to `.planning/prod-cut/evidence/release/release_verification.log`
-- governance mode defaults to `off` (set `LOCAL_RELEASE_GOVERNANCE_MODE=warn` or `enforce` to re-enable GitHub preflight lane)
+- governance mode defaults to `enforce` (set `LOCAL_RELEASE_GOVERNANCE_MODE=warn` for non-blocking evidence lane or `off` to skip in local-only workflows)
 
 `local_release_gate.sh` will auto-start a local backend for MVP smoke when the API is not already healthy on `AOS_SERVER_PORT`, and auto-stop it on exit if it started it.
 

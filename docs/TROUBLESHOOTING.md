@@ -39,6 +39,31 @@ Check `var/logs/` for errors. Readiness checks: DB, worker, models. See `handler
 
 ---
 
+## Worker readiness mismatch (`registered` != ready)
+
+If startup/status signals conflict (for example, control-plane state is `registered` but inference is unavailable), use first-principles readiness checks:
+
+- Worker process is alive
+- Worker UDS socket exists (`var/run/worker.sock`)
+- Socket has a live listener
+
+```bash
+scripts/service-manager.sh status
+if [ -f var/worker.pid ]; then cat var/worker.pid; fi
+ls -la var/run/worker.sock
+lsof -t var/run/worker.sock
+tail -n 200 var/logs/service-manager.log
+tail -n 200 var/logs/start.log
+```
+
+`registered` is transitional and not sufficient for readiness.
+
+For full method and incident template, use:
+- [FIRST_PRINCIPLES_DEBUG](runbooks/FIRST_PRINCIPLES_DEBUG.md)
+- [WORKER_CRASH](runbooks/WORKER_CRASH.md)
+
+---
+
 ## Migration issues
 
 ```bash
@@ -182,3 +207,27 @@ The same pattern applies at line ~1388 where `load_seeded_model_on_worker` is ca
 ## Runbooks
 
 [runbooks/](runbooks/) for incident procedures.
+
+---
+
+## Action log diagnostics
+
+On **March 3, 2026**, legacy HTTP log endpoints were retired:
+
+- `/v1/services/{service_id}/logs`
+- `/v1/training/jobs/{job_id}/logs`
+
+Use local action logs and `jobs.logs_path` instead:
+
+```bash
+# Job/training/service action logs (JSONL)
+tail -n 200 var/logs/actions/jobs/<job_id>.log
+tail -n 200 var/logs/actions/training/<job_id>.log
+tail -n 200 var/logs/actions/services/<service_id>.log
+
+# UDS tail request (bounded)
+printf '%s\n' '{"path":"actions/jobs/<job_id>.log","lines":100}' \
+  | socat - UNIX-CONNECT:var/run/action-logs.sock
+```
+
+For retention knobs and failure modes, see [ACTION_LOGS](runbooks/ACTION_LOGS.md).

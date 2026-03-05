@@ -8,11 +8,11 @@ Policy and compliance.
 
 - Merge-gate governance for sanitizer safety depends on required status checks at the protected default branch.
 - AdapterOS tracks the context label `FFI AddressSanitizer (push)` as governance evidence, but required release gates are executed locally via `scripts/ci/local_required_checks.sh` and `scripts/ci/local_release_gate.sh` (no remote workflow requirement).
-- For private repositories, GitHub plan limitations can block branch-protection APIs. If branch-protection endpoints return `403` with an upgrade message, this is a release blocker until plan/repository visibility is adjusted.
-- Local-only release policy (effective 2026-03-02): `scripts/ci/local_release_gate.sh` defaults governance preflight to `LOCAL_RELEASE_GOVERNANCE_MODE=off` so local packaging/release can proceed without GitHub capability dependencies.
-- Optional governance lanes remain available:
+- For private repositories, GitHub plan limitations can block branch-protection APIs. If branch-protection endpoints return `403` with an upgrade message, this is a release blocker unless that exact repo/branch is explicitly listed as an approved `blocked_external` exception in `docs/governance/target-manifest.json`.
+- Local release policy (effective 2026-03-03): `scripts/ci/local_release_gate.sh` defaults governance preflight to `LOCAL_RELEASE_GOVERNANCE_MODE=enforce`, failing closed by default while allowing manifest-approved `blocked_external` exceptions.
+- Optional governance overrides remain available:
   - `LOCAL_RELEASE_GOVERNANCE_MODE=warn` (non-blocking evidence lane)
-  - `LOCAL_RELEASE_GOVERNANCE_MODE=enforce` (blocking policy lane)
+  - `LOCAL_RELEASE_GOVERNANCE_MODE=off` (skip governance preflight for local-only packaging/debug scenarios)
 - Canonical governance retirement target is pinned to repository `rogu3bear/adapter-os`, branch `main`, required context `FFI AddressSanitizer (push)`.
 
 ### Branch-Protection Retirement Playbook (GOV-06)
