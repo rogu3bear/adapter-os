@@ -10,8 +10,9 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 ## Position
 
 **Milestone:** v1.1.18 System Stabilization (active)
-**Current phase:** Phases 49 & 50 complete — next up Phase 51
-**Status:** Ready to plan
+**Current phase:** Phase 52 — Full Portability
+**Current Plan:** 2 of 3 in Phase
+**Status:** Executing
 
 ## Session Log
 
@@ -30,9 +31,11 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - Socket liveness check uses UnixStream::connect — simple, no external dependencies
 - Supervision state placed after logging init so rebuild detection is logged
 - Legacy key=value format migrated gracefully to JSON with backward compat
+- Used `mlx` formula instead of deprecated `ml-explore/mlx/mlx` tap in bootstrap.sh
+- Simple for-loop arg parsing in bootstrap.sh -- only two flags, no need for getopts
 
 ## Session
 
-**Last Date:** 2026-03-05T05:35:46.073Z
-**Stopped At:** Phase 52 plans verified
-**Resume File:** .planning/phases/52-full-portability/52-01-PLAN.md
+**Last Date:** 2026-03-05T05:39:44Z
+**Stopped At:** Completed 52-02-PLAN.md (bootstrap.sh + .adapteros-root)
+**Resume File:** .planning/phases/52-full-portability/52-03-PLAN.md
