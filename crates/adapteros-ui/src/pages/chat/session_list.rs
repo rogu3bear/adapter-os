@@ -473,54 +473,40 @@ pub(super) fn SessionListPanel(
                         {move || format!("Archived ({})", archived_count.try_get().unwrap_or(0))}
                     </button>
                 </div>
-                <div class="space-y-1.5">
-                    <button
-                        class=move || format!(
-                            "btn btn-outline btn-sm w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors {}",
-                            if creating_training_dataset.try_get().unwrap_or(false)
-                                || selected_training_count.try_get().unwrap_or(0) == 0
-                            {
-                                "border-border text-muted-foreground bg-muted/30 cursor-not-allowed"
-                            } else {
-                                "border-primary/30 text-primary bg-primary/5 hover:bg-primary/10"
-                            }
-                        )
-                        disabled=move || {
-                            creating_training_dataset.try_get().unwrap_or(false)
-                                || selected_training_count.try_get().unwrap_or(0) == 0
-                        }
-                        on:click=move |_| learn_and_generate_adapter.run(())
-                        title="Create an adapter from selected conversations"
-                        aria-label="Create Adapter From Selected Conversations"
-                        data-testid="chat-sidebar-learn"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v4m0 10v4M3 12h4m10 0h4M5.6 5.6l2.8 2.8m7.2 7.2 2.8 2.8m0-12.8-2.8 2.8m-7.2 7.2-2.8 2.8"/>
-                        </svg>
-                        {move || {
-                            if creating_training_dataset.try_get().unwrap_or(false) {
-                                "Preparing training data..."
-                            } else {
-                                "Create Adapter from Selection"
-                            }
-                        }}
-                    </button>
-                    <div class="flex items-center justify-between gap-2 text-2xs text-muted-foreground">
-                        <span>
-                            {move || {
-                                let count = selected_training_count.try_get().unwrap_or(0);
-                                if count == 0 {
-                                    "Select conversations below to enable".to_string()
+                <Show when=move || { selected_training_count.try_get().unwrap_or(0) > 0 || creating_training_dataset.try_get().unwrap_or(false) }>
+                    <div class="flex items-center gap-1.5">
+                        <button
+                            class=move || format!(
+                                "btn btn-outline btn-sm flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors {}",
+                                if creating_training_dataset.try_get().unwrap_or(false) {
+                                    "border-border text-muted-foreground bg-muted/30 cursor-not-allowed"
                                 } else {
-                                    format!("{} selected", count)
+                                    "border-primary/30 text-primary bg-primary/5 hover:bg-primary/10"
+                                }
+                            )
+                            disabled=move || creating_training_dataset.try_get().unwrap_or(false)
+                            on:click=move |_| learn_and_generate_adapter.run(())
+                            title="Create an adapter from selected conversations"
+                            aria-label="Create Adapter From Selected Conversations"
+                            data-testid="chat-sidebar-learn"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v4m0 10v4M3 12h4m10 0h4M5.6 5.6l2.8 2.8m7.2 7.2 2.8 2.8m0-12.8-2.8 2.8m-7.2 7.2-2.8 2.8"/>
+                            </svg>
+                            {move || {
+                                if creating_training_dataset.try_get().unwrap_or(false) {
+                                    "Preparing..."
+                                } else {
+                                    let count = selected_training_count.try_get().unwrap_or(0);
+                                    if count == 1 { "Create Adapter (1)" } else { "Create Adapter" }
                                 }
                             }}
-                        </span>
+                        </button>
                         <button
-                            class="btn btn-link btn-xs underline decoration-dotted hover:text-foreground disabled:no-underline disabled:cursor-not-allowed"
-                            disabled=move || selected_training_count.try_get().unwrap_or(0) == 0
+                            class="btn btn-ghost btn-xs px-1.5 py-1 text-2xs text-muted-foreground hover:text-foreground rounded"
                             on:click=move |_| clear_training_selection.run(())
                             data-testid="chat-sidebar-learn-clear"
+                            aria-label="Clear training selection"
                         >
                             "Clear"
                         </button>
@@ -535,7 +521,7 @@ pub(super) fn SessionListPanel(
                                 }
                             })
                     }}
-                </div>
+                </Show>
                 <div data-testid="chat-sidebar-search">
                     <Input
                         value=search_query
