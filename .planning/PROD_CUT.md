@@ -45,7 +45,7 @@ It freezes scope, defines blocking gates, and sets go/no-go criteria for release
 | Determinism contract | `scripts/contracts/check_determinism_contract.sh` | Determinism constants enforced; unseeded randomness either fixed or allowlisted with owner+expiry+rationale. |
 | Security assertions | `scripts/contracts/check_release_security_assertions.sh` | Release-safe auth posture and tenant guard assertions pass; dev bypass flags not active. |
 | Required checks (prod profile) | `scripts/ci/local_required_checks.sh` | Includes all-targets clippy + prod-targeted tests under `LOCAL_REQUIRED_PROFILE=prod`. |
-| Release gate (prod mode) | `scripts/ci/local_release_gate_prod.sh` | Governance preflight blocks `blocked_external`; full smoke lanes run; strict inference + runbook evidence checks pass. |
+| Release gate (prod mode) | `scripts/ci/local_release_gate_prod.sh` | Governance preflight blocks unapproved `blocked_external` outcomes; full smoke lanes run; strict inference + runbook evidence checks pass. |
 | Release artifact integrity | `scripts/release/sbom.sh` | Required artifacts present; signing enforced when required; `release_verification.log` emitted and captured. |
 
 ## No-Skip Prod Mode Contract
@@ -63,7 +63,7 @@ Enforced behavior:
 3. `LOCAL_REQUIRED_CLIPPY_SCOPE=all-targets`
 4. `SMOKE_INFERENCE_STRICT=1`
 5. Full MVP smoke (no `MVP_SMOKE_SKIP_*` shortcuts)
-6. Governance `blocked_external` is blocking
+6. Governance `blocked_external` is blocking unless the exact repo/branch is covered by an approved exception in `docs/governance/target-manifest.json`
 7. Runbook evidence strict validation
 8. SBOM/provenance/signing integrity step with verification-log evidence capture
 
@@ -89,7 +89,7 @@ Local policy and implementation must match:
 3. `scripts/ci/local_release_gate_prod.sh`
 
 Resolved rule:
-`blocked_external` (`HTTP 403`) is a release blocker for production cut.
+`blocked_external` (`HTTP 403`) is a release blocker for production cut unless it is an explicit approved exception for the exact target repo/branch.
 
 ## Freeze Rule and Amendments
 

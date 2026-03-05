@@ -18,7 +18,7 @@ POST,/v1/adapter-repositories/{repo_id}/archive,slice_a_adapters_repos,true,true
 GET|PUT,/v1/adapter-repositories/{repo_id}/policy,slice_a_adapters_repos,true,true,implement,api-contract-team,week_1,runtime+openapi
 POST,/v1/adapter-repositories/{repo_id}/resolve-version,slice_a_adapters_repos,true,true,implement,api-contract-team,week_1,runtime+openapi
 GET,/v1/adapter-repositories/{repo_id}/versions,slice_a_adapters_repos,true,true,implement,api-contract-team,week_1,runtime+openapi
-*,/v1/adapter-repositories/{repo_id}/versions/checkout,slice_a_adapters_repos,true,false,exclude,api-contract-team,week_1,docs/api/openapi_route_coverage_exclusions.txt
+POST,/v1/adapter-repositories/{repo_id}/versions/checkout,slice_a_adapters_repos,true,true,implement,api-contract-team,week_1,runtime+openapi
 POST,/v1/adapter-repositories/{repo_id}/versions/rollback,slice_a_adapters_repos,true,true,implement,api-contract-team,week_1,runtime+openapi
 GET|POST,/v1/adapter-stacks,slice_a_adapters_repos,true,true,implement,api-contract-team,week_1,runtime+openapi
 POST,/v1/adapter-stacks/deactivate,slice_a_adapters_repos,true,true,implement,api-contract-team,week_1,runtime+openapi
@@ -171,7 +171,7 @@ POST,/v1/datasets/from-text,slice_e_residual,true,true,implement,api-contract-te
 POST,/v1/datasets/synthesize,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 *,/v1/datasets/upload,slice_e_residual,true,false,exclude,api-contract-team,week_2,docs/api/openapi_route_coverage_exclusions.txt
 GET,/v1/datasets/upload/progress,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
-DELETE|GET,/v1/datasets/{dataset_id},slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
+DELETE|GET|PATCH,/v1/datasets/{dataset_id},slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 *,/v1/datasets/{dataset_id}/adapters,slice_e_residual,true,false,exclude,api-contract-team,week_2,docs/api/openapi_route_coverage_exclusions.txt
 GET,/v1/datasets/{dataset_id}/evidence,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 GET,/v1/datasets/{dataset_id}/files,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
@@ -299,7 +299,7 @@ GET,/v1/models/download-progress,slice_e_residual,true,true,implement,api-contra
 POST,/v1/models/import,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 GET,/v1/models/status,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 GET,/v1/models/status/all,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
-DELETE,/v1/models/{model_id},slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
+DELETE|PATCH,/v1/models/{model_id},slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 POST,/v1/models/{model_id}/load,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 GET,/v1/models/{model_id}/status,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 POST,/v1/models/{model_id}/unload,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
@@ -400,11 +400,12 @@ GET,/v1/search,slice_e_residual,true,true,implement,api-contract-team,week_2,run
 *,/v1/security/key-rotations,slice_b_stacks_provenance_security,true,false,exclude,api-contract-team,week_1,docs/api/openapi_route_coverage_exclusions.txt
 POST,/v1/services/essential/start,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 POST,/v1/services/essential/stop,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
-GET,/v1/services/{service_id}/logs,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 POST,/v1/services/{service_id}/restart,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 POST,/v1/services/{service_id}/start,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 POST,/v1/services/{service_id}/stop,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 GET|PUT,/v1/settings,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
+GET,/v1/settings/effective,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
+POST,/v1/settings/reconcile,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 POST,/v1/setup/migrate,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 GET,/v1/setup/models/discover,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
 POST,/v1/setup/models/seed,slice_e_residual,true,true,implement,api-contract-team,week_2,runtime+openapi
@@ -505,7 +506,6 @@ POST,/v1/training/jobs/{job_id}/cancel,slice_c_training_jobs_checkpoints,true,tr
 GET,/v1/training/jobs/{job_id}/chat_bootstrap,slice_c_training_jobs_checkpoints,true,true,implement,api-contract-team,week_2,runtime+openapi
 *,/v1/training/jobs/{job_id}/checkpoints/{epoch}/verify,slice_c_training_jobs_checkpoints,true,false,exclude,api-contract-team,week_2,docs/api/openapi_route_coverage_exclusions.txt
 POST,/v1/training/jobs/{job_id}/export/coreml,slice_c_training_jobs_checkpoints,true,true,implement,api-contract-team,week_2,runtime+openapi
-GET,/v1/training/jobs/{job_id}/logs,slice_c_training_jobs_checkpoints,true,true,implement,api-contract-team,week_2,runtime+openapi
 GET,/v1/training/jobs/{job_id}/metrics,slice_c_training_jobs_checkpoints,true,true,implement,api-contract-team,week_2,runtime+openapi
 *,/v1/training/jobs/{job_id}/priority,slice_c_training_jobs_checkpoints,true,false,exclude,api-contract-team,week_2,docs/api/openapi_route_coverage_exclusions.txt
 GET,/v1/training/jobs/{job_id}/progress,slice_c_training_jobs_checkpoints,true,true,implement,api-contract-team,week_2,runtime+openapi

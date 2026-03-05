@@ -1,0 +1,51 @@
+id,title,status,step1,step2,step3,step4
+B01,Canonical blocker registry missing,in_progress,Create canonical registry file with schema,Assign owner and severity for each blocker,Link each blocker to evidence artifact,Enforce registry validation in CI
+B02,Unmapped blocker IDs remain,blocked_scope,Enumerate all unbound IDs,Trace each ID to source artifact,Assign temporary owner and due date,Escalate unresolved IDs weekly
+B03,No machine-readable blocker board,in_progress,Define blocker board schema,Generate board from registry,Publish board artifact per run,Gate on board freshness
+B04,Migration signature friction,in_progress,Audit unsigned migrations,Sign pending migration files,Add pre-commit/CI signature checks,Block unsigned migration merges
+B05,External governance blocked_external,external_blocked,Reproduce blocked_external with canonical command,Capture evidence bundle and exit codes,Separate external vs repo-actionable tasks,Close only on capable-path proof
+B06,External checks slow gates,in_progress,Profile gate timing breakdown,Parallelize non-dependent local checks,Add timeout and retry budget for external steps,Track external latency share in artifacts
+B07,No p95/p99 release gate,packet_ready,Define endpoint latency budgets,Add perf harness and artifacts,Fail gate on budget breach,Require green perf lane for prod release
+B08,No EXPLAIN regression guard,packet_ready,Baseline plans for critical queries,Add CI explain-plan checker,Fail on full-scan regressions,Require owner approval for plan drift
+B09,Residual LIKE scans,patch_ready,Inventory remaining LIKE queries,Add indexed normalized lookup columns,Replace LIKE with exact/indexed filters,Remove legacy fallbacks after backfill
+B10,Routing membership string scans,patch_ready,Design normalized membership model,Backfill routing decision membership data,Switch to exact membership queries,Add plan/perf regression tests
+B11,Tenant/global query inconsistency,patch_ready,List global reads in tenant handlers,Add tenant-scoped DB APIs,Replace in-memory tenant filtering paths,Add tenant isolation tests
+B12,Workspace active-state query debt,patch_ready,Add tenant-indexed workspace state query,Remove broad fetch then filter patterns,Benchmark under large tenant fixtures,Gate on query latency budget
+B13,Trust-state repeated resolution,patch_ready,Materialize effective trust state,Update on override change events,Read materialized state in hot paths,Add drift reconciliation job
+B14,KV to SQL fallback hides issues,patch_ready,Instrument fallback reasons and ratios,Add strict mode for critical reads,Fail closed on structural divergence,Burn down top fallback causes
+B15,No fallback ratio SLO gate,packet_ready,Define fallback ratio thresholds,Emit ratio in gate artifacts,Fail release on sustained threshold breach,Add owner escalation flow
+B16,Cross-store divergence not gating,packet_ready,Run KV-SQL diff on schedule,Classify divergence severity,Fail gate on critical divergence,Add repair workflow for safe classes
+B17,Missing latency ownership map,packet_ready,Map endpoints and queries to owners,Attach SLO targets per owner,Route alerts by ownership map,Review ownership weekly
+B18,No perf PR acceptance checklist,packet_ready,Define mandatory perf checklist template,Validate checklist presence in CI,Require owner sign-off,Track compliance trend
+B19,No deterministic perf baselines,packet_ready,Pin benchmark environment and seeds,Capture baseline snapshots in repo,Compare in CI with thresholds,Require approved rebaseline process
+B20,Flamegraph capture not mandatory,packet_ready,Integrate flamegraph generation in perf lane,Publish artifacts per run,Diff hotspot changes against baseline,Fail on major hotspot regressions
+B21,Gate scripts too serial,packet_ready,Build dependency DAG for checks,Parallelize independent stages,Add per-stage timeouts and retries,Track wall-clock reduction
+B22,Critical and non-critical checks mixed,packet_ready,Classify checks into required/informational lanes,Gate only on required lane,Run full lane nightly,Assign lane ownership
+B23,UI perf subset not prioritized,blocked_scope,Tag UI tests by perf criticality,Create required perf-smoke subset,Capture traces for required subset,Promote stable subset into release gate
+B24,Profiling evidence weak,blocked_scope,Add profiler capture mode to gates,Store structured CPU/memory artifacts,Generate hotspot summary per run,Require profiling artifact on prod lane
+B25,No row-growth perf alerts,packet_ready,Add table cardinality telemetry,Alert on growth-rate thresholds,Correlate growth with latency regressions,Trigger index/retention review automatically
+B26,Fallback observability masking hotspots,packet_ready,Tag every fallback in traces and logs,Split dashboards by fallback/non-fallback,Alert on fallback spike patterns,Add no-fallback tests for hot routes
+B27,Runtime schema patchers still present,patch_ready,Inventory runtime patch helpers,Move each patch to signed migration,Add startup warning on patch path use,Remove patch code after migration window
+B28,Migration drift not fully fail-closed,packet_ready,Standardize strict drift checks in startup,Fail non-test environments on drift,Add CI migration-directory parity checks,Document remediation workflow
+B29,Contract divergence across layers,blocked_scope,Inventory contract definitions by layer,Define canonical schema source,Generate shared types automatically,Fail CI on contract drift
+B30,Loader/parser divergence unresolved,blocked_scope,Build schema compatibility matrix,Extract shared row classifier helpers,Align orchestrator worker and API validation,Add parity fixture suite
+B31,Dataset preflight lint incomplete,packet_ready,Add pre-enqueue lint endpoint,Block deterministic invalid datasets,Return actionable error diagnostics,Require lint pass for non-synthetic jobs
+B32,Retry policy inflates p99,packet_ready,Audit retries by endpoint and error class,Short-circuit non-retryable failures,Tune backoff caps and jitter,Gate on p99 regression impact
+B33,No weekly latency owner report,closed,Generate owner-linked latency report,Publish weekly artifact automatically,Escalate unresolved owner regressions,Track week-over-week deltas
+B34,Blocker aging not enforced,closed,Add blocker age field and thresholds,Alert on stale blocker breaches,Require stale blocker action notes,Escalate unowned stale blockers
+B35,Planning and evidence status drift,blocked_scope,Define one canonical status truth source,Add drift checker across planning docs,Require supersession notes for old receipts,Fail CI on contradictory states
+B36,No planning consistency gate,unresolved_id,Define consistency ruleset,Implement consistency validation script,Run in CI on planning updates,Block merge on critical inconsistencies
+B37,Closed phases not freshly replayed,packet_ready,List phases lacking fresh replay,Define minimum replay verification set,Rerun and capture fresh evidence,Downgrade stale closures until replayed
+B38,No single evidence index,packet_ready,Define evidence manifest schema,Generate per-run evidence index,Link blockers to evidence paths,Validate index in CI
+B39,Legacy normalization backlog,closed,Enumerate legacy rows needing normalization,Run idempotent backfill batches,Verify with post-backfill audits,Lock stricter write constraints
+B40,Deprecated permissive paths remain,closed,Measure deprecated path usage,Migrate callers to strict APIs,Enable strict mode progressively,Remove dead permissive branches
+B41,No canonical schema-source gate,blocked_scope,Pick canonical schema authority,Generate downstream contracts from source,Block manual divergence in CI,Require schema-owner approvals
+B42,External unblock workflow weak,unresolved_id,Define external-blocker lifecycle states,Automate capability recheck loop,Capture decision receipts per attempt,Escalate unresolved external blockers
+B43,No auto-escalation for unbound IDs,packet_ready,Detect unbound IDs in validator,Auto-open triage ticket per ID,Escalate on SLA breach,Block prod readiness on critical unbound IDs
+B44,No final speed all-green closure gate,packet_ready,Define composite closure criteria,Aggregate gate metrics into one verdict,Fail on any critical red condition,Archive signed closure report
+B45,Governance outcome taxonomy drift,closed,Define canonical governance outcome enum,Update scripts to emit canonical values,Add parser tests and compatibility map,Fail on unknown outcomes
+B46,Blocked branch no-write safety not fully automated,closed,Enumerate blocked branch write paths,Add hard no-write guards,Assert zero writes in evidence checks,Fail gate on any write attempt
+B47,Operator next-action guidance inconsistent,blocked_scope,Define structured next-action schema,Emit schema from failing gates,Add tests for message coverage,Standardize UI and logs rendering
+B48,Unexpected governance state flips,unresolved_id,Define allowed transition graph,Log transition history with context,Alert on illegal transition flips,Add replay tool for transition sequences
+B49,Go/no-go artifact inconsistency,packet_ready,Define required go/no-go fields,Validate evidence path existence,Add signed artifact generation,Fail release when artifact invalid
+B50,No enforced all-green speed gate,packet_ready,Assemble composite speed gate script,Include latency query-plan fallback and blocker checks,Run in prod release lane,Require composite green for go decision

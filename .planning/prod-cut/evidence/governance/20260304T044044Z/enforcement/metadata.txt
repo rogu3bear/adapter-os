@@ -1,0 +1,5 @@
+repo=rogu3bear/adapter-os
+branch=main
+required_context=FFI AddressSanitizer (push)
+manifest=docs/governance/target-manifest.json
+generated_at=2026-03-04T04:40:52Z

@@ -1,0 +1,4 @@
+timestamp_utc=20260304T044044Z
+repo=rogu3bear/adapter-os
+branch=main
+required_context=FFI AddressSanitizer (push)

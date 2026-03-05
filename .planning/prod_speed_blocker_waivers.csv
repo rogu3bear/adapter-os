@@ -1,0 +1,13 @@
+id,waiver_type,approved_by,approved_at_utc,expires_at_utc,rationale,evidence_path
+B02,scope_binding,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,Canonical external blocker map not yet imported into repo; temporary waiver while mapping is completed,.planning/prod_speed_blockers.csv
+B05,external_dependency,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,Governance capability blocked_external is external to repo and requires provider-side unlock,.planning/prod-cut/evidence/governance/20260304T044044Z/enforcement/gate-state.txt
+B23,scope_binding,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,UI perf subset scope exists but not yet bound to canonical blocker source artifact,.planning/prod_speed_blockers.csv
+B24,scope_binding,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,Profiling-evidence lane needs explicit milestone binding before enforcement,.planning/prod_speed_blockers.csv
+B29,scope_binding,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,Cross-layer contract divergence exists but requires canonical source selection decision,.planning/prod_speed_blockers.csv
+B30,scope_binding,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,Loader/parser unification scope requires explicit compatibility policy sign-off,.planning/prod_speed_blockers.csv
+B35,scope_binding,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,Planning drift reconciler requires final governance receipt supersession workflow,.planning/prod_speed_blockers.csv
+B36,scope_binding,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,Planning consistency gate script not yet implemented in this wave; temporary waiver for closure loop,.planning/prod_speed_blockers.csv
+B41,scope_binding,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,Canonical schema source gate requires architecture decision record,.planning/prod_speed_blockers.csv
+B42,external_dependency,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,External unblock workflow depends on provider capability and cannot be repo-closed alone,.planning/prod_speed_blockers.csv
+B47,scope_binding,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,Operator next-action schema needs coordinated consumer contract update,.planning/prod_speed_blockers.csv
+B48,external_dependency,operator,2026-03-04T20:15:00Z,2026-03-18T20:15:00Z,Governance state transition stability depends on external API behavior,.planning/prod_speed_blockers.csv

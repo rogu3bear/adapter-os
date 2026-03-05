@@ -1,0 +1,9 @@
+repo=rogu3bear/adapter-os
+branch=main
+required_context=FFI AddressSanitizer (push)
+attempts=4
+sleep_seconds=2
+completed_attempts=4
+final_status=blocked_external
+final_reason=http_403
+final_exit=20

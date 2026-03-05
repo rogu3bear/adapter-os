@@ -1,0 +1,4 @@
+write_attempts=0
+policy_mutations=0
+rollback_attempts=0
+reason=blocked_external_hard_gate

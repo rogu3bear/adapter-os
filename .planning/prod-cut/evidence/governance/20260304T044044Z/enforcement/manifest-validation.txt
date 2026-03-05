@@ -1,0 +1,5 @@
+status=valid manifest=docs/governance/target-manifest.json reason=validated detail=target_count=4 canonical_context_count=8 digest=a45c27aed1ee41b2c2d4c1949dbc8cfb537d74df2123f15a80b6122549574272
+target=canonical-main repo=rogu3bear/adapter-os branch=main
+target=jkca-agent-main repo=rogu3bear/jkca-agent branch=main
+target=jkca-web-main repo=rogu3bear/jkca-web branch=main
+target=scopic-web-main repo=rogu3bear/scopic-web branch=main

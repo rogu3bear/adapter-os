@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-02T08:27:13.854271+00:00",
+  "generated_at": "2026-03-04T11:17:19.663313+00:00",
   "routes": [
     {
       "approved_openapi_only_exclusion": false,
@@ -147,6 +147,15 @@
       ],
       "route": "/v1/adapter-repositories/{repo_id}/versions",
       "shape": "/v1/adapter-repositories/{}/versions"
+    },
+    {
+      "approved_openapi_only_exclusion": false,
+      "domain": "slice_a_adapters_repos",
+      "methods": [
+        "POST"
+      ],
+      "route": "/v1/adapter-repositories/{repo_id}/versions/checkout",
+      "shape": "/v1/adapter-repositories/{}/versions/checkout"
     },
     {
       "approved_openapi_only_exclusion": false,
@@ -1499,7 +1508,8 @@
       "domain": "slice_e_residual",
       "methods": [
         "DELETE",
-        "GET"
+        "GET",
+        "PATCH"
       ],
       "route": "/v1/datasets/{dataset_id}",
       "shape": "/v1/datasets/{}"
@@ -2626,7 +2636,8 @@
       "approved_openapi_only_exclusion": false,
       "domain": "slice_e_residual",
       "methods": [
-        "DELETE"
+        "DELETE",
+        "PATCH"
       ],
       "route": "/v1/models/{model_id}",
       "shape": "/v1/models/{}"
@@ -3500,15 +3511,6 @@
       "approved_openapi_only_exclusion": false,
       "domain": "slice_e_residual",
       "methods": [
-        "GET"
-      ],
-      "route": "/v1/services/{service_id}/logs",
-      "shape": "/v1/services/{}/logs"
-    },
-    {
-      "approved_openapi_only_exclusion": false,
-      "domain": "slice_e_residual",
-      "methods": [
         "POST"
       ],
       "route": "/v1/services/{service_id}/restart",
@@ -3541,6 +3543,24 @@
       ],
       "route": "/v1/settings",
       "shape": "/v1/settings"
+    },
+    {
+      "approved_openapi_only_exclusion": false,
+      "domain": "slice_e_residual",
+      "methods": [
+        "GET"
+      ],
+      "route": "/v1/settings/effective",
+      "shape": "/v1/settings/effective"
+    },
+    {
+      "approved_openapi_only_exclusion": false,
+      "domain": "slice_e_residual",
+      "methods": [
+        "POST"
+      ],
+      "route": "/v1/settings/reconcile",
+      "shape": "/v1/settings/reconcile"
     },
     {
       "approved_openapi_only_exclusion": false,
@@ -4305,15 +4325,6 @@
       ],
       "route": "/v1/training/jobs/{job_id}/export/coreml",
       "shape": "/v1/training/jobs/{}/export/coreml"
-    },
-    {
-      "approved_openapi_only_exclusion": false,
-      "domain": "slice_c_training_jobs_checkpoints",
-      "methods": [
-        "GET"
-      ],
-      "route": "/v1/training/jobs/{job_id}/logs",
-      "shape": "/v1/training/jobs/{}/logs"
     },
     {
       "approved_openapi_only_exclusion": false,

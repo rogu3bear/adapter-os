@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-02T08:27:13.852712+00:00",
+  "generated_at": "2026-03-04T11:17:19.662161+00:00",
   "routes": [
     {
       "domain": "slice_e_residual",
@@ -2398,12 +2398,6 @@
     {
       "domain": "slice_e_residual",
       "excluded_from_openapi_coverage": false,
-      "route": "/v1/services/{service_id}/logs",
-      "shape": "/v1/services/{}/logs"
-    },
-    {
-      "domain": "slice_e_residual",
-      "excluded_from_openapi_coverage": false,
       "route": "/v1/services/{service_id}/restart",
       "shape": "/v1/services/{}/restart"
     },
@@ -2424,6 +2418,18 @@
       "excluded_from_openapi_coverage": false,
       "route": "/v1/settings",
       "shape": "/v1/settings"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/settings/effective",
+      "shape": "/v1/settings/effective"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/settings/reconcile",
+      "shape": "/v1/settings/reconcile"
     },
     {
       "domain": "slice_e_residual",
@@ -3024,12 +3030,6 @@
       "excluded_from_openapi_coverage": false,
       "route": "/v1/training/jobs/{job_id}/export/coreml",
       "shape": "/v1/training/jobs/{}/export/coreml"
-    },
-    {
-      "domain": "slice_c_training_jobs_checkpoints",
-      "excluded_from_openapi_coverage": false,
-      "route": "/v1/training/jobs/{job_id}/logs",
-      "shape": "/v1/training/jobs/{}/logs"
     },
     {
       "domain": "slice_c_training_jobs_checkpoints",
@@ -3736,11 +3736,12 @@
       "/v1/security/key-rotations",
       "/v1/services/essential/start",
       "/v1/services/essential/stop",
-      "/v1/services/{service_id}/logs",
       "/v1/services/{service_id}/restart",
       "/v1/services/{service_id}/start",
       "/v1/services/{service_id}/stop",
       "/v1/settings",
+      "/v1/settings/effective",
+      "/v1/settings/reconcile",
       "/v1/setup/migrate",
       "/v1/setup/models/discover",
       "/v1/setup/models/seed",
@@ -3836,7 +3837,6 @@
       "/v1/training/jobs/{job_id}/chat_bootstrap",
       "/v1/training/jobs/{job_id}/checkpoints/{epoch}/verify",
       "/v1/training/jobs/{job_id}/export/coreml",
-      "/v1/training/jobs/{job_id}/logs",
       "/v1/training/jobs/{job_id}/metrics",
       "/v1/training/jobs/{job_id}/priority",
       "/v1/training/jobs/{job_id}/progress",
