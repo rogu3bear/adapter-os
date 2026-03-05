@@ -26,6 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - 2026-03-05: Phase 49 complete: binary resolution fix (5-tier priority, never bare PATH), preflight boot gate, circuit breaker (3/5min), crash job cleanup.
 - 2026-03-05: Phase 50 complete: runtime_cleanup module (stale socket probing, marker removal) + supervision_state module (JSON format, crash-vs-rebuild detection) + shell script migration.
 - 2026-03-05: Phase 53 plan 01 complete: design token foundation — system font stack, duration tokens, transition standardization (87 replacements), flat surface policy, CSS lint.
+- 2026-03-05: Phase 52 plan 01 complete: portable path resolution — find_project_root with .adapteros-root marker, AOS_ROOT override, fixed DEV_MODEL_PATH absolute path bug, layered model discovery.
 
 ## Decisions
 
@@ -38,9 +39,12 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - Legacy key=value format migrated gracefully to JSON with backward compat
 - Used `mlx` formula instead of deprecated `ml-explore/mlx/mlx` tap in bootstrap.sh
 - Simple for-loop arg parsing in bootstrap.sh -- only two flags, no need for getopts
+- AOS_ROOT env var takes absolute priority over marker walk for project root detection
+- Marker check order: .adapteros-root > Cargo.lock > .git (most specific first)
+- Layered model discovery: AOS_MODEL_PATH > var/models/{id} > ~/.cache/adapteros/models/{id}
 
 ## Session
 
-**Last Date:** 2026-03-05T05:49:01Z
-**Stopped At:** Completed 53-01-PLAN.md (design token foundation)
-**Resume File:** .planning/phases/53-ui-harmony-and-visual-polish/53-02-PLAN.md
+**Last Date:** 2026-03-05T05:53:05.888Z
+**Stopped At:** Completed 52-01-PLAN.md
+**Resume File:** None
