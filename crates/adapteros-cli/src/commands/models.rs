@@ -10,6 +10,7 @@ use crate::output::OutputWriter;
 use adapteros_db::{Db, SetupSeedOptions, SetupSeedStatus};
 use tracing::info;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Subcommand)]
 pub enum ModelsCommand {
     /// Seed models from local cache into database

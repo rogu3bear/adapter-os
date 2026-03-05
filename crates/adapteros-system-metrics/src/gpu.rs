@@ -421,8 +421,8 @@ mod tests {
         let metrics = collector.collect_metrics();
 
         // When MLX runtime is available (real or stub), memory usage should be populated
-        if metrics.mlx_memory_used.is_some() {
-            assert!(metrics.mlx_memory_used.unwrap() > 0);
+        if let Some(mlx_memory_used) = metrics.mlx_memory_used {
+            assert!(mlx_memory_used > 0);
         }
     }
 }

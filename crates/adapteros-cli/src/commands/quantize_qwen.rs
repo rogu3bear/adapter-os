@@ -708,6 +708,7 @@ async fn register_quantized_artifact(artifact_dir: &Path, out: &OutputWriter) ->
     Ok(seeded)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_profile(
     req: &QuantizeQwen35Request,
     revision_sha: &str,
@@ -1580,13 +1581,13 @@ fn compute_probe_metrics(
     {
         let _ = validation;
         let _ = policy_metrics;
-        return ProbeEval {
+        ProbeEval {
             status: TRAINING_QUANTIZATION_PROBE_STATUS_UNAVAILABLE.to_string(),
             error: Some("native probes require --features multi-backend".to_string()),
             metrics: None,
             probe_digest: None,
             sample_count,
-        };
+        }
     }
 
     #[cfg(feature = "multi-backend")]
@@ -2037,6 +2038,7 @@ impl Default for QuantizeQwen35Request {
 }
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use crate::output::{OutputMode, OutputWriter};

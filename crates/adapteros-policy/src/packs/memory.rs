@@ -414,11 +414,10 @@ impl Policy for MemoryPolicy {
                 ));
             }
 
-            if eviction_decision.k_reduction.is_some() {
+            if let Some(k_reduction) = eviction_decision.k_reduction {
                 warnings.push(format!(
                     "K reduction recommended: {} -> {}",
-                    memory_ctx.current_k,
-                    eviction_decision.k_reduction.unwrap()
+                    memory_ctx.current_k, k_reduction
                 ));
             }
         }
