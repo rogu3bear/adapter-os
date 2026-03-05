@@ -20,11 +20,11 @@ use crate::api::use_api_client;
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::layout::nav_group_label_for_route;
 use crate::components::{
-    AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button,
-    ButtonSize, ButtonType, ButtonVariant, Card, CopyableId, EmptyState, EmptyStateVariant,
-    ErrorDisplay, Input, Link, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
-    PageScaffoldPrimaryAction, SkeletonTable, SplitPanel, SplitRatio, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    AdapterDetailPanel, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button, ButtonSize,
+    ButtonType, ButtonVariant, Card, CopyableId, EmptyState, EmptyStateVariant, ErrorDisplay,
+    Input, Link, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction,
+    SkeletonTable, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api_resource, use_cached_api_resource, CacheTtl, LoadingState};

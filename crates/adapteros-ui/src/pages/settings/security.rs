@@ -10,7 +10,7 @@ use crate::api::{
 use crate::components::{
     AlertBanner, Badge, BadgeVariant, BannerVariant, Button, ButtonVariant, Card, Dialog,
     EmptyState, EmptyStateVariant, ErrorDisplay, SimpleConfirmDialog, SkeletonCard, SkeletonTable,
-    Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use leptos::prelude::*;
