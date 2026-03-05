@@ -39,28 +39,34 @@ use std::collections::BTreeSet;
 use wasm_bindgen::JsCast;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ChatDrawerKind {
+pub enum ChatDrawerKind {
     Evidence,
     Context,
 }
 
-impl ChatDrawerKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Evidence => "Evidence",
-            Self::Context => "Context",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ChatMobileLane {
+pub enum ChatMobileLane {
     Conversation,
     Evidence,
     Context,
 }
 
-#[derive(Debug, Clone)]
+pub fn next_drawer_kind(
+    current: Option<ChatDrawerKind>,
+    requested: ChatDrawerKind,
+) -> Option<ChatDrawerKind> {
+    if current == Some(requested) {
+        None
+    } else {
+        Some(requested)
+    }
+}
+
+pub fn next_mobile_lane(_current: ChatMobileLane, requested: ChatMobileLane) -> ChatMobileLane {
+    requested
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct ChatSessionLayoutVm {
     status_label: String,
     status_variant: BadgeVariant,
@@ -101,33 +107,31 @@ fn build_drawer_callbacks(
 ) -> DrawerCallbacks {
     let toggle_evidence = Callback::new(move |_: ()| {
         active_drawer.update(|drawer| {
-            *drawer = if matches!(*drawer, Some(ChatDrawerKind::Evidence)) {
-                None
-            } else {
-                Some(ChatDrawerKind::Evidence)
-            };
+            *drawer = next_drawer_kind(*drawer, ChatDrawerKind::Evidence);
         });
     });
     let toggle_context = Callback::new(move |_: ()| {
         active_drawer.update(|drawer| {
-            *drawer = if matches!(*drawer, Some(ChatDrawerKind::Context)) {
-                None
-            } else {
-                Some(ChatDrawerKind::Context)
-            };
+            *drawer = next_drawer_kind(*drawer, ChatDrawerKind::Context);
         });
     });
     let close_drawer = Callback::new(move |_: ()| {
         active_drawer.set(None);
     });
     let set_lane_conversation = Callback::new(move |_: ()| {
-        mobile_lane.set(ChatMobileLane::Conversation);
+        mobile_lane.update(|lane| {
+            *lane = next_mobile_lane(*lane, ChatMobileLane::Conversation);
+        });
     });
     let set_lane_evidence = Callback::new(move |_: ()| {
-        mobile_lane.set(ChatMobileLane::Evidence);
+        mobile_lane.update(|lane| {
+            *lane = next_mobile_lane(*lane, ChatMobileLane::Evidence);
+        });
     });
     let set_lane_context = Callback::new(move |_: ()| {
-        mobile_lane.set(ChatMobileLane::Context);
+        mobile_lane.update(|lane| {
+            *lane = next_mobile_lane(*lane, ChatMobileLane::Context);
+        });
     });
     DrawerCallbacks {
         toggle_evidence,
@@ -1264,7 +1268,6 @@ pub(super) fn ChatConversationPanel(
         !message.try_get().unwrap_or_default().trim().is_empty()
             && !is_busy.try_get().unwrap_or(false)
     });
-    let error = Signal::derive(move || chat_snapshot.try_get().unwrap_or_default().2);
     let can_retry = Signal::derive(move || {
         let (loading, streaming, _, has_recovery) = chat_snapshot.try_get().unwrap_or_default();
         !loading && !streaming && has_recovery
@@ -1586,7 +1589,11 @@ pub(super) fn ChatConversationPanel(
             BadgeVariant::Success
         };
 
-        let latest_assistant = state.messages.iter().rev().find(|msg| msg.role == "assistant");
+        let latest_assistant = state
+            .messages
+            .iter()
+            .rev()
+            .find(|msg| msg.role == "assistant");
         let citations = latest_assistant
             .and_then(|msg| msg.citations.clone())
             .unwrap_or_default();
@@ -1759,7 +1766,6 @@ pub(super) fn ChatConversationPanel(
 
     // Keyboard handler for Enter-to-send (without Shift for newlines)
     let handle_keydown = {
-        let do_send = do_send.clone();
         Callback::new(move |ev: web_sys::KeyboardEvent| {
             // Enter without Shift submits; Enter with Shift allows newline
             if ev.key() == "Enter" && !ev.shift_key() && can_send.try_get().unwrap_or(false) {
@@ -2320,11 +2326,11 @@ pub(super) fn ChatConversationPanel(
                                         >
                                             "Execution Record"
                                         </a>
-                                    }).unwrap_or_else(|| view! {
+                                    }.into_any()).unwrap_or_else(|| view! {
                                         <span class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded" data-testid="chat-run-link">
                                             "Execution Record"
                                         </span>
-                                    })}
+                                    }.into_any())}
                                     {vm.latest_signed_log_url.clone().map(|url| view! {
                                         <a
                                             href=url
@@ -2333,11 +2339,11 @@ pub(super) fn ChatConversationPanel(
                                         >
                                             "Execution Receipt"
                                         </a>
-                                    }).unwrap_or_else(|| view! {
+                                    }.into_any()).unwrap_or_else(|| view! {
                                         <span class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded" data-testid="chat-receipt-link">
                                             "Execution Receipt"
                                         </span>
-                                    })}
+                                    }.into_any())}
                                     {vm.latest_replay_url.clone().map(|url| view! {
                                         <a
                                             href=url
@@ -2346,11 +2352,11 @@ pub(super) fn ChatConversationPanel(
                                         >
                                             "Replay Exactly"
                                         </a>
-                                    }).unwrap_or_else(|| view! {
+                                    }.into_any()).unwrap_or_else(|| view! {
                                         <span class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded" data-testid="chat-replay-link">
                                             "Replay Exactly"
                                         </span>
-                                    })}
+                                    }.into_any())}
                                 </>
                             }
                         }}
@@ -2678,64 +2684,8 @@ pub(super) fn ChatConversationPanel(
                 </span>
             })}
 
-            <details class="rounded-lg border border-border/60 bg-card/60 px-3 py-2" data-testid="chat-advanced-adapter-controls">
-                <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    "Advanced adapter controls"
-                </summary>
-                <div class="mt-3">
-                    // Unified Adapters Region: Active, Pinned, Suggested + Manage
-                    <ChatAdaptersRegion
-                        active_adapters=adapter_magnets
-                        pinned_adapters=pinned_adapters
-                        suggestions=suggested_adapters
-                        pending=adapter_selection_pending
-                        on_select_override=on_select_override
-                        on_toggle_pin=on_toggle_pin
-                        on_set_pinned=on_set_pinned
-                        loading=is_streaming
-                    />
-                </div>
-            </details>
-
-            {move || {
-                latest_replay_url.try_get().flatten().map(|replay_href| {
-                    let signed_log_href = latest_signed_log_url
-                        .try_get()
-                        .flatten()
-                        .unwrap_or_else(|| "/runs".to_string());
-                    view! {
-                        <div
-                            class="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3"
-                            data-testid="chat-replay-proof-banner"
-                        >
-                            <div class="flex flex-wrap items-center justify-between gap-3">
-                                <div class="space-y-1">
-                                    <p class="text-sm font-medium">"Replay + execution receipt ready"</p>
-                                    <p class="text-xs text-muted-foreground">
-                                        "You can replay the latest response with locked output and review its execution receipt."
-                                    </p>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <ButtonLink
-                                        href=replay_href
-                                        variant=ButtonVariant::Primary
-                                        size=ButtonSize::Sm
-                                    >
-                                        "Replay Exact Response"
-                                    </ButtonLink>
-                                    <ButtonLink
-                                        href=signed_log_href
-                                        variant=ButtonVariant::Outline
-                                        size=ButtonSize::Sm
-                                    >
-                                        "View Execution Receipt"
-                                    </ButtonLink>
-                                </div>
-                            </div>
-                        </div>
-                    }
-                })
-            }}
+            // Advanced controls and replay proof are intentionally moved to
+            // the Context/Evidence lanes (drawer and mobile segmented lanes).
 
             // Messages
             <div class="relative flex-1 min-h-0">
@@ -2996,7 +2946,7 @@ pub(super) fn ChatConversationPanel(
                             <button
                                 type="button"
                                 class="btn btn-outline btn-sm absolute bottom-4 right-4 inline-flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted/80 transition-colors"
-                                on:click=move |_| scroll_to_latest.run(())
+                                on:click=move |_| message_callbacks.jump_to_latest.run(())
                                 data-testid="chat-jump-to-latest"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -3051,7 +3001,7 @@ pub(super) fn ChatConversationPanel(
                                     <button
                                         type="button"
                                         class="text-sm font-medium text-primary hover:underline"
-                                        on:click=move |_| retry_session_confirmation.run(())
+                                        on:click=move |_| session_notice_callbacks.retry_session_confirmation.run(())
                                         data-testid="chat-session-confirm-retry"
                                     >
                                         "Retry confirmation"
@@ -3097,7 +3047,7 @@ pub(super) fn ChatConversationPanel(
                                     <button
                                         type="button"
                                         class="text-sm font-medium text-primary hover:underline"
-                                        on:click=move |_| retry_session_confirmation.run(())
+                                        on:click=move |_| session_notice_callbacks.retry_session_confirmation.run(())
                                         data-testid="chat-session-confirm-retry"
                                     >
                                         "Retry confirmation"
@@ -3121,7 +3071,6 @@ pub(super) fn ChatConversationPanel(
             // Uses stream_notice.message for human-readable copy, falls back to raw error
             // Retry button only appears when error is retryable AND recovery state exists
             {move || {
-                let action = chat_action.clone();
                 let state = chat_state.try_get().unwrap_or_default();
                 let notice = state.stream_notice.clone();
                 let raw_error = state.error.clone();
@@ -3200,7 +3149,7 @@ pub(super) fn ChatConversationPanel(
                                         }}
                                         <button
                                             class="btn btn-ghost btn-sm text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
-                                            on:click=move |_| action.clear_error()
+                                            on:click=move |_| session_notice_callbacks.clear_error.run(())
                                             aria-label="Dismiss error"
                                             data-testid="chat-error-dismiss"
                                         >
@@ -3275,6 +3224,104 @@ pub(super) fn ChatConversationPanel(
                 on_cancel=do_cancel
                 on_keydown=handle_keydown
             />
+                            })
+                        } else {
+                            None
+                        }
+                    }}
+
+                    {move || {
+                        let compact = is_compact_view.try_get().unwrap_or(false);
+                        let lane = mobile_lane
+                            .try_get()
+                            .unwrap_or(ChatMobileLane::Conversation);
+                        if compact && matches!(lane, ChatMobileLane::Evidence) {
+                            Some(view! { {render_evidence_panel()} })
+                        } else {
+                            None
+                        }
+                    }}
+
+                    {move || {
+                        let compact = is_compact_view.try_get().unwrap_or(false);
+                        let lane = mobile_lane
+                            .try_get()
+                            .unwrap_or(ChatMobileLane::Conversation);
+                        if compact && matches!(lane, ChatMobileLane::Context) {
+                            Some(view! { {render_context_panel()} })
+                        } else {
+                            None
+                        }
+                    }}
+                </div>
+
+                {move || {
+                    if is_compact_view.try_get().unwrap_or(false) {
+                        None
+                    } else {
+                        Some(view! {
+                            <aside class="chat-drawer-rail">
+                                <div class="chat-drawer-rail-buttons">
+                                    <button
+                                        type="button"
+                                        class=move || {
+                                            if matches!(active_drawer.try_get().flatten(), Some(ChatDrawerKind::Evidence)) {
+                                                "btn btn-sm btn-ghost rounded-md bg-background text-foreground shadow-sm"
+                                            } else {
+                                                "btn btn-sm btn-ghost rounded-md text-muted-foreground"
+                                            }
+                                        }
+                                        on:click=move |_| drawer_callbacks.toggle_evidence.run(())
+                                    >
+                                        "Evidence"
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class=move || {
+                                            if matches!(active_drawer.try_get().flatten(), Some(ChatDrawerKind::Context)) {
+                                                "btn btn-sm btn-ghost rounded-md bg-background text-foreground shadow-sm"
+                                            } else {
+                                                "btn btn-sm btn-ghost rounded-md text-muted-foreground"
+                                            }
+                                        }
+                                        on:click=move |_| drawer_callbacks.toggle_context.run(())
+                                    >
+                                        "Context"
+                                    </button>
+                                </div>
+                                <div
+                                    class="chat-drawer-panel-shell"
+                                    node_ref=drawer_panel_ref
+                                    tabindex="0"
+                                    on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                        if ev.key() == "Escape" {
+                                            drawer_callbacks.close_drawer.run(());
+                                        }
+                                    }
+                                >
+                                    {move || {
+                                        match active_drawer.try_get().flatten() {
+                                            Some(ChatDrawerKind::Evidence) => {
+                                                view! { {render_evidence_panel()} }.into_any()
+                                            }
+                                            Some(ChatDrawerKind::Context) => {
+                                                view! { {render_context_panel()} }.into_any()
+                                            }
+                                            None => view! {
+                                                <div class="chat-drawer-panel chat-drawer-panel--empty">
+                                                    <p class="text-xs text-muted-foreground">
+                                                        "Open Evidence or Context to inspect trust, replay, and advanced controls."
+                                                    </p>
+                                                </div>
+                                            }.into_any(),
+                                        }
+                                    }}
+                                </div>
+                            </aside>
+                        })
+                    }
+                }}
+            </div>
 
             <Dialog
                 open=show_attach_dialog

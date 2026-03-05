@@ -164,11 +164,8 @@ fn HudCard() -> impl IntoView {
     let location = use_location();
     let session_id = Memo::new(move |_| {
         let path = location.pathname.get();
-        if let Some(session_id) = path.strip_prefix("/chat/s/") {
-            Some(session_id.to_string())
-        } else {
-            None
-        }
+        path.strip_prefix("/chat/s/")
+            .map(|session_id| session_id.to_string())
     });
 
     // Load session on route change

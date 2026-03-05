@@ -106,14 +106,11 @@ pub fn SystemInfoSection() -> impl IntoView {
         });
     });
 
-    {
-        let load_runtime_settings = load_runtime_settings;
-        Effect::new(move || {
-            if !runtime_loaded_once.get() {
-                load_runtime_settings.run(());
-            }
-        });
-    }
+    Effect::new(move || {
+        if !runtime_loaded_once.get() {
+            load_runtime_settings.run(());
+        }
+    });
 
     Effect::new(move || {
         let text = model_roots_text.get();

@@ -332,11 +332,7 @@ struct ProvenanceChip {
 }
 
 fn normalize_status_token(value: &str) -> String {
-    value
-        .trim()
-        .to_ascii_lowercase()
-        .replace('_', " ")
-        .replace('-', " ")
+    value.trim().to_ascii_lowercase().replace(['_', '-'], " ")
 }
 
 fn gate_source_label(gate_source: &str) -> String {

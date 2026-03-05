@@ -285,35 +285,36 @@ fn build_document_training_request(
     base_model_id: String,
     document_name: &str,
 ) -> CreateTrainingJobRequest {
-    // UI compiles adapteros-api-types with feature "wasm"; server-only training
-    // config fields are unavailable in this build.
-    let params = TrainingConfigRequest {
-        rank: 8,
-        alpha: 16,
-        targets: vec!["q_proj".to_string(), "v_proj".to_string()],
-        training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
-        pad_token_id: 0,
-        ignore_index: -100,
-        epochs: 10,
-        learning_rate: 0.0001,
-        batch_size: 4,
-        warmup_steps: None,
-        max_seq_length: None,
-        gradient_accumulation_steps: None,
-        validation_split: Some(0.15),
-        preferred_backend: None,
-        backend_policy: None,
-        coreml_training_fallback: None,
-        enable_coreml_export: None,
-        require_gpu: None,
-        max_gpu_memory_mb: None,
-        force_resume: None,
-        multi_module_training: None,
-        lora_layer_indices: None,
-        early_stopping: Some(true),
-        patience: None,
-        min_delta: None,
-    };
+    // Build via serde to remain compatible with both wasm-only and server-enriched
+    // TrainingConfigRequest field sets under Cargo feature unification.
+    let params: TrainingConfigRequest = serde_json::from_value(serde_json::json!({
+        "rank": 8,
+        "alpha": 16,
+        "targets": ["q_proj", "v_proj"],
+        "training_contract_version": TRAINING_DATA_CONTRACT_VERSION,
+        "pad_token_id": 0,
+        "ignore_index": -100,
+        "epochs": 10,
+        "learning_rate": 0.0001,
+        "batch_size": 4,
+        "warmup_steps": null,
+        "max_seq_length": null,
+        "gradient_accumulation_steps": null,
+        "validation_split": 0.15,
+        "preferred_backend": null,
+        "backend_policy": null,
+        "coreml_training_fallback": null,
+        "enable_coreml_export": null,
+        "require_gpu": null,
+        "max_gpu_memory_mb": null,
+        "force_resume": null,
+        "multi_module_training": null,
+        "lora_layer_indices": null,
+        "early_stopping": true,
+        "patience": null,
+        "min_delta": null
+    }))
+    .expect("document talk flow training params should be valid");
 
     CreateTrainingJobRequest {
         workspace_id: String::new(),

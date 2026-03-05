@@ -80,6 +80,22 @@ These are the preferred styling approach. Use these instead of utility classes.
 | Class | Status | Notes |
 |-------|--------|-------|
 
+### Chat Surface
+| Class | Status | Notes |
+|-------|--------|-------|
+| `.chat-session-layout` | Core | Session-detail lane container |
+| `.chat-main-column` | Core | Primary conversation lane |
+| `.chat-drawer-rail` | Core | Desktop right-side lane rail |
+| `.chat-drawer-rail-buttons` | Core | Drawer lane trigger group |
+| `.chat-drawer-panel-shell` | Core | Focusable drawer panel host |
+| `.chat-drawer-panel` | Core | Evidence/context panel chrome |
+| `.chat-drawer-panel--evidence` | Core | Evidence lane panel variant |
+| `.chat-drawer-panel--context` | Core | Context lane panel variant |
+| `.chat-drawer-panel--empty` | Core | Empty drawer helper state |
+| `.chat-lane-toggle` | Core | Mobile segmented lane control |
+| `.chat-context-summary` | Core | Context metadata strip (drawer) |
+| `.chat-context-target` | Core | Drawer target-selector region |
+
 ### Toggle
 | Class | Status | Notes |
 |-------|--------|-------|

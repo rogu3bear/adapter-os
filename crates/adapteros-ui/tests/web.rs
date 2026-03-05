@@ -9,12 +9,19 @@ use adapteros_ui::api::types::{
     InitiateChunkedDatasetUploadResponse, RetryDatasetChunkResponse, UploadDatasetChunkResponse,
 };
 use adapteros_ui::api::{api_base_url, ApiClient, ApiError};
+use adapteros_ui::signals::{
+    provide_auth_context, provide_chat_context, provide_notifications_context,
+    provide_refetch_context, provide_search_context, provide_settings_context,
+    provide_ui_profile_context,
+};
 use adapteros_ui::sse::parse_sse_event_with_info;
 use leptos::mount::mount_to;
+use leptos::prelude::provide_context;
 use leptos::prelude::IntoView;
 use leptos::{leptos_dom::helpers::document, view};
 use serde_json::json;
-use wasm_bindgen::JsCast;
+use std::sync::Arc;
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -188,14 +195,41 @@ fn test_api_error_display() {
 // Route/page smoke mounts
 // ============================================================================
 
-fn mount_component<V: IntoView + 'static>(id: &str, view_fn: impl FnOnce() -> V + 'static) {
+fn mount_component<V: IntoView + 'static>(id: &str, view_fn: impl FnOnce() -> V + Send + 'static) {
     let doc = document();
     let body = doc.body().expect("body");
     let container = doc.create_element("div").expect("create div");
     container.set_id(id);
     let container: web_sys::HtmlElement = container.unchecked_into();
     body.append_child(&container).expect("append");
-    let _ = mount_to(container, move || view_fn());
+    let _ = mount_to(container, move || {
+        provide_test_app_contexts();
+        view! {
+            <leptos_router::components::Router>
+                {view_fn()}
+            </leptos_router::components::Router>
+        }
+    });
+}
+
+fn provide_test_app_contexts() {
+    let client = Arc::new(ApiClient::new());
+    provide_context(client.clone());
+    provide_auth_context();
+    provide_settings_context();
+    provide_ui_profile_context();
+    provide_notifications_context();
+    provide_chat_context();
+    provide_refetch_context();
+    provide_search_context(client);
+}
+
+fn set_test_path(path: &str) {
+    let window = web_sys::window().expect("window");
+    let history = window.history().expect("history");
+    history
+        .replace_state_with_url(&JsValue::NULL, "", Some(path))
+        .expect("set test path");
 }
 
 #[wasm_bindgen_test]
@@ -214,8 +248,28 @@ fn mount_smoke_datasets_training_chat_surfaces_runs_models_adapters() {
         || view! { <adapteros_ui::pages::chat::Chat/> },
     );
     // Chat history should mount without panic
+    set_test_path("/chat/history");
     mount_component("chat-history-smoke", || {
-        view! { <adapteros_ui::pages::chat::ChatHistory/> }
+        view! {
+            <leptos_router::components::Routes fallback=|| view! { <div/> }>
+                <leptos_router::components::Route
+                    path=leptos_router::path!("/chat/history")
+                    view=adapteros_ui::pages::chat::ChatHistory
+                />
+            </leptos_router::components::Routes>
+        }
+    });
+    // Chat session equivalent route component should mount without panic
+    set_test_path("/chat/s/smoke-session");
+    mount_component("chat-session-equivalent-smoke", || {
+        view! {
+            <leptos_router::components::Routes fallback=|| view! { <div/> }>
+                <leptos_router::components::Route
+                    path=leptos_router::path!("/chat/s/:session_id")
+                    view=adapteros_ui::pages::chat::ChatSessionEquivalent
+                />
+            </leptos_router::components::Routes>
+        }
     });
     // Runs list should mount without panic
     mount_component("runs-smoke", || {
