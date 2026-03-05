@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 ## Position
 
 **Milestone:** v1.1.18 System Stabilization (active)
-**Current phase:** Phase 53 — UI Harmony and Visual Polish (complete)
-**Current Plan:** 3 of 3 in Phase (complete)
-**Status:** Phase Complete
+**Current phase:** Phase 54 — Performance and Security Hardening
+**Current Plan:** 1 of 3 in Phase
+**Status:** Executing
 
 ## Session Log
 
@@ -29,6 +29,7 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - 2026-03-05: Phase 52 plan 01 complete: portable path resolution — find_project_root with .adapteros-root marker, AOS_ROOT override, fixed DEV_MODEL_PATH absolute path bug, layered model discovery.
 - 2026-03-05: Phase 53 plan 02 complete: chat and dashboard polish — removed 8 redundant/dead elements, 7 interaction fixes, focus-visible states, glass tier 3 overlay.
 - 2026-03-05: Phase 53 plan 03 complete: secondary surface polish — sidebar glass T2, skeleton loading on 5 pages, EmptyState on 6 views.
+- 2026-03-05: Phase 54 plan 01 complete: UMA memory ceiling (75% default, 15% headroom) + inference benchmark script (TTFT/throughput/peak memory/MLX baseline comparison).
 
 ## Decisions
 
@@ -49,9 +50,12 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - Glass tier 3 for overlays via inline style with var(--glass-bg-3) + backdrop-filter
 - Sidebar uses Tier 2 glass (12px blur) to match navigation surface spec
 - SkeletonTable/SkeletonCard for all loading states; EmptyState component for all empty data views
+- UmaMemoryConfig named to avoid collision with adapteros-policy::packs::memory::MemoryConfig
+- MemoryLimits::from_uma_config sets both max_vram and max_system_ram to same effective ceiling (unified memory)
+- Boot warmup already wired via inference_warmup module -- no additional plumbing needed
 
 ## Session
 
-**Last Date:** 2026-03-05T06:09:00Z
-**Stopped At:** Completed 53-03-PLAN.md
+**Last Date:** 2026-03-05T06:14:00Z
+**Stopped At:** Completed 54-01-PLAN.md
 **Resume File:** None
