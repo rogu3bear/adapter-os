@@ -48,7 +48,7 @@ Closed the training execution gap by enforcing worker/preflight readiness before
 - [x] **Phase 46: Training Pipeline Execution Hardening** - Fail closed when training worker is unavailable, enforce algorithm/version preflight before enqueue, and pin 27B model resolution for training path consistency. (completed 2026-02-28)
 - [x] **Phase 47: Production Cut Contract Closure** - Execute `.planning/PROD_CUT.md` gate set with strict prod-mode policies and evidence capture.
 - [ ] **Phase 48: Commit Dirty Tree** - Commit the 84-file accumulated diff in logical atomic commits to establish a clean baseline. (v1.1.18)
-- [ ] **Phase 49: Training Worker Spawn Fix** - Fix binary PATH resolution so training worker spawns successfully on backend boot. (v1.1.18)
+- [x] **Phase 49: Training Worker Spawn Fix** - Fix binary PATH resolution so training worker spawns successfully on backend boot. (v1.1.18) (completed 2026-03-05)
 - [x] **Phase 50: Runtime State Hygiene** - Clean stale sockets, degraded markers, and restart counters on boot. (v1.1.18) (completed 2026-03-05)
 - [ ] **Phase 51: Adapter Inference End-to-End Activation** - Make adapters functional: hot-swap inference, measurable adapter influence, trainable adapters. (v1.1.18)
 - [ ] **Phase 52: Full Portability** - Cross-platform builds, relocatable paths, environment-independent config. (v1.1.18)
@@ -208,9 +208,9 @@ Plans:
 | Phase                                              | Plans Complete | Status   | Completed  |
 | -------------------------------------------------- | -------------- | -------- | ---------- |
 | 48. Commit Dirty Tree                              | 1/1            | Complete | 2026-03-04 |
-| 49. Training Worker Spawn Fix                      | 0/2            | Pending  |            |
+| 49. Training Worker Spawn Fix                      | 2/2            | Complete | 2026-03-05 |
 | 50. Runtime State Hygiene                           | 2/2 | Complete   | 2026-03-05 |
-| 51. Adapter Inference End-to-End Activation         | 0/0            | Pending  |            |
+| 51. Adapter Inference End-to-End Activation         | 0/3            | Planned  |            |
 | 52. Full Portability                                | 0/0            | Pending  |            |
 | 53. UI Harmony and Visual Polish                    | 0/0            | Pending  |            |
 | 54. Performance and Security Hardening              | 0/0            | Pending  |            |
@@ -220,6 +220,13 @@ Plans:
 **Goal**: Make LoRA adapters functional end-to-end: hot-swap during inference with stable output, adapters measurably influence generation, and training produces usable adapters.
 **Depends on**: Phase 49, Phase 50
 **Requirements**: INF-51-01, INF-51-02, TRN-51-01, TRN-51-02
+**Plans**: 3 plans
+
+Plans:
+- [ ] 51-01-PLAN.md -- Wire API swap handler and streaming inference to worker via UDS adapter commands
+- [ ] 51-02-PLAN.md -- Integration tests for hot-swap stability and adapter influence verification
+- [ ] 51-03-PLAN.md -- Training-to-inference round-trip test and requirements registration
+
 **Success Criteria**:
 
 1. Adapter hot-swap during inference completes without crash or hang.
