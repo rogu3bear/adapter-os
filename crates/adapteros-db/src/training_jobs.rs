@@ -3533,4 +3533,91 @@ impl Db {
 
         Ok(())
     }
+
+    /// Mark all currently-running training jobs as failed due to worker crash.
+    ///
+    /// When the training worker process exits unexpectedly, any jobs in "running"
+    /// status cannot continue. This marks them as failed with an actionable reason
+    /// so operators can re-enqueue.
+    ///
+    /// ## ANCHOR, AUDIT, RECTIFY
+    ///
+    /// - **ANCHOR**: Only transitions jobs in "running" state (bulk optimistic locking)
+    /// - **AUDIT**: Records failure_reason in metadata_json and logs to audit target
+    /// - **RECTIFY**: Terminal "failed" state prevents stale running jobs after crash
+    ///
+    /// Returns the number of jobs marked as failed.
+    pub async fn mark_running_jobs_failed_worker_crash(&self) -> Result<u64> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let failure_metadata = serde_json::json!({
+            "failure_reason": "training_worker_crashed",
+            "failure_type": "worker_crash",
+            "marked_failed_at": &now,
+        });
+        let metadata_str =
+            serde_json::to_string(&failure_metadata).map_err(AosError::Serialization)?;
+
+        let mut affected: u64 = 0;
+
+        // KV backend: list running jobs and update each
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            match repo.list_jobs_by_status("running", 1000).await {
+                Ok(running_jobs) => {
+                    for job in &running_jobs {
+                        let metadata_clone = metadata_str.clone();
+                        let now_clone = now.clone();
+                        if let Err(e) = repo
+                            .update_job(&job.id, move |j| {
+                                j.status = "failed".to_string();
+                                j.completed_at = Some(now_clone);
+                                j.metadata_json = Some(metadata_clone);
+                            })
+                            .await
+                        {
+                            self.record_kv_write_fallback(
+                                "training_jobs.mark_running_failed_worker_crash",
+                            );
+                            warn!(error = %e, job_id = %job.id, "KV mark failed (worker crash) failed");
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.record_kv_write_fallback(
+                        "training_jobs.mark_running_failed_worker_crash.list",
+                    );
+                    warn!(error = %e, "KV list running jobs for crash cleanup failed");
+                }
+            }
+        }
+
+        // SQL backend: bulk update all running jobs
+        if self.storage_mode().write_to_sql() {
+            let result = sqlx::query(
+                "UPDATE repository_training_jobs
+                 SET status = 'failed', completed_at = ?, metadata_json = ?
+                 WHERE status = 'running'",
+            )
+            .bind(&now)
+            .bind(&metadata_str)
+            .execute(self.pool_result()?)
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+            affected = result.rows_affected();
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for mark_running_jobs_failed_worker_crash".to_string(),
+            ));
+        }
+
+        // AUDIT: Log to audit target for observability
+        if affected > 0 {
+            info!(
+                target: "audit.training",
+                affected_count = affected,
+                "Training jobs marked as failed (worker crash)"
+            );
+        }
+
+        Ok(affected)
+    }
 }
