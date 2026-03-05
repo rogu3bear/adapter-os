@@ -442,6 +442,7 @@ name = "adapteros-config"
 version = "0.2.0"
 dependencies = [
  "adapteros-core",
+ "adapteros-storage",
  "anyhow",
  "blake3",
  "chrono",

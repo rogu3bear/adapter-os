@@ -795,7 +795,45 @@ pub fn resolve_supervisor_signing_key_path() -> Result<ResolvedPath> {
     )
 }
 
-/// Resolve model path with precedence: env > CLI > config > dev fallback.
+/// Discover model path using layered resolution.
+///
+/// Resolution order:
+/// 1. If `AOS_MODEL_PATH` env var is set and non-empty, use it as-is (explicit override).
+/// 2. Check `var/models/{model_id}` (project-local).
+/// 3. Check `~/.cache/adapteros/models/{model_id}` (shared user cache).
+/// 4. Return `None` if nothing found.
+pub fn discover_model_path(model_id: &str) -> Option<PathBuf> {
+    // 1. AOS_MODEL_PATH env var is an explicit override (highest priority)
+    if let Ok(val) = std::env::var("AOS_MODEL_PATH") {
+        let val = val.trim().to_string();
+        if !val.is_empty() {
+            let path = rebase_var_path(&val);
+            if path.exists() {
+                return Some(path);
+            }
+            return None;
+        }
+    }
+
+    // 2. Project-local var/models/{model_id}
+    let local = rebase_var_path("var/models").join(model_id);
+    if local.exists() {
+        return Some(local);
+    }
+
+    // 3. Shared user cache ~/.cache/adapteros/models/{model_id}
+    if let Ok(cache_dir) = adapteros_storage::platform::common::PlatformUtils::aos_user_cache_dir()
+    {
+        let shared = cache_dir.join("models").join(model_id);
+        if shared.exists() {
+            return Some(shared);
+        }
+    }
+
+    None
+}
+
+/// Resolve model path with precedence: env > CLI > config > layered discovery > dev fallback.
 ///
 /// In release builds (`debug_assertions` off), dev fallback is rejected and an error is returned
 /// when no env/CLI/config value is provided.
@@ -803,11 +841,41 @@ pub fn resolve_model_path(
     cli_override: Option<&PathBuf>,
     config_path: Option<&PathBuf>,
 ) -> Result<ResolvedPath> {
-    resolve_path(
+    // Try env > CLI > config first (steps 1-3 of resolve_path)
+    match resolve_path(
         "model",
         "AOS_MODEL_PATH",
         cli_override,
         config_path,
+        None, // no dev fallback yet -- try discovery first
+        false,
+    ) {
+        Ok(resolved) => return Ok(resolved),
+        Err(_) => {
+            // No env/CLI/config value found -- try layered discovery
+        }
+    }
+
+    // Try layered discovery before falling back to dev fixture
+    if let Some(discovered) = discover_model_path(DEFAULT_BASE_MODEL_ID) {
+        tracing::info!(
+            path = %discovered.display(),
+            source = %PathSource::Default("layered-discovery"),
+            "Discovered model via layered path resolution"
+        );
+        return Ok(ResolvedPath {
+            path: discovered,
+            source: PathSource::Default("layered-discovery"),
+            used_dev_fallback: false,
+        });
+    }
+
+    // Fall back to dev fixture (debug only)
+    resolve_path(
+        "model",
+        "AOS_MODEL_PATH",
+        None,
+        None,
         Some(DEV_MODEL_PATH),
         cfg!(debug_assertions),
     )
@@ -1647,5 +1715,68 @@ mod tests {
         assert!(err.contains("must not be under /tmp"));
 
         std::env::remove_var("AOS_SKIP_SYMLINK_CHECK");
+    }
+
+    #[test]
+    fn test_discover_model_path_finds_local_var() {
+        let _env = TestEnvGuard::new();
+        let tmp = new_test_tempdir();
+        let model_id = "test-model-discover";
+
+        // Create var/models/{model_id} structure inside tmp
+        let models_dir = tmp.path().join("models");
+        let model_dir = models_dir.join(model_id);
+        fs::create_dir_all(&model_dir).unwrap();
+
+        // Point AOS_VAR_DIR at the tmp dir so rebase_var_path("var/models")
+        // resolves to tmp/models
+        std::env::set_var("AOS_VAR_DIR", tmp.path().to_str().unwrap());
+        // Clear AOS_MODEL_PATH so it doesn't interfere
+        std::env::remove_var("AOS_MODEL_PATH");
+        std::env::remove_var("AOS_ROOT");
+
+        let result = discover_model_path(model_id);
+        assert_eq!(result, Some(model_dir));
+
+        std::env::remove_var("AOS_VAR_DIR");
+    }
+
+    #[test]
+    fn test_discover_model_path_returns_none_when_missing() {
+        let _env = TestEnvGuard::new();
+        let tmp = new_test_tempdir();
+
+        // Point var dir at empty tmp dir
+        std::env::set_var("AOS_VAR_DIR", tmp.path().to_str().unwrap());
+        std::env::remove_var("AOS_MODEL_PATH");
+        std::env::remove_var("AOS_ROOT");
+
+        let result = discover_model_path("nonexistent-model-xyz");
+        assert_eq!(result, None);
+
+        std::env::remove_var("AOS_VAR_DIR");
+    }
+
+    #[test]
+    fn test_discover_model_path_local_before_cache() {
+        let _env = TestEnvGuard::new();
+        let tmp = new_test_tempdir();
+        let model_id = "test-model-order";
+
+        // Create local var/models/{model_id}
+        let local_models = tmp.path().join("models");
+        let local_model = local_models.join(model_id);
+        fs::create_dir_all(&local_model).unwrap();
+
+        // Point AOS_VAR_DIR at tmp so local lookup finds it
+        std::env::set_var("AOS_VAR_DIR", tmp.path().to_str().unwrap());
+        std::env::remove_var("AOS_MODEL_PATH");
+        std::env::remove_var("AOS_ROOT");
+
+        let result = discover_model_path(model_id);
+        // Should find local first (not shared cache)
+        assert_eq!(result, Some(local_model));
+
+        std::env::remove_var("AOS_VAR_DIR");
     }
 }
