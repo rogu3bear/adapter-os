@@ -2,8 +2,8 @@
 
 use crate::api::{AllModelsStatusResponse, ApiClient, ModelLoadStatus, ModelWithStatsResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, DetailGridRow, ErrorDisplay, Input, Select,
-    Spinner, Textarea,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, DetailGridRow, EmptyState, EmptyStateVariant,
+    ErrorDisplay, Input, Select, Spinner, Textarea,
 };
 use crate::hooks::{use_health, LoadingState};
 use crate::signals::use_notifications;
@@ -393,7 +393,11 @@ pub fn SystemInfoSection() -> impl IntoView {
 
                     let Some(settings) = runtime_settings.get() else {
                         return view! {
-                            <div class="text-sm text-muted-foreground">"No runtime settings available yet."</div>
+                            <EmptyState
+                                variant=EmptyStateVariant::Empty
+                                title="No runtime settings available"
+                                description="Runtime settings will appear once loaded from the server."
+                            />
                         }.into_any();
                     };
 

@@ -9,8 +9,8 @@ use crate::api::{
 };
 use crate::components::{
     AlertBanner, Badge, BadgeVariant, BannerVariant, Button, ButtonVariant, Card, Dialog,
-    ErrorDisplay, SimpleConfirmDialog, SkeletonCard, SkeletonTable, Spinner, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    EmptyState, EmptyStateVariant, ErrorDisplay, SimpleConfirmDialog, SkeletonCard, SkeletonTable,
+    Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use leptos::prelude::*;
@@ -92,7 +92,11 @@ fn SessionsTable(
 
             {if items.is_empty() {
                 view! {
-                    <p class="text-sm text-muted-foreground">"No active sessions found."</p>
+                    <EmptyState
+                        variant=EmptyStateVariant::Empty
+                        title="No active sessions"
+                        description="No active login sessions found."
+                    />
                 }.into_any()
             } else {
                 view! {

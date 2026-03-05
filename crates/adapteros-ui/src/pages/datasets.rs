@@ -1054,14 +1054,13 @@ pub fn DatasetDetail() -> impl IntoView {
                                 LoadingState::Loaded(resp) => {
                                     if resp.versions.is_empty() {
                                         view! {
-                                            <div class="space-y-2">
-                                                <p class="text-sm text-muted-foreground">"No versions yet."</p>
-                                                <a href=add_version_href>
-                                                    <Button button_type=ButtonType::Button variant=ButtonVariant::Secondary>
-                                                        "Add version"
-                                                    </Button>
-                                                </a>
-                                            </div>
+                                            <EmptyState
+                                                variant=EmptyStateVariant::Empty
+                                                title="No versions yet"
+                                                description="Upload files via the training wizard to create a version."
+                                                secondary_label="Add version"
+                                                secondary_href=add_version_href
+                                            />
                                         }
                                         .into_any()
                                     } else {
@@ -1175,9 +1174,11 @@ pub fn DatasetDetail() -> impl IntoView {
                             LoadingState::Loaded(resp) => {
                                 if resp.adapters.is_empty() {
                                     view! {
-                                        <p class="text-sm text-muted-foreground">
-                                            "No adapters have been trained on this dataset yet."
-                                        </p>
+                                        <EmptyState
+                                            variant=EmptyStateVariant::Empty
+                                            title="No adapters trained"
+                                            description="Adapters will appear here after training jobs use this dataset."
+                                        />
                                     }
                                         .into_any()
                                 } else {
