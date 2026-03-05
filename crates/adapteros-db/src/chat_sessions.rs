@@ -2220,6 +2220,8 @@ impl Db {
             FROM chat_sessions cs
             JOIN chat_session_user_shares sus ON sus.session_id = cs.id
             WHERE sus.shared_with_user_id = ?
+              AND COALESCE(sus.shared_with_tenant_id, cs.tenant_id) = ?
+              AND cs.tenant_id = ?
               AND sus.revoked_at IS NULL
               AND (sus.expires_at IS NULL OR sus.expires_at > datetime('now'))
               AND cs.status = 'active'
@@ -2228,6 +2230,8 @@ impl Db {
             "#,
         )
         .bind(user_id)
+        .bind(tenant_id)
+        .bind(tenant_id)
         .bind(limit)
         .fetch_all(self.pool_result()?)
         .await
@@ -2287,14 +2291,20 @@ impl Db {
         // Check direct share
         let direct: Option<String> = sqlx::query_scalar(
             r#"
-            SELECT permission FROM chat_session_user_shares
-            WHERE session_id = ? AND shared_with_user_id = ?
+            SELECT sus.permission
+            FROM chat_session_user_shares sus
+            JOIN chat_sessions cs ON cs.id = sus.session_id
+            WHERE sus.session_id = ? AND sus.shared_with_user_id = ?
+              AND COALESCE(sus.shared_with_tenant_id, cs.tenant_id) = ?
+              AND cs.tenant_id = ?
               AND revoked_at IS NULL
               AND (expires_at IS NULL OR expires_at > datetime('now'))
             "#,
         )
         .bind(session_id)
         .bind(user_id)
+        .bind(tenant_id)
+        .bind(tenant_id)
         .fetch_optional(self.pool_result()?)
         .await
         .map_err(db_err("check direct share"))?;

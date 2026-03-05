@@ -767,76 +767,53 @@ impl Db {
         Ok(())
     }
 
-    /// Get count of adapters using a model
+    /// Get count of adapters using a model.
     ///
-    /// Note: Current schema doesn't have a direct base_model_id foreign key in adapters table.
-    /// This method searches by model path/name in adapter metadata fields.
-    /// For accurate tracking, consider adding a base_model_id column to adapters table.
+    /// Primary path uses indexed `adapters.base_model_id`.
+    /// Legacy fallback checks `metadata_json.base_model_id` only for rows where
+    /// `base_model_id` is still NULL (for pre-backfill records).
     pub async fn count_adapters_for_model(&self, model_id: &str) -> Result<i64> {
-        // First, get the model to find its path/name
-        let model = self.get_model(model_id).await?;
-
-        if let Some(model) = model {
-            // Search for adapters that might reference this model
-            // Check in metadata_json, adapter_path, or other fields that might contain model reference
-            let count = if let Some(model_path) = &model.model_path {
-                // Try to find adapters with matching path patterns
-                sqlx::query_scalar::<_, i64>(
-                    "SELECT COUNT(*) FROM adapters
-                     WHERE (aos_file_path LIKE ? OR aos_file_path LIKE ?)
-                        OR (metadata_json LIKE ? OR metadata_json LIKE ?)",
-                )
-                .bind(format!("%{}%", model_path))
-                .bind(format!("%{}%", model.name))
-                .bind(format!("%{}%", model_path))
-                .bind(format!("%{}%", model.name))
-                .fetch_one(self.pool_result()?)
-                .await?
-            } else {
-                // Search by model name in metadata
-                sqlx::query_scalar::<_, i64>(
-                    "SELECT COUNT(*) FROM adapters
-                     WHERE metadata_json LIKE ?",
-                )
-                .bind(format!("%{}%", model.name))
-                .fetch_one(self.pool_result()?)
-                .await?
-            };
-
-            Ok(count)
-        } else {
+        let exists = self.get_model(model_id).await?.is_some();
+        if !exists {
             Ok(0)
+        } else {
+            let indexed_count = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM adapters WHERE base_model_id = ?",
+            )
+            .bind(model_id)
+            .fetch_one(self.pool_result()?)
+            .await?;
+
+            let legacy_json_count = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM adapters
+                 WHERE base_model_id IS NULL
+                   AND json_extract(metadata_json, '$.base_model_id') = ?",
+            )
+            .bind(model_id)
+            .fetch_one(self.pool_result()?)
+            .await?;
+
+            Ok(indexed_count + legacy_json_count)
         }
     }
 
     /// Get count of training jobs for a model
     ///
-    /// Note: Current schema doesn't have a direct base_model_id foreign key in training tables.
-    /// This method searches by model name/path in training configuration JSON.
-    /// For accurate tracking, consider adding a base_model_id column to training tables.
+    /// Uses indexed `repository_training_jobs.base_model_id` for O(log n) lookups.
     pub async fn count_training_jobs_for_model(&self, model_id: &str) -> Result<i64> {
-        // First, get the model to find its path/name
-        let model = self.get_model(model_id).await?;
-
-        if let Some(model) = model {
-            // Search for training jobs that reference this model in their config
-            let count = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM repository_training_jobs
-                 WHERE training_config_json LIKE ? OR training_config_json LIKE ?",
-            )
-            .bind(format!("%{}%", model.name))
-            .bind(if let Some(path) = &model.model_path {
-                format!("%{}%", path)
-            } else {
-                String::new()
-            })
-            .fetch_one(self.pool_result()?)
-            .await?;
-
-            Ok(count)
-        } else {
-            Ok(0)
+        let exists = self.get_model(model_id).await?.is_some();
+        if !exists {
+            return Ok(0);
         }
+
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM repository_training_jobs WHERE base_model_id = ?",
+        )
+        .bind(model_id)
+        .fetch_one(self.pool_result()?)
+        .await?;
+
+        Ok(count)
     }
 
     /// List models with statistics

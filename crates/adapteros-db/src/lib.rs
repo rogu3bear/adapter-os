@@ -1227,50 +1227,12 @@ impl Db {
         .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
 
         // Apply compatibility fixes for schema drift between signed migrations and code expectations.
-        self.ensure_adapter_lora_strength_column().await?;
         self.ensure_adapter_recommended_for_moe_column().await?;
         self.ensure_worker_runtime_metadata_columns().await?;
         self.ensure_inference_trace_tokens_index().await?;
 
         // Verify database version after migration
         self.verify_migration_version(&migrations_path).await?;
-
-        Ok(())
-    }
-
-    /// Backfill the `lora_strength` column on adapters if migrations missed it.
-    async fn ensure_adapter_lora_strength_column(&self) -> Result<()> {
-        let exists: Option<i64> = sqlx::query_scalar(
-            "SELECT 1 FROM pragma_table_info('adapters') WHERE name = 'lora_strength' LIMIT 1",
-        )
-        .fetch_optional(self.pool_result()?)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to inspect adapters schema: {}", e)))?;
-
-        if exists.is_none() {
-            warn!("Adapters table missing lora_strength column; applying runtime patch");
-            if let Err(e) =
-                sqlx::query("ALTER TABLE adapters ADD COLUMN lora_strength REAL DEFAULT 1.0")
-                    .execute(self.pool_result()?)
-                    .await
-            {
-                // Best-effort compatibility patch: concurrent initializers may race here.
-                let msg = e.to_string();
-                if !msg.contains("duplicate column name: lora_strength") {
-                    return Err(AosError::Database(format!(
-                        "Failed to add lora_strength column: {}",
-                        e
-                    )));
-                }
-            }
-            // Backfill existing rows to preserve deterministic defaults.
-            sqlx::query("UPDATE adapters SET lora_strength = 1.0 WHERE lora_strength IS NULL")
-                .execute(self.pool_result()?)
-                .await
-                .map_err(|e| {
-                    AosError::Database(format!("Failed to backfill lora_strength: {}", e))
-                })?;
-        }
 
         Ok(())
     }

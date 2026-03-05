@@ -4281,16 +4281,18 @@ impl Db {
             // SECURITY NOTE: This deprecated function uses direct tenant lookup for KV routing.
             // This is acceptable since the entire function is deprecated and for admin-only use.
             // Use a direct query to get tenant_id for KV lookup (admin path only).
-            let tenant_result: Option<String> =
-                sqlx::query_scalar("SELECT tenant_id FROM adapters WHERE adapter_id = ?")
-                    .bind(adapter_id)
-                    .fetch_optional(self.pool_result()?)
-                    .await
-                    .map_err(|e| AosError::database(e.to_string()))?;
+            let tenant_result: Option<(String, String)> = sqlx::query_as(
+                "SELECT tenant_id, adapter_id FROM adapters WHERE adapter_id = ? OR id = ? LIMIT 1",
+            )
+            .bind(adapter_id)
+            .bind(adapter_id)
+            .fetch_optional(self.pool_result()?)
+            .await
+            .map_err(|e| AosError::database(e.to_string()))?;
 
-            if let Some(tenant_id) = tenant_result {
+            if let Some((tenant_id, resolved_adapter_id)) = tenant_result {
                 if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                    match repo.get_adapter_kv(adapter_id).await {
+                    match repo.get_adapter_kv(&resolved_adapter_id).await {
                         Ok(Some(adapter)) => {
                             debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-primary", "Retrieved adapter from KV");
                             return Ok(Some(adapter));
@@ -4321,15 +4323,23 @@ impl Db {
 
         // SQL fallback or primary read
         let query = format!(
-            "SELECT {} FROM adapters WHERE adapter_id = ?",
+            "SELECT {} FROM adapters WHERE adapter_id = ? OR id = ? LIMIT 2",
             ADAPTER_SELECT_FIELDS
         );
-        let adapter = sqlx::query_as::<_, Adapter>(&query)
+        let mut adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(adapter_id)
-            .fetch_optional(self.pool_result()?)
+            .bind(adapter_id)
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
-        Ok(adapter)
+        match adapters.len() {
+            0 => Ok(None),
+            1 => Ok(Some(adapters.remove(0))),
+            _ => Err(AosError::validation(format!(
+                "Ambiguous adapter identifier '{}'",
+                adapter_id
+            ))),
+        }
     }
 
     /// Get adapter by ID scoped to a tenant (returns None on tenant mismatch).

@@ -1177,6 +1177,205 @@ async fn count_training_jobs_for_nonexistent_model() -> Result<()> {
 }
 
 #[tokio::test]
+async fn count_training_jobs_for_model_uses_base_model_id() -> Result<()> {
+    let db = new_test_db().await?;
+    let tenant_id = "tenant-count";
+    create_tenant(&db, tenant_id).await?;
+
+    let model_a = db
+        .register_model(minimal_model_params("count-model-a"))
+        .await?;
+    let model_b = db
+        .register_model(minimal_model_params("count-model-b"))
+        .await?;
+    set_model_tenant(&db, &model_a, Some(tenant_id)).await?;
+    set_model_tenant(&db, &model_b, Some(tenant_id)).await?;
+
+    sqlx::query(
+        "INSERT INTO git_repositories
+         (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("repo-row-1")
+    .bind("repo-count-1")
+    .bind("/tmp/repo-count-1")
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind("ready")
+    .bind("test-user")
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to create repository: {}", e)))?;
+
+    // Counted row for model A.
+    sqlx::query(
+        "INSERT INTO repository_training_jobs
+         (id, repo_id, training_config_json, status, progress_json, created_by, base_model_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("job-count-a")
+    .bind("repo-count-1")
+    .bind(r#"{"base_model":"count-model-a"}"#)
+    .bind("pending")
+    .bind("{}")
+    .bind("test-user")
+    .bind(&model_a)
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to insert training job A: {}", e)))?;
+
+    // Not counted for model A (belongs to model B).
+    sqlx::query(
+        "INSERT INTO repository_training_jobs
+         (id, repo_id, training_config_json, status, progress_json, created_by, base_model_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("job-count-b")
+    .bind("repo-count-1")
+    .bind(r#"{"base_model":"count-model-b"}"#)
+    .bind("pending")
+    .bind("{}")
+    .bind("test-user")
+    .bind(&model_b)
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to insert training job B: {}", e)))?;
+
+    // Legacy JSON mention without base_model_id should not be counted.
+    sqlx::query(
+        "INSERT INTO repository_training_jobs
+         (id, repo_id, training_config_json, status, progress_json, created_by, base_model_id)
+         VALUES (?, ?, ?, ?, ?, ?, NULL)",
+    )
+    .bind("job-count-legacy")
+    .bind("repo-count-1")
+    .bind(r#"{"base_model":"count-model-a","notes":"legacy-json-only"}"#)
+    .bind("pending")
+    .bind("{}")
+    .bind("test-user")
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to insert legacy training job: {}", e)))?;
+
+    assert_eq!(db.count_training_jobs_for_model(&model_a).await?, 1);
+    assert_eq!(db.count_training_jobs_for_model(&model_b).await?, 1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn count_adapters_for_model_uses_base_model_id_with_legacy_json_fallback() -> Result<()> {
+    let db = new_test_db().await?;
+    let tenant_id = "tenant-adapter-count";
+    create_tenant(&db, tenant_id).await?;
+
+    let model_a = db
+        .register_model(minimal_model_params("adapter-count-a"))
+        .await?;
+    let model_b = db
+        .register_model(minimal_model_params("adapter-count-b"))
+        .await?;
+    set_model_tenant(&db, &model_a, Some(tenant_id)).await?;
+    set_model_tenant(&db, &model_b, Some(tenant_id)).await?;
+
+    // Counted via indexed adapters.base_model_id.
+    sqlx::query(
+        "INSERT INTO adapters
+         (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, adapter_id, lifecycle_state, active, base_model_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("adapter-count-a-1")
+    .bind(tenant_id)
+    .bind("adapter-count-a-1")
+    .bind("ephemeral")
+    .bind("hash-adapter-count-a-1")
+    .bind(8)
+    .bind(1.0)
+    .bind("[]")
+    .bind("adapter-count-a-1")
+    .bind("active")
+    .bind(1)
+    .bind(&model_a)
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to insert adapter A: {}", e)))?;
+
+    // Not counted for model A.
+    sqlx::query(
+        "INSERT INTO adapters
+         (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, adapter_id, lifecycle_state, active, base_model_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("adapter-count-b-1")
+    .bind(tenant_id)
+    .bind("adapter-count-b-1")
+    .bind("ephemeral")
+    .bind("hash-adapter-count-b-1")
+    .bind(8)
+    .bind(1.0)
+    .bind("[]")
+    .bind("adapter-count-b-1")
+    .bind("active")
+    .bind(1)
+    .bind(&model_b)
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to insert adapter B: {}", e)))?;
+
+    // Counted via strict legacy JSON fallback only when base_model_id is NULL.
+    sqlx::query(
+        "INSERT INTO adapters
+         (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, adapter_id, lifecycle_state, active, base_model_id, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+    )
+    .bind("adapter-count-legacy")
+    .bind(tenant_id)
+    .bind("adapter-count-legacy")
+    .bind("ephemeral")
+    .bind("hash-adapter-count-legacy")
+    .bind(8)
+    .bind(1.0)
+    .bind("[]")
+    .bind("adapter-count-legacy")
+    .bind("active")
+    .bind(1)
+    .bind(format!(r#"{{"base_model_id":"{}"}}"#, model_a))
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to insert legacy adapter: {}", e)))?;
+
+    // Should not be counted: textual mention without base_model_id linkage.
+    sqlx::query(
+        "INSERT INTO adapters
+         (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, adapter_id, lifecycle_state, active, base_model_id, metadata_json, aos_file_path)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+    )
+    .bind("adapter-count-like-only")
+    .bind(tenant_id)
+    .bind("adapter-count-like-only")
+    .bind("ephemeral")
+    .bind("hash-adapter-count-like-only")
+    .bind(8)
+    .bind(1.0)
+    .bind("[]")
+    .bind("adapter-count-like-only")
+    .bind("active")
+    .bind(1)
+    .bind(r#"{"notes":"mentions adapter-count-a for docs only"}"#)
+    .bind(format!("/tmp/models/{}/artifact.bin", model_a))
+    .execute(db.pool_result()?)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to insert LIKE-only adapter: {}", e)))?;
+
+    assert_eq!(db.count_adapters_for_model(&model_a).await?, 2);
+    assert_eq!(db.count_adapters_for_model(&model_b).await?, 1);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn get_base_model_status_for_tenant_without_status() -> Result<()> {
     let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;

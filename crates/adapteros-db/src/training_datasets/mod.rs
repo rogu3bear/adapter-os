@@ -4638,6 +4638,61 @@ mod tests {
         assert_eq!(rows[0].prompt, "hello");
         assert!(rows[0].response.is_empty());
     }
+
+    #[test]
+    fn training_jsonl_accepts_text_with_metadata_schema() {
+        let data = br#"{"text":"hello","metadata":{"source":"generator","split":"train"}}"#;
+        let (rows, parse_errors, dropped) = super::build_training_rows_from_jsonl_bytes(
+            "fixture.jsonl",
+            data,
+            "dst-test",
+            "dsv-test",
+            None,
+            None,
+            None,
+        );
+        assert_eq!(parse_errors, 0);
+        assert_eq!(dropped, 0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].prompt, "hello");
+        assert!(rows[0].response.is_empty());
+    }
+
+    #[test]
+    fn training_jsonl_accepts_input_only_alias_as_raw_schema() {
+        let data = br#"{"input":"hello","metadata":{"source":"generator"}}"#;
+        let (rows, parse_errors, dropped) = super::build_training_rows_from_jsonl_bytes(
+            "fixture.jsonl",
+            data,
+            "dst-test",
+            "dsv-test",
+            None,
+            None,
+            None,
+        );
+        assert_eq!(parse_errors, 0);
+        assert_eq!(dropped, 0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].prompt, "hello");
+        assert!(rows[0].response.is_empty());
+    }
+
+    #[test]
+    fn training_jsonl_drops_prompt_only_rows_without_completion() {
+        let data = br#"{"prompt":"hello"}"#;
+        let (rows, parse_errors, dropped) = super::build_training_rows_from_jsonl_bytes(
+            "fixture.jsonl",
+            data,
+            "dst-test",
+            "dsv-test",
+            None,
+            None,
+            None,
+        );
+        assert_eq!(parse_errors, 0);
+        assert_eq!(dropped, 1);
+        assert!(rows.is_empty());
+    }
 }
 
 // ==============================================================================
@@ -4996,7 +5051,7 @@ pub fn build_training_rows_from_jsonl_bytes(
         // Accept a few common JSONL dialects:
         // - OpenAI fine-tune: {prompt, completion}
         // - AdapterOS UI + training: {prompt, response} / {input, target}
-        // - Raw: {text}
+        // - Raw continuation: {text} or generator aliases {input, metadata?, id?}
         let prompt = object
             .get("prompt")
             .or_else(|| object.get("input"))
@@ -5025,12 +5080,31 @@ pub fn build_training_rows_from_jsonl_bytes(
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .unwrap_or_default();
+            .map(str::to_string);
+
+        let has_explicit_text = object.contains_key("text")
+            || metadata_obj
+                .map(|meta| meta.contains_key("text"))
+                .unwrap_or(false);
+        let has_input_alias_without_completion = object.contains_key("input")
+            && !object.contains_key("prompt")
+            && !object.contains_key("text")
+            && response.is_none();
+        let raw_continuation_row = has_explicit_text || has_input_alias_without_completion;
 
         let Some(prompt) = prompt else {
             dropped += 1;
             continue;
+        };
+
+        let response = if raw_continuation_row {
+            String::new()
+        } else {
+            let Some(response) = response else {
+                dropped += 1;
+                continue;
+            };
+            response
         };
 
         let source_line = i32::try_from(line_idx + 1).ok();

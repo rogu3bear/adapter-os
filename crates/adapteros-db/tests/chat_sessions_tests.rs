@@ -713,6 +713,63 @@ async fn test_tenant_isolation_enforced() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_direct_share_access_is_tenant_scoped() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+    create_tenant(&db, "tenant-a", "Tenant A").await?;
+    create_tenant(&db, "tenant-b", "Tenant B").await?;
+    create_user(&db, "owner-user", "owner@example.com", "admin").await?;
+    create_user(&db, "shared-user", "shared@example.com", "operator").await?;
+
+    create_session(
+        &db,
+        "session-shared-a",
+        "tenant-a",
+        "Shared Session A",
+        Some("owner-user"),
+    )
+    .await?;
+
+    db.share_session_with_user(
+        "session-shared-a",
+        "shared-user",
+        "tenant-a",
+        "view",
+        "owner-user",
+        None,
+    )
+    .await?;
+
+    let access_in_tenant_a = db
+        .check_session_share_access("session-shared-a", "shared-user", "tenant-a")
+        .await?;
+    assert_eq!(access_in_tenant_a.as_deref(), Some("view"));
+
+    let access_in_tenant_b = db
+        .check_session_share_access("session-shared-a", "shared-user", "tenant-b")
+        .await?;
+    assert!(
+        access_in_tenant_b.is_none(),
+        "direct share must not grant access across tenant boundaries"
+    );
+
+    let shared_for_tenant_a = db
+        .get_sessions_shared_with_user("shared-user", "tenant-a", None)
+        .await?;
+    assert_eq!(shared_for_tenant_a.len(), 1);
+    assert_eq!(shared_for_tenant_a[0].id, "session-shared-a");
+
+    let shared_for_tenant_b = db
+        .get_sessions_shared_with_user("shared-user", "tenant-b", None)
+        .await?;
+    assert!(
+        shared_for_tenant_b.is_empty(),
+        "shared sessions list should be empty for mismatched tenant"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_activity_timestamp_auto_updates() -> Result<()> {
     let db = Db::new_in_memory().await?;
     create_tenant(&db, "tenant-1", "Test Tenant").await?;

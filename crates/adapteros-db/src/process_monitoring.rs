@@ -297,6 +297,16 @@ pub struct MetricsAggregation {
     pub sample_count: i64,
 }
 
+fn parse_utc_timestamp(field_name: &str, value: &str) -> Result<chrono::DateTime<chrono::Utc>> {
+    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(value) {
+        return Ok(parsed.with_timezone(&chrono::Utc));
+    }
+
+    chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
+        .map(|dt| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc))
+        .map_err(|e| AosError::Database(format!("Invalid {}: {}", field_name, e)))
+}
+
 // ===== Database Operations =====
 
 impl ProcessMonitoringRule {
@@ -351,25 +361,22 @@ impl ProcessMonitoringRule {
         tenant_id: Option<&str>,
         is_active: Option<bool>,
     ) -> Result<Vec<ProcessMonitoringRule>> {
-        let mut query = "SELECT * FROM process_monitoring_rules WHERE 1=1".to_string();
-        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![];
-        let mut param_count = 0;
+        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT * FROM process_monitoring_rules WHERE 1=1",
+        );
 
         if let Some(tenant) = tenant_id {
-            param_count += 1;
-            query.push_str(&format!(" AND tenant_id = ${}", param_count));
-            params.push(Box::new(tenant.to_string()));
+            query.push(" AND tenant_id = ").push_bind(tenant);
         }
 
         if let Some(active) = is_active {
-            param_count += 1;
-            query.push_str(&format!(" AND is_active = ${}", param_count));
-            params.push(Box::new(active));
+            query.push(" AND is_active = ").push_bind(active);
         }
 
-        query.push_str(" ORDER BY created_at DESC");
+        query.push(" ORDER BY created_at DESC");
 
-        let rows = sqlx::query(&query)
+        let rows = query
+            .build()
             .fetch_all(pool)
             .await
             .map_err(db_err("list monitoring rules"))?;
@@ -396,16 +403,8 @@ impl ProcessMonitoringRule {
                     .get::<Option<String>, _>("escalation_rules")
                     .and_then(|s| serde_json::from_str(&s).ok()),
                 created_by: row.get("created_by"),
-                created_at: chrono::DateTime::parse_from_rfc3339(
-                    &row.get::<String, _>("created_at"),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid created_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
-                updated_at: chrono::DateTime::parse_from_rfc3339(
-                    &row.get::<String, _>("updated_at"),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid updated_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
+                created_at: parse_utc_timestamp("created_at", &row.get::<String, _>("created_at"))?,
+                updated_at: parse_utc_timestamp("updated_at", &row.get::<String, _>("updated_at"))?,
             };
             rules.push(rule);
         }
@@ -416,51 +415,46 @@ impl ProcessMonitoringRule {
     /// Update a monitoring rule
     pub async fn update(
         pool: &SqlitePool,
-        _id: &str,
+        id: &str,
         updates: UpdateMonitoringRuleRequest,
     ) -> Result<()> {
-        let mut fields = Vec::new();
-        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![];
-        let mut param_count = 0;
+        let mut query =
+            sqlx::QueryBuilder::<sqlx::Sqlite>::new("UPDATE process_monitoring_rules SET ");
+        let mut has_updates = false;
+        {
+            let mut set = query.separated(", ");
 
-        if let Some(name) = updates.name {
-            param_count += 1;
-            fields.push(format!("name = ${}", param_count));
-            params.push(Box::new(name));
+            if let Some(name) = updates.name {
+                has_updates = true;
+                set.push("name = ").push_bind(name);
+            }
+
+            if let Some(description) = updates.description {
+                has_updates = true;
+                set.push("description = ").push_bind(description);
+            }
+
+            if let Some(threshold_value) = updates.threshold_value {
+                has_updates = true;
+                set.push("threshold_value = ").push_bind(threshold_value);
+            }
+
+            if let Some(is_active) = updates.is_active {
+                has_updates = true;
+                set.push("is_active = ").push_bind(is_active);
+            }
+
+            if !has_updates {
+                return Ok(());
+            }
+
+            set.push("updated_at = CURRENT_TIMESTAMP");
         }
 
-        if let Some(description) = updates.description {
-            param_count += 1;
-            fields.push(format!("description = ${}", param_count));
-            params.push(Box::new(description));
-        }
+        query.push(" WHERE id = ").push_bind(id);
 
-        if let Some(threshold_value) = updates.threshold_value {
-            param_count += 1;
-            fields.push(format!("threshold_value = ${}", param_count));
-            params.push(Box::new(threshold_value));
-        }
-
-        if let Some(is_active) = updates.is_active {
-            param_count += 1;
-            fields.push(format!("is_active = ${}", param_count));
-            params.push(Box::new(is_active));
-        }
-
-        if fields.is_empty() {
-            return Ok(());
-        }
-
-        param_count += 1;
-        fields.push("updated_at = CURRENT_TIMESTAMP".to_string());
-
-        let query = format!(
-            "UPDATE process_monitoring_rules SET {} WHERE id = ${}",
-            fields.join(", "),
-            param_count
-        );
-
-        sqlx::query(&query)
+        query
+            .build()
             .execute(pool)
             .await
             .map_err(db_err("update monitoring rule"))?;
@@ -512,49 +506,42 @@ impl ProcessHealthMetric {
         pool: &SqlitePool,
         filters: MetricFilters,
     ) -> Result<Vec<ProcessHealthMetric>> {
-        let mut query = "SELECT * FROM process_health_metrics WHERE 1=1".to_string();
-        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![];
-        let mut param_count = 0;
+        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT * FROM process_health_metrics WHERE 1=1",
+        );
 
         if let Some(worker_id) = filters.worker_id {
-            param_count += 1;
-            query.push_str(&format!(" AND worker_id = ${}", param_count));
-            params.push(Box::new(worker_id));
+            query.push(" AND worker_id = ").push_bind(worker_id);
         }
 
         if let Some(tenant_id) = filters.tenant_id {
-            param_count += 1;
-            query.push_str(&format!(" AND tenant_id = ${}", param_count));
-            params.push(Box::new(tenant_id));
+            query.push(" AND tenant_id = ").push_bind(tenant_id);
         }
 
         if let Some(metric_name) = filters.metric_name {
-            param_count += 1;
-            query.push_str(&format!(" AND metric_name = ${}", param_count));
-            params.push(Box::new(metric_name));
+            query.push(" AND metric_name = ").push_bind(metric_name);
         }
 
         if let Some(start_time) = filters.start_time {
-            param_count += 1;
-            query.push_str(&format!(" AND collected_at >= ${}", param_count));
-            params.push(Box::new(start_time.to_rfc3339()));
+            query
+                .push(" AND collected_at >= ")
+                .push_bind(start_time.to_rfc3339());
         }
 
         if let Some(end_time) = filters.end_time {
-            param_count += 1;
-            query.push_str(&format!(" AND collected_at <= ${}", param_count));
-            params.push(Box::new(end_time.to_rfc3339()));
+            query
+                .push(" AND collected_at <= ")
+                .push_bind(end_time.to_rfc3339());
         }
 
-        query.push_str(" ORDER BY collected_at DESC");
+        query.push(" ORDER BY collected_at DESC");
 
         if let Some(limit) = filters.limit {
-            param_count += 1;
-            query.push_str(&format!(" LIMIT ${}", param_count));
-            params.push(Box::new(limit));
+            query.push(" LIMIT ").push_bind(limit);
         }
 
-        let rows = sqlx::query(&query)
+        let rows = query
+            .build()
             .fetch_all(pool)
             .await
             .map_err(db_err("query health metrics"))?;
@@ -571,11 +558,10 @@ impl ProcessHealthMetric {
                 tags: row
                     .get::<Option<String>, _>("tags")
                     .and_then(|s| serde_json::from_str(&s).ok()),
-                collected_at: chrono::DateTime::parse_from_rfc3339(
+                collected_at: parse_utc_timestamp(
+                    "collected_at",
                     &row.get::<String, _>("collected_at"),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid collected_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
+                )?,
             };
             metrics.push(metric);
         }
@@ -598,31 +584,26 @@ impl ProcessHealthMetric {
             AggregationType::Count => "COUNT",
         };
 
-        let mut query = format!(
-            r#"
-            SELECT 
-                {} as aggregated_value,
-                COUNT(*) as sample_count
-            FROM process_health_metrics 
-            WHERE metric_name = ? 
-            AND collected_at >= ? 
-            AND collected_at <= ?
-            "#,
-            aggregation_func
-        );
-
-        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![
-            Box::new(metric_name.to_string()),
-            Box::new(window.start.to_rfc3339()),
-            Box::new(window.end.to_rfc3339()),
-        ];
+        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(format!(
+            "SELECT COALESCE({aggregation_func}, 0.0) as aggregated_value, \
+             COUNT(*) as sample_count FROM process_health_metrics WHERE metric_name = "
+        ));
+        query.push_bind(metric_name.to_string());
+        query
+            .push(" AND collected_at >= ")
+            .push_bind(window.start.to_rfc3339());
+        query
+            .push(" AND collected_at <= ")
+            .push_bind(window.end.to_rfc3339());
 
         if let Some(tenant) = tenant_id {
-            query.push_str(" AND tenant_id = ?");
-            params.push(Box::new(tenant.to_string()));
+            query
+                .push(" AND tenant_id = ")
+                .push_bind(tenant.to_string());
         }
 
-        let row = sqlx::query(&query)
+        let row = query
+            .build()
             .fetch_one(pool)
             .await
             .map_err(db_err("aggregate metrics"))?;
@@ -747,29 +728,18 @@ impl ProcessAlert {
                 acknowledged_by: row.get("acknowledged_by"),
                 acknowledged_at: row
                     .get::<Option<String>, _>("acknowledged_at")
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc)),
+                    .and_then(|s| parse_utc_timestamp("acknowledged_at", &s).ok()),
                 resolved_at: row
                     .get::<Option<String>, _>("resolved_at")
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc)),
+                    .and_then(|s| parse_utc_timestamp("resolved_at", &s).ok()),
                 suppression_reason: row.get("suppression_reason"),
                 suppression_until: row
                     .get::<Option<String>, _>("suppression_until")
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc)),
+                    .and_then(|s| parse_utc_timestamp("suppression_until", &s).ok()),
                 escalation_level: row.get("escalation_level"),
                 notification_sent: row.get("notification_sent"),
-                created_at: chrono::DateTime::parse_from_rfc3339(
-                    &row.get::<String, _>("created_at"),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid created_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
-                updated_at: chrono::DateTime::parse_from_rfc3339(
-                    &row.get::<String, _>("updated_at"),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid updated_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
+                created_at: parse_utc_timestamp("created_at", &row.get::<String, _>("created_at"))?,
+                updated_at: parse_utc_timestamp("updated_at", &row.get::<String, _>("updated_at"))?,
             };
             alerts.push(alert);
         }
@@ -785,25 +755,27 @@ impl ProcessAlert {
         user: Option<&str>,
     ) -> Result<()> {
         let mut query =
-            "UPDATE process_alerts SET status = ?, updated_at = CURRENT_TIMESTAMP".to_string();
-        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> =
-            vec![Box::new(status.to_string())];
+            sqlx::QueryBuilder::<sqlx::Sqlite>::new("UPDATE process_alerts SET status = ");
+        query.push_bind(status.to_string());
+        query.push(", updated_at = CURRENT_TIMESTAMP");
 
         match status {
             AlertStatus::Acknowledged => {
-                query.push_str(", acknowledged_by = ?, acknowledged_at = CURRENT_TIMESTAMP");
-                params.push(Box::new(user.unwrap_or("system").to_string()));
+                query
+                    .push(", acknowledged_by = ")
+                    .push_bind(user.unwrap_or("system").to_string())
+                    .push(", acknowledged_at = CURRENT_TIMESTAMP");
             }
             AlertStatus::Resolved => {
-                query.push_str(", resolved_at = CURRENT_TIMESTAMP");
+                query.push(", resolved_at = CURRENT_TIMESTAMP");
             }
             _ => {}
         }
 
-        query.push_str(" WHERE id = ?");
-        params.push(Box::new(id.to_string()));
+        query.push(" WHERE id = ").push_bind(id.to_string());
 
-        sqlx::query(&query)
+        query
+            .build()
             .execute(pool)
             .await
             .map_err(db_err("update alert status"))?;
@@ -910,13 +882,8 @@ impl ProcessAnomaly {
                 investigation_notes: row.get("investigation_notes"),
                 resolved_at: row
                     .get::<Option<String>, _>("resolved_at")
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc)),
-                created_at: chrono::DateTime::parse_from_rfc3339(
-                    &row.get::<String, _>("created_at"),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid created_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
+                    .and_then(|s| parse_utc_timestamp("resolved_at", &s).ok()),
+                created_at: parse_utc_timestamp("created_at", &row.get::<String, _>("created_at"))?,
             };
             anomalies.push(anomaly);
         }
@@ -1023,13 +990,10 @@ impl PerformanceBaseline {
                 percentile_95: row.9,
                 percentile_99: row.10,
                 is_active: row.11,
-                calculated_at: chrono::DateTime::parse_from_rfc3339(&row.12)
-                    .map_err(|e| AosError::Database(format!("Invalid calculated_at: {}", e)))?
-                    .with_timezone(&chrono::Utc),
+                calculated_at: parse_utc_timestamp("calculated_at", &row.12)?,
                 expires_at: row
                     .13
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc)),
+                    .and_then(|s| parse_utc_timestamp("expires_at", &s).ok()),
             }))
         } else {
             Ok(None)

@@ -128,6 +128,30 @@ async fn create_test_dataset(db: &Db, tenant_id: &str, name: &str) -> String {
     dataset_id
 }
 
+async fn create_test_model(db: &Db, tenant_id: &str, name: &str) -> String {
+    let model_id = format!("model-{}-{}", tenant_id, uuid::Uuid::new_v4());
+    let hash_b3 = blake3::hash(model_id.as_bytes()).to_hex().to_string();
+
+    sqlx::query(
+        "INSERT INTO models (
+            id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, tenant_id, backend
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&model_id)
+    .bind(format!("{}-{}", name, uuid::Uuid::new_v4()))
+    .bind(&hash_b3)
+    .bind(&hash_b3)
+    .bind(&hash_b3)
+    .bind(&hash_b3)
+    .bind(tenant_id)
+    .bind("metal")
+    .execute(db.pool_result().unwrap())
+    .await
+    .expect("create model");
+
+    model_id
+}
+
 async fn create_test_adapter(db: &Db, tenant_id: &str, name: &str) -> String {
     let adapter_id = format!("adapter-{}-{}", tenant_id, uuid::Uuid::new_v4());
     let hash_b3 = blake3::hash(adapter_id.as_bytes()).to_hex().to_string();
@@ -512,6 +536,37 @@ async fn test_tenant_trigger_isolation_adapter_base_model_trigger_presence() {
             "trg_training_jobs_adapter_tenant_match_update_tenant",
             "repository_training_jobs",
             &["adapters", "new.adapter_id", "new.tenant_id", "raise(abort"],
+        ),
+        // Migration 0302: Training jobs base_model tenant match
+        (
+            "trg_training_jobs_base_model_tenant_match_insert",
+            "repository_training_jobs",
+            &[
+                "models",
+                "new.base_model_id",
+                "new.tenant_id",
+                "raise(abort",
+            ],
+        ),
+        (
+            "trg_training_jobs_base_model_tenant_match_update_base_model",
+            "repository_training_jobs",
+            &[
+                "models",
+                "new.base_model_id",
+                "new.tenant_id",
+                "raise(abort",
+            ],
+        ),
+        (
+            "trg_training_jobs_base_model_tenant_match_update_tenant",
+            "repository_training_jobs",
+            &[
+                "models",
+                "new.base_model_id",
+                "new.tenant_id",
+                "raise(abort",
+            ],
         ),
         // Migration 0226: Base model tenant guards (covered in extended tests but included for completeness)
         (
@@ -1246,6 +1301,135 @@ async fn test_training_jobs_adapter_same_tenant_insert_allowed() {
         "Training job with same-tenant adapter should succeed: {:?}",
         result.err()
     );
+}
+
+#[tokio::test]
+async fn test_training_jobs_base_model_cross_tenant_insert_rejected() {
+    let db = new_test_db().await;
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    let dataset_a = create_test_dataset(&db, &tenant_a, "Dataset A").await;
+    let model_b = create_test_model(&db, &tenant_b, "Model B").await;
+
+    let job_id = format!("job-{}", uuid::Uuid::new_v4());
+    let repo_id = format!("repo-{}", uuid::Uuid::new_v4());
+
+    sqlx::query(
+        "INSERT INTO adapter_repositories (id, tenant_id, name, default_branch) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&repo_id)
+    .bind(&tenant_a)
+    .bind("Test Repo Base Model Cross Tenant")
+    .bind("main")
+    .execute(db.pool_result().unwrap())
+    .await
+    .expect("create repo");
+
+    let git_id = format!("git-{}", uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT OR IGNORE INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&git_id)
+    .bind(&repo_id)
+    .bind("var/test/repo-base-model-cross")
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind("active")
+    .bind("test-user")
+    .execute(db.pool_result().unwrap())
+    .await
+    .expect("create git repo");
+
+    let result = sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, tenant_id, dataset_id, base_model_id, status, training_config_json, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&job_id)
+    .bind(&repo_id)
+    .bind(&tenant_a)
+    .bind(&dataset_a)
+    .bind(&model_b)
+    .bind("pending")
+    .bind("{}")
+    .bind("{}")
+    .bind("test-user")
+    .execute(db.pool_result().unwrap())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Training job with cross-tenant base_model_id should be rejected"
+    );
+}
+
+#[tokio::test]
+async fn test_training_jobs_base_model_same_tenant_and_system_allowed() {
+    let db = new_test_db().await;
+    let (tenant_a, _) = setup_tenants(&db).await;
+
+    let dataset_a = create_test_dataset(&db, &tenant_a, "Dataset A").await;
+    let model_a = create_test_model(&db, &tenant_a, "Model A").await;
+    let system_model = create_test_model(&db, "system", "System Model").await;
+
+    for (suffix, model_id) in [("same-tenant", model_a), ("system", system_model)] {
+        let job_id = format!("job-{}-{}", suffix, uuid::Uuid::new_v4());
+        let repo_id = format!("repo-{}-{}", suffix, uuid::Uuid::new_v4());
+        let git_id = format!("git-{}-{}", suffix, uuid::Uuid::new_v4());
+
+        sqlx::query(
+            "INSERT INTO adapter_repositories (id, tenant_id, name, default_branch) VALUES (?, ?, ?, ?)",
+        )
+        .bind(&repo_id)
+        .bind(&tenant_a)
+        .bind(format!("Test Repo Base Model {}", suffix))
+        .bind("main")
+        .execute(db.pool_result().unwrap())
+        .await
+        .expect("create repo");
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&git_id)
+        .bind(&repo_id)
+        .bind(format!("var/test/repo-base-model-{}", suffix))
+        .bind("main")
+        .bind("{}")
+        .bind("{}")
+        .bind("{}")
+        .bind("active")
+        .bind("test-user")
+        .execute(db.pool_result().unwrap())
+        .await
+        .expect("create git repo");
+
+        let result = sqlx::query(
+            "INSERT INTO repository_training_jobs (id, repo_id, tenant_id, dataset_id, base_model_id, status, training_config_json, progress_json, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&job_id)
+        .bind(&repo_id)
+        .bind(&tenant_a)
+        .bind(&dataset_a)
+        .bind(&model_id)
+        .bind("pending")
+        .bind("{}")
+        .bind("{}")
+        .bind("test-user")
+        .execute(db.pool_result().unwrap())
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "Training job with {} base_model_id should succeed: {:?}",
+            suffix,
+            result.err()
+        );
+    }
 }
 
 // ============================================================================
