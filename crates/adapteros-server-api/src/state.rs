@@ -35,7 +35,7 @@ use crate::handlers::chunked_upload::UploadSessionManager;
 use crate::idempotency::IdempotencyStore;
 use crate::pause_tracker::ServerPauseTracker;
 use crate::rate_limit::{RateLimiterConfig, RateLimiterState};
-use crate::sse::SseEventManager;
+use crate::sse::{MemoryEvictionEvent, SseEventManager};
 use crate::telemetry::{MetricsRegistry, TelemetryBuffer, TelemetrySender, TraceBuffer};
 use adapteros_model_hub::registry::Registry;
 
@@ -1104,6 +1104,8 @@ pub struct AppState {
     pub registry: Option<Arc<Registry>>,
     // Dataset progress SSE channel
     pub dataset_progress_tx: Option<Arc<broadcast::Sender<DatasetProgressEvent>>>,
+    // Memory eviction SSE channel
+    pub memory_eviction_tx: Arc<broadcast::Sender<MemoryEvictionEvent>>,
     // Session progress SSE channel
     pub session_progress_tx: Option<Arc<broadcast::Sender<SessionProgressEvent>>>,
     // Signal broadcast channels for SSE streaming
@@ -1205,6 +1207,7 @@ impl AppState {
         let (training_signal_tx, _) = broadcast::channel(1000);
         let (discovery_signal_tx, _) = broadcast::channel(1000);
         let (contact_signal_tx, _) = broadcast::channel(1000);
+        let (memory_eviction_tx, _) = broadcast::channel(200);
 
         // Create telemetry broadcast channel
         let (telemetry_tx, _) = broadcast::channel(1000);
@@ -1347,6 +1350,7 @@ impl AppState {
             telemetry_tx,
             registry: None,
             dataset_progress_tx: None,
+            memory_eviction_tx: Arc::new(memory_eviction_tx),
             session_progress_tx: None,
             training_signal_tx: Arc::new(training_signal_tx),
             discovery_signal_tx: Arc::new(discovery_signal_tx),

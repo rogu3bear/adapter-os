@@ -476,9 +476,6 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         request.max_tokens
     );
 
-    // Lock worker
-    let mut worker = state.worker.lock().await;
-
     // Create Worker InferenceRequest
     let cpid = crate::id_generator::readable_request_id();
     let inference_req = adapteros_lora_worker::InferenceRequest {
@@ -526,8 +523,9 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         session_id: None,
     };
 
-    // Run inference
-    let worker_response = worker.infer(inference_req).await?;
+    // Run inference through central UDS client helper
+    let worker_response =
+        crate::uds_client::infer_with_worker_mutex(&state.worker, inference_req).await?;
 
     // Extract text or handle refusal
     let output_text = if let Some(text) = worker_response.text {

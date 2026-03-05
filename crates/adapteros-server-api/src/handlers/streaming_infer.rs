@@ -80,7 +80,7 @@ async fn preload_adapters_for_inference(
             ApiError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "WORKER_UNAVAILABLE",
-                &format!("No worker available for adapter preload: {}", e),
+                format!("No worker available for adapter preload: {}", e),
             )
         })?;
 
@@ -88,6 +88,8 @@ async fn preload_adapters_for_inference(
     let uds_client = UdsClient::new(Duration::from_secs(30));
 
     for adapter_id in adapter_ids {
+        // Evicted adapters reload transparently: each inference request issues
+        // an explicit preload before streaming starts.
         let preload_cmd = adapteros_lora_worker::AdapterCommand::Preload {
             adapter_id: adapter_id.clone(),
             hash: adapteros_core::B3Hash::default(),
@@ -111,7 +113,7 @@ async fn preload_adapters_for_inference(
                 return Err(ApiError::new(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "ADAPTER_PRELOAD_FAILED",
-                    &format!("Failed to preload adapter {}: {}", adapter_id, e),
+                    format!("Failed to preload adapter {}: {}", adapter_id, e),
                 ));
             }
         }

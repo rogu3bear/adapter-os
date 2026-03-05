@@ -206,6 +206,10 @@ impl RefetchAction {
                 self.workers();
                 self.health();
             }
+            SystemHealthTransitionEvent::AdapterEvicted { .. } => {
+                self.models();
+                self.health();
+            }
         }
     }
 }

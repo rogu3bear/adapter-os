@@ -193,6 +193,7 @@ impl TestAppStateBuilder {
             datasets_root: "var/datasets".to_string(),
             documents_root: "var/documents".to_string(),
             synthesis_model_path: None,
+            training_worker_bin: None,
         };
 
         let mut api_config_inner = ApiConfig::default();

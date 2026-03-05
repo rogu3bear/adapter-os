@@ -74,6 +74,7 @@ impl ApiTestHarness {
             datasets_root: "var/datasets".to_string(),
             documents_root: "var/documents".to_string(),
             synthesis_model_path: None,
+            training_worker_bin: None,
         };
 
         let dev_bypass_enabled = dev_no_auth_enabled();

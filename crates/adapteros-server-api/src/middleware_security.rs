@@ -38,6 +38,17 @@ enum RouteTier {
     Protected,
 }
 
+impl RouteTier {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Health => "health",
+            Self::Public => "public",
+            Self::Internal => "internal",
+            Self::Protected => "protected",
+        }
+    }
+}
+
 /// Classify a request path into a route tier
 fn route_tier(path: &str) -> RouteTier {
     if path.starts_with("/healthz") || path.starts_with("/readyz") || path.starts_with("/version") {
@@ -231,10 +242,13 @@ pub async fn rate_limiting_middleware(
             // Rate limit exceeded
             let retry_after = result.reset_at;
             tracing::warn!(
+                event = "rate_limit_exceeded",
                 tenant_id = %tenant_id,
-                client_ip = %client_ip,
+                source_ip = %client_ip,
+                endpoint = %req.uri().path(),
+                tier = tier.as_str(),
+                limit_rpm = result.limit,
                 retry_after = %retry_after,
-                path = %req.uri().path(),
                 "Rate limit exceeded"
             );
 
@@ -265,10 +279,11 @@ pub async fn rate_limiting_middleware(
             // Internal error - DENY request (fail closed)
             // Security: Rate limiting must fail closed to prevent bypass via induced errors
             tracing::error!(
+                event = "rate_limit_check_failed",
                 error = %e,
                 tenant_id = %tenant_id,
-                client_ip = %client_ip,
-                path = %req.uri().path(),
+                source_ip = %client_ip,
+                endpoint = %req.uri().path(),
                 "Rate limiting check failed, denying request (fail-closed)"
             );
 
@@ -308,11 +323,13 @@ pub async fn request_size_limit_middleware(
                     .get::<crate::ip_extraction::ClientIp>()
                     .map(|c| c.0.as_str().to_owned());
                 tracing::warn!(
+                    event = "input_validation_failure",
+                    reason = "request_size_exceeded",
                     method = %req.method(),
+                    source_ip = ?ip,
+                    endpoint = %req.uri().path(),
                     content_length = %size,
                     max_size = %max_size,
-                    path = %req.uri().path(),
-                    client_ip = ?ip,
                     "Request size limit exceeded"
                 );
                 return Ok(Response::builder()
@@ -335,9 +352,11 @@ pub async fn request_size_limit_middleware(
     for header_name in suspicious_headers {
         if req.headers().contains_key(header_name) {
             tracing::warn!(
+                event = "input_validation_failure",
+                reason = "suspicious_header",
                 header = %header_name,
                 value = ?req.headers().get(header_name),
-                path = %req.uri().path(),
+                endpoint = %req.uri().path(),
                 "Suspicious header detected"
             );
             // Log but don't block - might be legitimate proxy usage

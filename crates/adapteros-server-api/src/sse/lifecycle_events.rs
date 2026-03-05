@@ -82,6 +82,25 @@ pub enum SystemHealthEvent {
         worker_id: String,
         previous_status: String,
     },
+    /// Adapter was evicted from memory pressure or explicit unload.
+    AdapterEvicted {
+        adapter_id: String,
+        adapter_name: String,
+        reason: String,
+        #[serde(default)]
+        freed_mb: u32,
+    },
+}
+
+/// Internal memory eviction signal used by server components before SSE fan-out.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEvictionEvent {
+    pub tenant_id: String,
+    pub adapter_id: String,
+    pub adapter_name: String,
+    pub reason: String,
+    #[serde(default)]
+    pub freed_mb: u32,
 }
 
 /// Adapter version lifecycle events emitted on [`SseStreamType::AdapterState`].

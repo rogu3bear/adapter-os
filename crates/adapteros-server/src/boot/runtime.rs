@@ -310,6 +310,10 @@ pub async fn initialize_runtime(
                 requests_per_minute: 0,
                 burst_size: 0,
                 inference_per_minute: 0,
+                health_rpm: None,
+                public_rpm: None,
+                internal_rpm: None,
+                protected_rpm: None,
             },
             metrics: adapteros_server_api::config::MetricsConfig {
                 enabled: false,
@@ -443,6 +447,10 @@ pub async fn initialize_runtime(
                     requests_per_minute: cfg.rate_limits.requests_per_minute,
                     burst_size: cfg.rate_limits.burst_size,
                     inference_per_minute: cfg.rate_limits.inference_per_minute,
+                    health_rpm: cfg.rate_limits.health_rpm,
+                    public_rpm: cfg.rate_limits.public_rpm,
+                    internal_rpm: cfg.rate_limits.internal_rpm,
+                    protected_rpm: cfg.rate_limits.protected_rpm,
                 },
                 metrics: adapteros_server_api::config::MetricsConfig {
                     enabled: cfg.metrics.enabled,

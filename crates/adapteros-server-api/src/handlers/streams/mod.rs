@@ -14,7 +14,10 @@ use crate::handlers::workers::is_terminal_worker_status;
 use crate::pause_tracker::{PausedInferenceInfo as ServerPausedInfo, ServerPauseTracker};
 use crate::permissions::{require_permission, Permission};
 use crate::security::check_tenant_access;
-use crate::sse::{EventGapRecoveryHint, SseErrorEvent, SseEvent, SseEventManager, SseStreamType};
+use crate::sse::{
+    EventGapRecoveryHint, SseErrorEvent, SseEvent, SseEventManager, SseStreamType,
+    SystemHealthEvent,
+};
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_api_types::review::{ListPausedResponse, PausedInferenceInfo as ApiPausedInfo};
@@ -1647,80 +1650,137 @@ pub async fn alerts_stream(
     // Create replay stream
     let replay_stream = stream::iter(replay_events);
 
+    let eviction_rx = state.memory_eviction_tx.subscribe();
     let live_stream = stream::unfold(
-        (state.clone(), tenant_id),
-        move |(state, tenant_id)| async move {
+        (state.clone(), tenant_id, eviction_rx),
+        move |(state, tenant_id, mut eviction_rx)| async move {
             let mgr = state.sse_manager.clone();
 
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            loop {
+                tokio::select! {
+                    biased;
+                    eviction = eviction_rx.recv() => {
+                        match eviction {
+                            Ok(eviction) => {
+                                if eviction.tenant_id != tenant_id {
+                                    continue;
+                                }
 
-            // Fetch recent alerts
-            let filters = adapteros_system_metrics::AlertFilters {
-                tenant_id: Some(tenant_id.clone()),
-                worker_id: None,
-                status: None,
-                severity: None,
-                start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(5)),
-                end_time: None,
-                limit: Some(50),
-                offset: None,
-            };
+                                let payload = SystemHealthEvent::AdapterEvicted {
+                                    adapter_id: eviction.adapter_id,
+                                    adapter_name: eviction.adapter_name,
+                                    reason: eviction.reason,
+                                    freed_mb: eviction.freed_mb,
+                                };
+                                let payload_json = match serde_json::to_string(&payload) {
+                                    Ok(value) => value,
+                                    Err(error) => {
+                                        tracing::warn!(
+                                            tenant_id = %tenant_id,
+                                            error = %error,
+                                            "Failed to serialize memory eviction SSE payload"
+                                        );
+                                        let event = mgr
+                                            .create_error_event(SseStreamType::Alerts, "serialization failed")
+                                            .await;
+                                        return Some((Ok(SseEventManager::to_axum_event(&event)), (state, tenant_id, eviction_rx)));
+                                    }
+                                };
 
-            let alerts = match adapteros_system_metrics::ProcessAlert::list(
-                state.db.pool(),
-                filters,
-            )
-            .await
-            {
-                Ok(alerts) => alerts,
-                Err(e) => {
-                    tracing::warn!("Failed to fetch alerts for SSE: {}", e);
-                    let event = mgr
-                        .create_error_event(SseStreamType::Alerts, &e.to_string())
-                        .await;
-                    return Some((
-                        Ok(SseEventManager::to_axum_event(&event)),
-                        (state, tenant_id),
-                    ));
-                }
-            };
-            let determinism_guard = determinism_guard_stream_status(&state).await;
+                                let envelope_json = match encode_tenant_scoped_envelope(&tenant_id, payload_json.clone()) {
+                                    Ok(value) => value,
+                                    Err(error) => {
+                                        tracing::warn!(
+                                            tenant_id = %tenant_id,
+                                            error = %error,
+                                            "Failed to encode memory eviction stream envelope"
+                                        );
+                                        let event = mgr
+                                            .create_error_event(SseStreamType::Alerts, "serialization failed")
+                                            .await;
+                                        return Some((Ok(SseEventManager::to_axum_event(&event)), (state, tenant_id, eviction_rx)));
+                                    }
+                                };
 
-            let alert_data = serde_json::json!({
-                "tenant_id": tenant_id.clone(),
-                "alerts": alerts.iter().map(|a| adapteros_system_metrics::AlertResponse::from(a.clone())).collect::<Vec<_>>(),
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-                "count": alerts.len(),
-                "determinism_guard": determinism_guard
-            });
-            let payload_json = alert_data.to_string();
-            let envelope_json =
-                match encode_tenant_scoped_envelope(&tenant_id, payload_json.clone()) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        tracing::warn!(
-                            tenant_id = %tenant_id,
-                            error = %error,
-                            "Failed to serialize alerts stream envelope"
-                        );
-                        let event = mgr
-                            .create_error_event(SseStreamType::Alerts, "serialization failed")
-                            .await;
-                        return Some((
-                            Ok(SseEventManager::to_axum_event(&event)),
-                            (state, tenant_id),
-                        ));
+                                let event = mgr
+                                    .create_event(SseStreamType::Alerts, "alerts", envelope_json)
+                                    .await;
+
+                                return Some((Ok(to_axum_event_with_payload(&event, payload_json)), (state, tenant_id, eviction_rx)));
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                                tracing::warn!(lagged_count = count, "Memory eviction SSE receiver lagged");
+                                continue;
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                tracing::warn!("Memory eviction channel closed; re-subscribing alerts stream");
+                                eviction_rx = state.memory_eviction_tx.subscribe();
+                                continue;
+                            }
+                        }
                     }
-                };
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {
+                        // Fetch recent alerts
+                        let filters = adapteros_system_metrics::AlertFilters {
+                            tenant_id: Some(tenant_id.clone()),
+                            worker_id: None,
+                            status: None,
+                            severity: None,
+                            start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(5)),
+                            end_time: None,
+                            limit: Some(50),
+                            offset: None,
+                        };
 
-            let event = mgr
-                .create_event(SseStreamType::Alerts, "alerts", envelope_json)
-                .await;
+                        let alerts = match adapteros_system_metrics::ProcessAlert::list(
+                            state.db.pool(),
+                            filters,
+                        )
+                        .await
+                        {
+                            Ok(alerts) => alerts,
+                            Err(e) => {
+                                tracing::warn!("Failed to fetch alerts for SSE: {}", e);
+                                let event = mgr
+                                    .create_error_event(SseStreamType::Alerts, &e.to_string())
+                                    .await;
+                                return Some((Ok(SseEventManager::to_axum_event(&event)), (state, tenant_id, eviction_rx)));
+                            }
+                        };
+                        let determinism_guard = determinism_guard_stream_status(&state).await;
 
-            Some((
-                Ok(to_axum_event_with_payload(&event, payload_json)),
-                (state, tenant_id),
-            ))
+                        let alert_data = serde_json::json!({
+                            "tenant_id": tenant_id.clone(),
+                            "alerts": alerts.iter().map(|a| adapteros_system_metrics::AlertResponse::from(a.clone())).collect::<Vec<_>>(),
+                            "timestamp": chrono::Utc::now().to_rfc3339(),
+                            "count": alerts.len(),
+                            "determinism_guard": determinism_guard
+                        });
+                        let payload_json = alert_data.to_string();
+                        let envelope_json =
+                            match encode_tenant_scoped_envelope(&tenant_id, payload_json.clone()) {
+                                Ok(value) => value,
+                                Err(error) => {
+                                    tracing::warn!(
+                                        tenant_id = %tenant_id,
+                                        error = %error,
+                                        "Failed to serialize alerts stream envelope"
+                                    );
+                                    let event = mgr
+                                        .create_error_event(SseStreamType::Alerts, "serialization failed")
+                                        .await;
+                                    return Some((Ok(SseEventManager::to_axum_event(&event)), (state, tenant_id, eviction_rx)));
+                                }
+                            };
+
+                        let event = mgr
+                            .create_event(SseStreamType::Alerts, "alerts", envelope_json)
+                            .await;
+
+                        return Some((Ok(to_axum_event_with_payload(&event, payload_json)), (state, tenant_id, eviction_rx)));
+                    }
+                }
+            }
         },
     );
 

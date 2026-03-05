@@ -38,6 +38,8 @@ async fn setup_test_env() -> anyhow::Result<(AppState, Claims)> {
             plan_dir: "var/plan".to_string(),
             datasets_root: "var/datasets".to_string(),
             documents_root: "var/documents".to_string(),
+            synthesis_model_path: None,
+            training_worker_bin: None,
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,

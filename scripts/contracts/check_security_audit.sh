@@ -110,6 +110,25 @@ else
   fail "RouteTier enum not found in middleware_security.rs"
 fi
 
+if rg -q 'event = "rate_limit_exceeded"' "$MIDDLEWARE_SECURITY"; then
+  pass "Structured rate limit exceeded audit logging is present"
+else
+  fail "Structured rate limit exceeded logging (event = \"rate_limit_exceeded\") missing"
+fi
+
+MIDDLEWARE_AUTH="$ROOT_DIR/crates/adapteros-server-api/src/middleware/mod.rs"
+if rg -q 'event = "auth_failure"' "$MIDDLEWARE_AUTH"; then
+  pass "Structured auth failure audit logging is present"
+else
+  fail "Structured auth failure logging (event = \"auth_failure\") missing"
+fi
+
+if rg -q 'event = "input_validation_failure"' "$MIDDLEWARE_SECURITY"; then
+  pass "Structured input validation failure logging is present"
+else
+  warn "Structured input validation failure logging not found"
+fi
+
 # ---------------------------------------------------------------------------
 # CHECK D: Input validation (typed request bodies)
 # ---------------------------------------------------------------------------
@@ -154,6 +173,52 @@ if [[ "$exempt_entries" -le 5 ]]; then
   pass "Rate limit exempt list is narrow ($exempt_entries entries)"
 else
   warn "Rate limit exempt list may be too broad ($exempt_entries entries)"
+fi
+
+# ---------------------------------------------------------------------------
+# CHECK H: var/models permission hardening (if present)
+# ---------------------------------------------------------------------------
+MODELS_DIR="$ROOT_DIR/var/models"
+if [[ -d "$MODELS_DIR" ]]; then
+  stat_mode() {
+    local target="$1"
+    stat -f "%Lp" "$target" 2>/dev/null || stat -c "%a" "$target" 2>/dev/null || echo "unknown"
+  }
+
+  root_mode=$(stat_mode "$MODELS_DIR")
+  if [[ "$root_mode" == "700" ]]; then
+    pass "var/models root directory permissions are 0700"
+  else
+    fail "var/models root permissions must be 0700 (found: $root_mode)"
+  fi
+
+  bad_dir_count=0
+  while IFS= read -r -d '' dir; do
+    mode=$(stat_mode "$dir")
+    if [[ "$mode" != "700" ]]; then
+      bad_dir_count=$((bad_dir_count + 1))
+    fi
+  done < <(find "$MODELS_DIR" -type d -print0)
+  if [[ "$bad_dir_count" -eq 0 ]]; then
+    pass "All model directories use 0700 permissions"
+  else
+    fail "Found $bad_dir_count model directories without 0700 permissions"
+  fi
+
+  bad_file_count=0
+  while IFS= read -r -d '' file; do
+    mode=$(stat_mode "$file")
+    if [[ "$mode" != "600" ]]; then
+      bad_file_count=$((bad_file_count + 1))
+    fi
+  done < <(find "$MODELS_DIR" -type f -print0)
+  if [[ "$bad_file_count" -eq 0 ]]; then
+    pass "All model files use 0600 permissions"
+  else
+    fail "Found $bad_file_count model files without 0600 permissions"
+  fi
+else
+  warn "var/models not present; skipping permission checks"
 fi
 
 # ---------------------------------------------------------------------------

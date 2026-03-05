@@ -91,8 +91,7 @@ impl SupervisionState {
     ///
     /// Writes to a `.tmp` sibling and renames for crash safety.
     pub fn write_atomic(&self, path: &Path) -> std::io::Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         let tmp = path.with_extension("tmp");
         std::fs::write(&tmp, json)?;
         std::fs::rename(&tmp, path)?;

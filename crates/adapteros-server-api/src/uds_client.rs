@@ -10,7 +10,11 @@
 
 use adapteros_core::{CircuitBreaker, CircuitBreakerConfig, StandardCircuitBreaker};
 use adapteros_inference_contract::{UDS_INFER_CANCEL_PREFIX, UDS_INFER_PATH};
-use adapteros_lora_worker::{AdapterCommand, AdapterCommandResult};
+use adapteros_lora_kernel_api::FusedKernels;
+use adapteros_lora_worker::{
+    AdapterCommand, AdapterCommandResult, InferenceRequest, InferenceResponse, StrictnessControl,
+    Worker,
+};
 use serde::Deserialize;
 use serde_json;
 use std::path::Path;
@@ -103,6 +107,20 @@ pub async fn infer_with_routing_context(
     let client = UdsClient::new(timeout);
     run_with_routing_context(client.infer(uds_path, request, authorization, cancellation_token))
         .await
+}
+
+/// Execute worker inference behind a centralized helper.
+///
+/// This keeps direct `.infer(...)` usage scoped to the UDS client module so
+/// call sites can be policy-audited in one place.
+pub async fn infer_with_worker_mutex<
+    K: FusedKernels + StrictnessControl + Send + Sync + 'static,
+>(
+    worker: &Arc<tokio::sync::Mutex<Worker<K>>>,
+    request: InferenceRequest,
+) -> adapteros_core::Result<InferenceResponse> {
+    let mut guard = worker.lock().await;
+    guard.infer(request).await
 }
 
 /// Error types for UDS client operations
