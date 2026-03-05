@@ -213,7 +213,7 @@ Plans:
 | 51. Adapter Inference End-to-End Activation         | 3/3 | Complete    | 2026-03-05 |
 | 52. Full Portability                                | 0/3            | Planned  |            |
 | 53. UI Harmony and Visual Polish                    | 0/3            | Planned  |            |
-| 54. Performance and Security Hardening              | 0/0            | Pending  |            |
+| 54. Performance and Security Hardening              | 0/3            | Planned  |            |
 
 ### Phase 51: Adapter Inference End-to-End Activation
 
@@ -277,6 +277,13 @@ Plans:
 **Goal**: Exceed expectations on speed and security: optimize inference latency, minimize memory footprint, harden all attack surfaces, and make the system feel instant and bulletproof.
 **Depends on**: Phase 51
 **Requirements**: PERF-54-01, PERF-54-02, SEC-54-01, SEC-54-02
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md -- UMA ceiling config, boot warmup, and inference benchmark suite
+- [ ] 54-02-PLAN.md -- Per-tier rate limits, security audit script, and secret exposure scanner
+- [ ] 54-03-PLAN.md -- Eviction notification pipeline (SSE + UI toast), model weight protection, security audit trail
+
 **Success Criteria**:
 
 1. Inference latency meets or beats comparable local LoRA tools (time-to-first-token, throughput).
