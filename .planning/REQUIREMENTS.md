@@ -18,6 +18,13 @@ Milestone focus: stabilize runtime — fix training worker spawn, clean stale st
 - [x] **RTH-02**: Training worker degraded marker is cleared when worker successfully starts
 - [x] **RTH-03**: Backend restart counter reflects actual crash count, not dev-rebuild kickstarts
 
+### Adapter Inference Activation
+
+- [ ] **INF-51-01**: Adapter hot-swap during inference completes without crash or hang
+- [ ] **INF-51-02**: Inference output with adapter loaded differs measurably from base model output
+- [ ] **TRN-51-01**: Training pipeline produces an adapter that loads and influences inference
+- [ ] **TRN-51-02**: Round-trip: train adapter → load adapter → infer with adapter produces coherent output
+
 ### Tree Commit
 
 - [ ] **GIT-01**: All modified files committed in logical, atomic commits
@@ -97,6 +104,10 @@ Milestone focus: stabilize runtime — fix training worker spawn, clean stale st
 | RTH-01 | Phase 50 | Complete |
 | RTH-02 | Phase 50 | Complete |
 | RTH-03 | Phase 50 | Complete |
+| INF-51-01 | Phase 51 | Pending |
+| INF-51-02 | Phase 51 | Pending |
+| TRN-51-01 | Phase 51 | Pending |
+| TRN-51-02 | Phase 51 | Pending |
 | GIT-01 | Phase 48 | Pending |
 | GIT-02 | Phase 48 | Pending |
 | REL-47-01 | Phase 47 | Complete |
@@ -114,8 +125,8 @@ Milestone focus: stabilize runtime — fix training worker spawn, clean stale st
 | DOC-41-01 | Phase 45 | Complete |
 
 **Coverage:**
-- v1.1.18 requirements: 7 total
-- Mapped to phases: 7
+- v1.1.18 requirements: 11 total
+- Mapped to phases: 11
 - Unmapped: 0
 
 ---
