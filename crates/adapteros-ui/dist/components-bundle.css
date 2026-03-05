@@ -4716,9 +4716,9 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--glass-bg-1, var(--color-background));
-  backdrop-filter: blur(var(--glass-blur-1, 9.6px));
-  -webkit-backdrop-filter: blur(var(--glass-blur-1, 9.6px));
+  background: var(--glass-bg-2, var(--color-background));
+  backdrop-filter: blur(var(--glass-blur-2, 12px));
+  -webkit-backdrop-filter: blur(var(--glass-blur-2, 12px));
   flex-shrink: 0;
   overflow: hidden;
   transition: width var(--duration-normal) var(--ease-default);
