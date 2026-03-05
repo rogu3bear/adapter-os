@@ -10,8 +10,8 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 ## Position
 
 **Milestone:** v1.1.18 System Stabilization (active)
-**Current phase:** Phase 50 — Runtime State Hygiene (complete)
-**Status:** Phase 50 complete (2 plans executed)
+**Current phase:** Phases 49 & 50 complete — next up Phase 51
+**Status:** Phases 49 (training worker spawn) and 50 (runtime state hygiene) complete
 
 ## Session Log
 
@@ -22,6 +22,7 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - 2026-03-04: Phase 52 added: Full Portability — cross-platform builds, relocatable paths, environment-independent config.
 - 2026-03-04: Phase 53 added: UI Harmony and Visual Polish — strip bloat, Liquid Glass consistency, Apple-themed minimalism.
 - 2026-03-04: Phase 54 added: Performance and Security Hardening — speed optimization, memory budget, attack surface hardening.
+- 2026-03-05: Phase 49 complete: binary resolution fix (5-tier priority, never bare PATH), preflight boot gate, circuit breaker (3/5min), crash job cleanup.
 - 2026-03-05: Phase 50 complete: runtime_cleanup module (stale socket probing, marker removal) + supervision_state module (JSON format, crash-vs-rebuild detection) + shell script migration.
 
 ## Decisions

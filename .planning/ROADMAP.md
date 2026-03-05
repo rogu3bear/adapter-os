@@ -50,7 +50,7 @@ Closed the training execution gap by enforcing worker/preflight readiness before
 - [ ] **Phase 48: Commit Dirty Tree** - Commit the 84-file accumulated diff in logical atomic commits to establish a clean baseline. (v1.1.18)
 - [x] **Phase 49: Training Worker Spawn Fix** - Fix binary PATH resolution so training worker spawns successfully on backend boot. (v1.1.18) (completed 2026-03-05)
 - [x] **Phase 50: Runtime State Hygiene** - Clean stale sockets, degraded markers, and restart counters on boot. (v1.1.18) (completed 2026-03-05)
-- [ ] **Phase 51: Adapter Inference End-to-End Activation** - Make adapters functional: hot-swap inference, measurable adapter influence, trainable adapters. (v1.1.18)
+- [x] **Phase 51: Adapter Inference End-to-End Activation** - Make adapters functional: hot-swap inference, measurable adapter influence, trainable adapters. (v1.1.18) (completed 2026-03-05)
 - [ ] **Phase 52: Full Portability** - Cross-platform builds, relocatable paths, environment-independent config. (v1.1.18)
 - [ ] **Phase 53: UI Harmony and Visual Polish** - Strip bloat, unify Liquid Glass visual language, Apple-themed minimalism. (v1.1.18)
 - [ ] **Phase 54: Performance and Security Hardening** - Optimize speed, minimize memory, harden attack surfaces. (v1.1.18)
@@ -210,7 +210,7 @@ Plans:
 | 48. Commit Dirty Tree                              | 1/1            | Complete | 2026-03-04 |
 | 49. Training Worker Spawn Fix                      | 2/2            | Complete | 2026-03-05 |
 | 50. Runtime State Hygiene                           | 2/2 | Complete   | 2026-03-05 |
-| 51. Adapter Inference End-to-End Activation         | 0/3            | Planned  |            |
+| 51. Adapter Inference End-to-End Activation         | 3/3 | Complete   | 2026-03-05 |
 | 52. Full Portability                                | 0/0            | Pending  |            |
 | 53. UI Harmony and Visual Polish                    | 0/0            | Pending  |            |
 | 54. Performance and Security Hardening              | 0/0            | Pending  |            |
