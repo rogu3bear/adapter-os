@@ -11,7 +11,8 @@ use crate::components::{
     Badge, BadgeVariant, Button, ButtonType, ButtonVariant, Card, ConfirmationDialog,
     ConfirmationSeverity, Dialog, DialogSize, EmptyState, EmptyStateVariant, ErrorDisplay, Input,
     PageBreadcrumbItem, PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction,
-    RefreshButton, Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    RefreshButton, Select, SkeletonTable, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState, Refetch};
 use crate::utils::{format_bytes, format_datetime, status_display_label, status_display_with_raw};
@@ -126,8 +127,7 @@ pub fn Datasets() -> impl IntoView {
             {move || {
                 match datasets.get() {
                     LoadingState::Idle | LoadingState::Loading => {
-                        view! { <p class="text-sm text-muted-foreground">"Loading datasets..."</p> }
-                            .into_any()
+                        view! { <SkeletonTable rows=5 columns=6 /> }.into_any()
                     }
                     LoadingState::Error(e) => {
                         view! {
