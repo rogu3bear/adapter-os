@@ -304,6 +304,7 @@ pub async fn initialize_runtime(
                 datasets_root: String::new(),
                 documents_root: String::new(),
                 synthesis_model_path: None,
+                training_worker_bin: None,
             },
             rate_limits: adapteros_server_api::config::RateLimitsConfig {
                 requests_per_minute: 0,
@@ -436,6 +437,7 @@ pub async fn initialize_runtime(
                     datasets_root: cfg.paths.datasets_root.clone(),
                     documents_root: cfg.paths.documents_root.clone(),
                     synthesis_model_path: cfg.paths.synthesis_model_path.clone(),
+                    training_worker_bin: cfg.paths.training_worker_bin.clone(),
                 },
                 rate_limits: adapteros_server_api::config::RateLimitsConfig {
                     requests_per_minute: cfg.rate_limits.requests_per_minute,

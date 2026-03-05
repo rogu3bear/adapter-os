@@ -163,6 +163,9 @@ pub struct PathsConfig {
     /// Path to synthesis model for training data generation
     #[serde(default)]
     pub synthesis_model_path: Option<String>,
+    /// Path to training worker binary. If unset, resolves from sibling directory or target/.
+    #[serde(default)]
+    pub training_worker_bin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

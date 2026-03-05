@@ -116,6 +116,7 @@ pub async fn build_api_config(
                 datasets_root: cfg.paths.datasets_root.clone(),
                 documents_root: cfg.paths.documents_root.clone(),
                 synthesis_model_path: cfg.paths.synthesis_model_path.clone(),
+                training_worker_bin: cfg.paths.training_worker_bin.clone(),
             },
             chat_context: Default::default(),
             seed_mode: SeedMode::default(),

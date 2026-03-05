@@ -391,6 +391,7 @@ pub async fn initialize_database(
                 datasets_root: String::new(),
                 documents_root: String::new(),
                 synthesis_model_path: None,
+                training_worker_bin: None,
             },
             rate_limits: adapteros_server_api::config::RateLimitsConfig {
                 requests_per_minute: 0,
