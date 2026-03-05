@@ -82,6 +82,8 @@ pub struct EffectiveConfig {
     pub model_server: ModelServerSection,
     /// Worker safety configuration (timeouts and resource limits)
     pub worker_safety: WorkerSafetySection,
+    /// UMA memory budget configuration
+    pub uma_memory: UmaMemorySection,
     /// Instance identity (from manifest)
     pub instance: InstanceSection,
     /// Service toggles (from manifest)
@@ -570,6 +572,30 @@ impl Default for WorkerSafetySection {
     }
 }
 
+/// UMA memory budget section configuration
+///
+/// Controls how much unified memory the inference pipeline may consume.
+/// On Apple Silicon, CPU and GPU share the same physical memory pool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UmaMemorySection {
+    /// Maximum percentage of total UMA to use (default: 75)
+    pub ceiling_pct: u8,
+    /// Headroom percentage within ceiling that triggers eviction (default: 15)
+    pub headroom_pct: u8,
+    /// Whether to emit SSE eviction notification events (default: true)
+    pub eviction_notifications: bool,
+}
+
+impl Default for UmaMemorySection {
+    fn default() -> Self {
+        Self {
+            ceiling_pct: 75,
+            headroom_pct: 15,
+            eviction_notifications: true,
+        }
+    }
+}
+
 /// Instance identity section (from manifest [instance])
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceSection {
@@ -669,6 +695,7 @@ impl EffectiveConfig {
         let circuit_breaker = Self::build_circuit_breaker_section(&config);
         let model_server = Self::build_model_server_section(&config);
         let worker_safety = Self::build_worker_safety_section(&config);
+        let uma_memory = Self::build_uma_memory_section(&config);
         let instance = Self::build_instance_section(&config);
         let services = Self::build_services_section(&config);
         let boot = Self::build_boot_section(&config);
@@ -694,6 +721,7 @@ impl EffectiveConfig {
             circuit_breaker,
             model_server,
             worker_safety,
+            uma_memory,
             instance,
             services,
             boot,
@@ -1709,6 +1737,29 @@ impl EffectiveConfig {
         }
     }
 
+    fn build_uma_memory_section(config: &DeterministicConfig) -> UmaMemorySection {
+        let ceiling_pct = config
+            .get("uma_memory.ceiling_pct")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(75);
+
+        let headroom_pct = config
+            .get("uma_memory.headroom_pct")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(15);
+
+        let eviction_notifications = config
+            .get("uma_memory.eviction_notifications")
+            .and_then(|v| parse_bool(v).ok())
+            .unwrap_or(true);
+
+        UmaMemorySection {
+            ceiling_pct,
+            headroom_pct,
+            eviction_notifications,
+        }
+    }
+
     fn build_instance_section(config: &DeterministicConfig) -> InstanceSection {
         InstanceSection {
             name: config
@@ -2412,6 +2463,118 @@ mod tests {
         assert!(
             effective.security.jwt_secret.starts_with("GENERATED-"),
             "Generated JWT secret should have GENERATED- prefix"
+        );
+    }
+
+    /// Validate that EffectiveConfig builds from zero config (no file, no env vars)
+    /// with sensible defaults for all sections.
+    #[test]
+    fn test_all_effective_config_sections_have_defaults() {
+        use crate::precedence::DeterministicConfig;
+
+        let empty = DeterministicConfig::new_for_test(HashMap::new());
+        let effective = EffectiveConfig::from_deterministic(empty)
+            .expect("EffectiveConfig should build from empty config");
+
+        // Server defaults
+        assert_eq!(effective.server.port, 18080, "server.port default");
+        assert_eq!(effective.server.host, "127.0.0.1", "server.host default");
+        assert!(
+            !effective.server.production_mode,
+            "server.production_mode default"
+        );
+
+        // Database defaults
+        assert!(
+            effective.database.url.contains("aos-cp.sqlite3"),
+            "database.url should default to sqlite path, got: {}",
+            effective.database.url
+        );
+        assert!(
+            effective.database.pool_size > 0,
+            "database.pool_size default"
+        );
+
+        // Model defaults
+        assert_eq!(
+            effective.model.backend,
+            BackendKind::Auto,
+            "model.backend default"
+        );
+
+        // Paths defaults -- should use relative var/ paths (not absolute system paths)
+        let var_dir_str = effective.paths.var_dir.to_string_lossy();
+        assert!(
+            var_dir_str.contains("var"),
+            "paths.var_dir should contain 'var', got: {}",
+            var_dir_str
+        );
+        let model_cache = effective.paths.model_cache_dir.to_string_lossy();
+        assert!(
+            model_cache.contains("models"),
+            "paths.model_cache_dir should contain 'models', got: {}",
+            model_cache
+        );
+
+        // Logging defaults
+        assert_eq!(effective.logging.level, "info", "logging.level default");
+
+        // Security defaults -- JWT secret is auto-generated
+        assert!(
+            !effective.security.jwt_secret.is_empty(),
+            "security.jwt_secret should be generated"
+        );
+
+        // Rate limits defaults
+        assert!(
+            effective.rate_limits.requests_per_minute > 0,
+            "rate_limits.requests_per_minute default"
+        );
+
+        // Inference defaults
+        assert_eq!(
+            effective.inference.seed_mode,
+            SeedMode::BestEffort,
+            "inference.seed_mode default"
+        );
+        assert!(
+            (effective.inference.default_temperature - 0.7).abs() < f32::EPSILON,
+            "inference.default_temperature default"
+        );
+
+        // Health defaults
+        assert!(
+            effective.health.adapter.drift_hard_threshold > 0.0,
+            "health.adapter.drift_hard_threshold default"
+        );
+
+        // Worker safety defaults
+        assert!(
+            effective.worker_safety.inference_timeout_secs > 0,
+            "worker_safety.inference_timeout_secs default"
+        );
+
+        // Model server defaults
+        assert!(
+            !effective.model_server.enabled,
+            "model_server.enabled default"
+        );
+        assert!(
+            !effective.model_server.server_addr.is_empty(),
+            "model_server.server_addr default"
+        );
+
+        // Circuit breaker defaults
+        assert!(
+            effective.circuit_breaker.failure_threshold > 0,
+            "circuit_breaker.failure_threshold default"
+        );
+
+        // Auth defaults
+        assert!(!effective.auth.dev_algo.is_empty(), "auth.dev_algo default");
+        assert!(
+            !effective.auth.prod_algo.is_empty(),
+            "auth.prod_algo default"
         );
     }
 }

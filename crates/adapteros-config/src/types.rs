@@ -700,6 +700,8 @@ pub struct LoaderOptions {
     pub env_prefix: String,
     /// Fail if manifest_path is provided but file is missing or unreadable.
     /// When true, explicitly provided config paths are treated as required.
+    /// Boot paths should use `false` for portability — allows fresh clones
+    /// to start with compiled-in defaults and environment variables only.
     pub require_manifest: bool,
     /// Fail on empty/whitespace environment variable overrides in production mode.
     /// When true, empty AOS_* env vars cause an error instead of being silently skipped.
@@ -1136,4 +1138,62 @@ pub fn default_max_cpu_time_secs() -> u64 {
 
 pub fn default_max_consecutive_failures() -> u32 {
     3
+}
+
+// ============================================================================
+// UMA Memory Configuration
+// ============================================================================
+
+/// Configurable UMA (Unified Memory Architecture) memory budget for Apple Silicon.
+///
+/// Controls how much of the system's unified memory the inference pipeline may use.
+/// On Apple Silicon, CPU and GPU share the same physical memory pool, so a ceiling
+/// prevents OOM when multiple adapters are loaded simultaneously.
+///
+/// # Example (cp.toml)
+///
+/// ```toml
+/// [uma_memory]
+/// ceiling_pct = 75
+/// headroom_pct = 15
+/// eviction_notifications = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UmaMemoryConfig {
+    /// Maximum percentage of total UMA to use (default: 75).
+    /// The pressure manager treats `total_uma_bytes * (ceiling_pct / 100)` as
+    /// `max_system_ram` when constructing `MemoryLimits`.
+    #[serde(default = "default_uma_ceiling_pct")]
+    pub ceiling_pct: u8,
+
+    /// Headroom percentage within the ceiling that triggers eviction (default: 15).
+    /// When used memory exceeds `ceiling - headroom`, the pressure manager
+    /// begins evicting low-priority adapters.
+    #[serde(default = "default_uma_headroom_pct")]
+    pub headroom_pct: u8,
+
+    /// Whether to emit SSE eviction notification events to connected clients
+    /// (default: true).
+    #[serde(default = "default_true")]
+    pub eviction_notifications: bool,
+}
+
+impl Default for UmaMemoryConfig {
+    fn default() -> Self {
+        Self {
+            ceiling_pct: default_uma_ceiling_pct(),
+            headroom_pct: default_uma_headroom_pct(),
+            eviction_notifications: true,
+        }
+    }
+}
+
+/// Default UMA ceiling: 75% of total unified memory.
+pub fn default_uma_ceiling_pct() -> u8 {
+    75
+}
+
+/// Default UMA headroom: 15% within the ceiling triggers eviction.
+pub fn default_uma_headroom_pct() -> u8 {
+    15
 }

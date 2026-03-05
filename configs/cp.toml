@@ -173,6 +173,14 @@ capture_panics = true
 compute_preference = "cpu_and_gpu"
 production_mode = false
 
+[uma_memory]
+# UMA (Unified Memory Architecture) budget for Apple Silicon.
+# Controls how much of the system's shared CPU/GPU memory pool the inference
+# pipeline may consume. Prevents OOM when multiple adapters are loaded.
+ceiling_pct = 75
+headroom_pct = 15
+eviction_notifications = true
+
 [model_server]
 # Model Server mode: Workers connect to shared Model Server instead of loading model locally
 # This reduces GPU memory usage by ~65% (one model copy instead of N workers × model)
