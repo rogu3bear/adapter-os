@@ -9,8 +9,8 @@ use crate::api::{
 };
 use crate::components::{
     AlertBanner, Badge, BadgeVariant, BannerVariant, Button, ButtonVariant, Card, Dialog,
-    ErrorDisplay, SimpleConfirmDialog, Spinner, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    ErrorDisplay, SimpleConfirmDialog, SkeletonCard, SkeletonTable, Spinner, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use leptos::prelude::*;
@@ -47,12 +47,7 @@ fn SessionsCard() -> impl IntoView {
             {move || {
                 match sessions.try_get().unwrap_or(LoadingState::Loading) {
                     LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <div class="flex items-center gap-2">
-                                <Spinner/>
-                                <span class="text-sm text-muted-foreground">"Loading sessions\u{2026}"</span>
-                            </div>
-                        }.into_any()
+                        view! { <SkeletonTable rows=3 columns=6 /> }.into_any()
                     }
                     LoadingState::Loaded(data) => {
                         let refetch = refetch;
@@ -303,12 +298,7 @@ fn MfaCard() -> impl IntoView {
             {move || {
                 match mfa_status.try_get().unwrap_or(LoadingState::Loading) {
                     LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <div class="flex items-center gap-2">
-                                <Spinner/>
-                                <span class="text-sm text-muted-foreground">"Checking MFA status\u{2026}"</span>
-                            </div>
-                        }.into_any()
+                        view! { <SkeletonCard has_header=true /> }.into_any()
                     }
                     LoadingState::Loaded(status) => {
                         let refetch = refetch;
