@@ -65,7 +65,7 @@ pub struct DatabaseConfig {
     pub kv_tantivy_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
     #[serde(default = "default_true")]
     pub require_pf_deny: bool,
@@ -129,6 +129,42 @@ pub struct SecurityConfig {
     pub ci_attestation_public_keys: Option<Vec<String>>,
 }
 
+impl std::fmt::Debug for SecurityConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SecurityConfig")
+            .field("require_pf_deny", &self.require_pf_deny)
+            .field("mtls_required", &self.mtls_required)
+            .field("jwt_secret", &"[REDACTED]")
+            .field("jwt_ttl_hours", &self.jwt_ttl_hours)
+            .field("key_provider_mode", &self.key_provider_mode)
+            .field("key_file_path", &self.key_file_path)
+            .field("jwt_issuer", &self.jwt_issuer)
+            .field("jwt_audience", &self.jwt_audience)
+            .field("dev_login_enabled", &self.dev_login_enabled)
+            .field("require_mfa", &self.require_mfa)
+            .field("token_ttl_seconds", &self.token_ttl_seconds)
+            .field("access_token_ttl_seconds", &self.access_token_ttl_seconds)
+            .field("session_ttl_seconds", &self.session_ttl_seconds)
+            .field("jwt_mode", &self.jwt_mode)
+            .field(
+                "jwt_additional_ed25519_public_keys",
+                &self.jwt_additional_ed25519_public_keys,
+            )
+            .field("jwt_additional_hmac_secrets", &"[REDACTED]")
+            .field("cookie_same_site", &self.cookie_same_site)
+            .field("cookie_domain", &self.cookie_domain)
+            .field("cookie_secure", &self.cookie_secure)
+            .field("clock_skew_seconds", &self.clock_skew_seconds)
+            .field("dev_bypass", &self.dev_bypass)
+            .field("allow_registration", &self.allow_registration)
+            .field(
+                "ci_attestation_public_keys",
+                &self.ci_attestation_public_keys,
+            )
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuthConfig {
     /// JWT algorithm to use in development (hs256/hmac)
@@ -173,6 +209,18 @@ pub struct RateLimitsConfig {
     pub requests_per_minute: u32,
     pub burst_size: u32,
     pub inference_per_minute: u32,
+    /// Per-tier RPM override for health routes (None = unlimited, health probes bypass middleware)
+    #[serde(default)]
+    pub health_rpm: Option<u32>,
+    /// Per-tier RPM override for public routes (/v1/auth/, /v1/status, /metrics)
+    #[serde(default)]
+    pub public_rpm: Option<u32>,
+    /// Per-tier RPM override for internal routes (/v1/workers/*)
+    #[serde(default)]
+    pub internal_rpm: Option<u32>,
+    /// Per-tier RPM override for protected routes (everything else, full middleware chain)
+    #[serde(default)]
+    pub protected_rpm: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

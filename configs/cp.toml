@@ -118,6 +118,11 @@ burst_size = 60
 # Raised from 50→150: inference is the hot path; 150 rpm avoids unnecessary 429s
 # while the circuit breaker still protects the GPU from overload.
 inference_per_minute = 150
+# Per-tier RPM overrides (omit or comment out to use requests_per_minute as default)
+# health_rpm =          # health routes bypass rate limiting entirely
+public_rpm = 600        # /v1/auth/login, /v1/status, /metrics
+internal_rpm = 1000     # /v1/workers/register, /v1/workers/heartbeat
+protected_rpm = 300     # all protected routes (full middleware chain)
 
 [capacity_limits]
 # Maximum concurrent training jobs (default: 5)

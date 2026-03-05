@@ -220,12 +220,20 @@ pub struct LoggingSection {
 /// Rate limits section configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitsSection {
-    /// Requests per minute limit
+    /// Requests per minute limit (default for unspecified tiers)
     pub requests_per_minute: u32,
     /// Burst size for rate limiting
     pub burst_size: u32,
     /// Inference requests per minute
     pub inference_per_minute: u32,
+    /// Per-tier RPM override for health routes (None = unlimited)
+    pub health_rpm: Option<u32>,
+    /// Per-tier RPM override for public routes
+    pub public_rpm: Option<u32>,
+    /// Per-tier RPM override for internal routes
+    pub internal_rpm: Option<u32>,
+    /// Per-tier RPM override for protected routes
+    pub protected_rpm: Option<u32>,
 }
 
 /// Metrics section configuration
@@ -1234,6 +1242,18 @@ impl EffectiveConfig {
                 .get("rate.limits.inference.per.minute")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(60),
+            health_rpm: config
+                .get("rate.limits.health.rpm")
+                .and_then(|v| v.parse().ok()),
+            public_rpm: config
+                .get("rate.limits.public.rpm")
+                .and_then(|v| v.parse().ok()),
+            internal_rpm: config
+                .get("rate.limits.internal.rpm")
+                .and_then(|v| v.parse().ok()),
+            protected_rpm: config
+                .get("rate.limits.protected.rpm")
+                .and_then(|v| v.parse().ok()),
         }
     }
 

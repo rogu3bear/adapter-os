@@ -44,14 +44,23 @@ pub struct RateLimitResult {
 /// or allowed=false if rate limit exceeded.
 ///
 /// Rate limits are read from EffectiveConfig if available, with safe defaults.
-pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResult> {
+/// An optional `tier_rpm_override` allows per-tier rate limits to take precedence
+/// over the global `requests_per_minute`.
+pub async fn check_rate_limit(
+    db: &Db,
+    tenant_id: &str,
+    tier_rpm_override: Option<u32>,
+) -> Result<RateLimitResult> {
     let now = Utc::now();
     let window_size = 60; // 60 seconds (1 minute)
 
-    // Read rate limit from config, with safe default
-    let default_max = try_effective_config()
-        .map(|cfg| cfg.rate_limits.requests_per_minute as i64)
-        .unwrap_or(100); // Safe default: 100 rpm (not 1000)
+    // Read rate limit from config, with safe default.
+    // Per-tier override takes precedence over global default.
+    let default_max = tier_rpm_override.map(|rpm| rpm as i64).unwrap_or_else(|| {
+        try_effective_config()
+            .map(|cfg| cfg.rate_limits.requests_per_minute as i64)
+            .unwrap_or(100) // Safe default: 100 rpm (not 1000)
+    });
 
     // Get or create bucket
     let bucket = sqlx::query_as::<_, RateLimitBucket>(
@@ -278,7 +287,7 @@ mod tests {
         init_test_schema(&db).await;
 
         // First request should succeed
-        let result = check_rate_limit(&db, "tenant-a")
+        let result = check_rate_limit(&db, "tenant-a", None)
             .await
             .expect("Failed to check rate limit");
         assert!(result.allowed);
@@ -298,18 +307,18 @@ mod tests {
             .expect("Failed to update rate limit");
 
         // First two requests succeed
-        let r1 = check_rate_limit(&db, "tenant-b")
+        let r1 = check_rate_limit(&db, "tenant-b", None)
             .await
             .expect("Failed to check rate limit r1");
         assert!(r1.allowed);
 
-        let r2 = check_rate_limit(&db, "tenant-b")
+        let r2 = check_rate_limit(&db, "tenant-b", None)
             .await
             .expect("Failed to check rate limit r2");
         assert!(r2.allowed);
 
         // Third request should be denied
-        let r3 = check_rate_limit(&db, "tenant-b")
+        let r3 = check_rate_limit(&db, "tenant-b", None)
             .await
             .expect("Failed to check rate limit r3");
         assert!(!r3.allowed);
@@ -329,10 +338,10 @@ mod tests {
             .expect("Failed to update rate limit for tenant-c");
 
         // Make some requests
-        check_rate_limit(&db, "tenant-c")
+        check_rate_limit(&db, "tenant-c", None)
             .await
             .expect("Failed to check rate limit for tenant-c");
-        check_rate_limit(&db, "tenant-c")
+        check_rate_limit(&db, "tenant-c", None)
             .await
             .expect("Failed to check rate limit for tenant-c");
 

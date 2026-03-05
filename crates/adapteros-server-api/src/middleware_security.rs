@@ -25,6 +25,36 @@ use crate::security::rate_limiting::check_rate_limit;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 
+/// Route tier classification for per-tier rate limiting
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RouteTier {
+    /// Health probes: /healthz, /readyz, /version
+    Health,
+    /// Public endpoints: /v1/auth/*, /v1/status, /metrics
+    Public,
+    /// Internal worker endpoints: /v1/workers/*
+    Internal,
+    /// Everything else (full middleware chain)
+    Protected,
+}
+
+/// Classify a request path into a route tier
+fn route_tier(path: &str) -> RouteTier {
+    if path.starts_with("/healthz") || path.starts_with("/readyz") || path.starts_with("/version") {
+        RouteTier::Health
+    } else if path.starts_with("/v1/auth/")
+        || path == "/v1/status"
+        || path.starts_with("/v1/status/")
+        || path.starts_with("/metrics")
+    {
+        RouteTier::Public
+    } else if path.starts_with("/v1/workers/") {
+        RouteTier::Internal
+    } else {
+        RouteTier::Protected
+    }
+}
+
 /// Security headers middleware
 ///
 /// Adds comprehensive security headers to all responses:
@@ -93,36 +123,21 @@ pub async fn security_headers_middleware(req: Request<axum::body::Body>, next: N
     response
 }
 
-/// Paths that are exempt from rate limiting
-/// These are bootstrap/setup endpoints that need to work before the system is fully initialized
-/// Note: paths are checked WITHOUT the /api prefix since the middleware runs after routing
+/// Paths that are exempt from rate limiting entirely.
+///
+/// Only bootstrap/health endpoints that must work before the system is fully
+/// initialized are listed here. All other routes are rate-limited per-tier.
+///
+/// Note: `/v1/system/`, `/v1/models/`, and `/v1/plans` were removed from this
+/// list -- they should be subject to rate limiting (especially mutation routes).
 const RATE_LIMIT_EXEMPT_PATHS: &[&str] = &[
-    // Auth and bootstrap endpoints
+    // Bootstrap endpoints (run before auth/rate-limit DB is ready)
     "/v1/auth/bootstrap",
     "/v1/dev/bootstrap",
-    "/v1/auth/login",
-    "/v1/auth/config",
-    "/v1/auth/health",
-    "/v1/auth/dev-bypass",
-    // Health checks
+    // Health probes (liveness/readiness)
     "/healthz",
     "/readyz",
-    // Worker registration and lifecycle
-    "/v1/workers/register",
-    "/v1/workers/heartbeat",
-    "/v1/workers/status",
-    // System and model status
-    "/v1/system/",
-    "/v1/models/",
-    "/v1/plans",
 ];
-
-/// Check if a path should be exempt from rate limiting
-fn is_rate_limit_exempt(path: &str) -> bool {
-    RATE_LIMIT_EXEMPT_PATHS
-        .iter()
-        .any(|exempt| path.starts_with(exempt))
-}
 
 /// Rate limiting middleware
 ///
@@ -136,10 +151,23 @@ pub async fn rate_limiting_middleware(
     req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    // Skip rate limiting for exempt paths (bootstrap, health checks, etc.)
     let path = req.uri().path();
-    if is_rate_limit_exempt(path) {
+
+    // Skip rate limiting for bootstrap/health exempt paths
+    if RATE_LIMIT_EXEMPT_PATHS
+        .iter()
+        .any(|exempt| path.starts_with(exempt))
+    {
         debug!(path = %path, "Skipping rate limiting for exempt path");
+        return next.run(req).await;
+    }
+
+    // Classify route tier and resolve per-tier RPM limit
+    let tier = route_tier(path);
+
+    // Health tier is unlimited (probes must never be throttled)
+    if tier == RouteTier::Health {
+        debug!(path = %path, tier = ?tier, "Health tier bypasses rate limiting");
         return next.run(req).await;
     }
 
@@ -157,8 +185,16 @@ pub async fn rate_limiting_middleware(
         .map(|ip| ip.0.to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    // Check rate limits
-    match check_rate_limit(&state.db, &tenant_id).await {
+    // Resolve per-tier RPM from config (falls back to requests_per_minute)
+    let tier_rpm = adapteros_config::try_effective_config().and_then(|cfg| match tier {
+        RouteTier::Health => cfg.rate_limits.health_rpm,
+        RouteTier::Public => cfg.rate_limits.public_rpm,
+        RouteTier::Internal => cfg.rate_limits.internal_rpm,
+        RouteTier::Protected => cfg.rate_limits.protected_rpm,
+    });
+
+    // Check rate limits (tier_rpm overrides the default if set)
+    match check_rate_limit(&state.db, &tenant_id, tier_rpm).await {
         Ok(result) if result.allowed => {
             // Add rate limit headers to response
             let mut response = next.run(req).await;
