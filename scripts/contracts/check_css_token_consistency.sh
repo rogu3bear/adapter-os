@@ -32,7 +32,7 @@ while IFS= read -r line; do
   echo "  VIOLATION: $file:$lineno"
   echo "    $content"
   VIOLATIONS=$((VIOLATIONS + 1))
-done < <(grep -rnE 'transition[^:]*:\s*[^;]*\b(100|120|150|200|250|300)ms' "$CSS_DIR" \
+done < <(grep -rnE 'transition[^:]*:\s*[^;]*\b(100|120|150|180|200|250|300)ms' "$CSS_DIR" \
   --include='*.css' || true)
 
 echo ""

@@ -6195,7 +6195,6 @@
   bottom: 0;
   width: min(80vw, 320px);
   background: var(--color-background);
-  border-right: 1px solid var(--color-border);
   box-shadow: var(--glass-shadow-lg);
   z-index: 101;
   transform: translateX(-100%);
@@ -9703,7 +9702,7 @@
   width: clamp(15rem, 24vw, 22rem);
   min-width: 15rem;
   max-width: 22rem;
-  transition: width 180ms ease;
+  transition: width var(--duration-normal) ease;
 }
 
 .chat-session-row {
@@ -10658,7 +10657,7 @@ a:hover .slo-metric .slo-metric-value {
   color: var(--color-muted-foreground);
   position: relative;
   z-index: 1;
-  transition: all 180ms ease;
+  transition: all var(--duration-normal) ease;
 }
 
 .stage-dot--done {

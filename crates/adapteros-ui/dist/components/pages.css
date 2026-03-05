@@ -1859,7 +1859,7 @@
   width: clamp(15rem, 24vw, 22rem);
   min-width: 15rem;
   max-width: 22rem;
-  transition: width 180ms ease;
+  transition: width var(--duration-normal) ease;
 }
 
 .chat-session-row {
@@ -2814,7 +2814,7 @@ a:hover .slo-metric .slo-metric-value {
   color: var(--color-muted-foreground);
   position: relative;
   z-index: 1;
-  transition: all 180ms ease;
+  transition: all var(--duration-normal) ease;
 }
 
 .stage-dot--done {
