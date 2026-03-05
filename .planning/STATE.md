@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 **Milestone:** v1.1.18 System Stabilization (active)
 **Current phase:** Phase 53 — UI Harmony and Visual Polish
-**Current Plan:** 1 of 3 in Phase
+**Current Plan:** 3 of 3 in Phase
 **Status:** Executing
 
 ## Session Log
@@ -27,6 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - 2026-03-05: Phase 50 complete: runtime_cleanup module (stale socket probing, marker removal) + supervision_state module (JSON format, crash-vs-rebuild detection) + shell script migration.
 - 2026-03-05: Phase 53 plan 01 complete: design token foundation — system font stack, duration tokens, transition standardization (87 replacements), flat surface policy, CSS lint.
 - 2026-03-05: Phase 52 plan 01 complete: portable path resolution — find_project_root with .adapteros-root marker, AOS_ROOT override, fixed DEV_MODEL_PATH absolute path bug, layered model discovery.
+- 2026-03-05: Phase 53 plan 02 complete: chat and dashboard polish — removed 8 redundant/dead elements, 7 interaction fixes, focus-visible states, glass tier 3 overlay.
 
 ## Decisions
 
@@ -42,9 +43,12 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - AOS_ROOT env var takes absolute priority over marker walk for project root detection
 - Marker check order: .adapteros-root > Cargo.lock > .git (most specific first)
 - Layered model discovery: AOS_MODEL_PATH > var/models/{id} > ~/.cache/adapteros/models/{id}
+- Remove header target selector, keep Context drawer as canonical config location
+- Contextual controls pattern: hide controls until relevant state exists (Create Adapter hidden until selection > 0)
+- Glass tier 3 for overlays via inline style with var(--glass-bg-3) + backdrop-filter
 
 ## Session
 
-**Last Date:** 2026-03-05T05:53:05.888Z
-**Stopped At:** Completed 52-01-PLAN.md
+**Last Date:** 2026-03-05T06:09:27Z
+**Stopped At:** Completed 53-02-PLAN.md
 **Resume File:** None
