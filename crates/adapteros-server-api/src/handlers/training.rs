@@ -7,7 +7,6 @@
 
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
-use crate::handlers::testkit::e2e_enabled;
 use crate::inference_core::resolve_determinism_mode;
 use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
@@ -1840,7 +1839,7 @@ pub async fn list_training_jobs(
             )
         })?;
 
-        if jobs.is_empty() && e2e_enabled() {
+        if jobs.is_empty() {
             let db_jobs = state
                 .db
                 .list_training_jobs_for_tenant(user_tenant_id)

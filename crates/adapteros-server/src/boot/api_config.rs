@@ -40,94 +40,96 @@ pub async fn build_api_config(
     server_config: Arc<RwLock<Config>>,
     db: &Db,
 ) -> Result<Arc<RwLock<ApiConfig>>> {
-    let cfg = server_config
-        .read()
-        .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
+    let api_config = {
+        let cfg = server_config
+            .read()
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
-    let api_config = Arc::new(RwLock::new(ApiConfig {
-        metrics: adapteros_server_api::state::MetricsConfig {
-            enabled: cfg.metrics.enabled,
-            bearer_token: cfg.metrics.bearer_token.clone(),
-        },
-        directory_analysis_timeout_secs: 120,
-        use_session_stack_for_routing: false, // Default until routing config is added
-        capacity_limits: Default::default(),
-        general: Some(adapteros_server_api::state::GeneralConfig {
-            system_name: cfg.general.system_name.clone(),
-            environment: cfg.general.environment.clone(),
-            api_base_url: cfg.general.api_base_url.clone(),
-            determinism_mode: cfg.general.determinism_mode,
-        }),
-        server: adapteros_server_api::state::ServerConfigApi {
-            http_port: Some(cfg.server.port),
-            https_port: None,
-            uds_socket: cfg.server.uds_socket.clone(),
-            production_mode: cfg.server.production_mode,
-            review_webhook_url: cfg.server.review_webhook_url.clone(),
-            ssrf_protection: cfg.server.ssrf_protection.unwrap_or(true),
-            health_check_db_timeout_ms: cfg.server.health_check_db_timeout_ms,
-            health_check_worker_timeout_ms: cfg.server.health_check_worker_timeout_ms,
-            health_check_models_timeout_ms: cfg.server.health_check_models_timeout_ms,
-            skip_worker_check: cfg.server.skip_worker_check,
-            worker_heartbeat_interval_secs: cfg.server.worker_heartbeat_interval_secs,
-        },
-        security: adapteros_server_api::state::SecurityConfigApi {
-            jwt_mode: cfg.security.jwt_mode.clone(),
-            token_ttl_seconds: cfg.security.token_ttl_seconds,
-            access_token_ttl_seconds: Some(cfg.security.access_token_ttl_seconds),
-            session_ttl_seconds: Some(cfg.security.session_ttl_seconds),
-            jwt_additional_ed25519_public_keys: cfg
-                .security
-                .jwt_additional_ed25519_public_keys
-                .clone(),
-            jwt_additional_hmac_secrets: cfg.security.jwt_additional_hmac_secrets.clone(),
-            require_mfa: cfg.security.require_mfa,
-            require_pf_deny: cfg.security.require_pf_deny,
-            dev_login_enabled: cfg.security.dev_login_enabled,
-            cookie_same_site: Some(cfg.security.cookie_same_site.clone()),
-            cookie_domain: cfg.security.cookie_domain.clone(),
-            cookie_secure: cfg.security.cookie_secure,
-            clock_skew_seconds: cfg.security.clock_skew_seconds,
-            dev_bypass: cfg.security.dev_bypass,
-            allow_registration: cfg.security.allow_registration,
-            ci_attestation_public_keys: cfg.security.ci_attestation_public_keys.clone(),
-        },
-        auth: adapteros_server_api::state::AuthConfigApi {
-            dev_algo: cfg.auth.dev_algo.clone(),
-            prod_algo: cfg.auth.prod_algo.clone(),
-            session_lifetime: cfg.auth.session_lifetime,
-            lockout_threshold: cfg.auth.lockout_threshold,
-            lockout_cooldown: cfg.auth.lockout_cooldown,
-        },
-        self_hosting: adapteros_server_api::state::SelfHostingConfigApi {
-            mode: cfg.self_hosting.mode.clone(),
-            repo_allowlist: cfg.self_hosting.repo_allowlist.clone(),
-            promotion_threshold: cfg.self_hosting.promotion_threshold,
-            require_human_approval: cfg.self_hosting.mode.eq_ignore_ascii_case("safe"),
-        },
-        performance: Default::default(),
-        streaming: Default::default(),
-        paths: adapteros_server_api::PathsConfig {
-            artifacts_root: cfg.paths.artifacts_root.clone(),
-            bundles_root: cfg.paths.bundles_root.clone(),
-            adapters_root: cfg.paths.adapters_root.clone(),
-            plan_dir: cfg.paths.plan_dir.clone(),
-            datasets_root: cfg.paths.datasets_root.clone(),
-            documents_root: cfg.paths.documents_root.clone(),
-            synthesis_model_path: cfg.paths.synthesis_model_path.clone(),
-        },
-        chat_context: Default::default(),
-        seed_mode: SeedMode::default(),
-        backend_profile: BackendKind::default_inference_backend(),
-        worker_id: 0,
-        timeouts: Default::default(),
-        rate_limit: Some(adapteros_server_api::rate_limit::RateLimiterConfig {
-            requests_per_minute: cfg.rate_limits.requests_per_minute,
-            burst_size: cfg.rate_limits.burst_size,
-            ..Default::default()
-        }),
-        inference_cache: Default::default(),
-    }));
+        Arc::new(RwLock::new(ApiConfig {
+            metrics: adapteros_server_api::state::MetricsConfig {
+                enabled: cfg.metrics.enabled,
+                bearer_token: cfg.metrics.bearer_token.clone(),
+            },
+            directory_analysis_timeout_secs: 120,
+            use_session_stack_for_routing: false, // Default until routing config is added
+            capacity_limits: Default::default(),
+            general: Some(adapteros_server_api::state::GeneralConfig {
+                system_name: cfg.general.system_name.clone(),
+                environment: cfg.general.environment.clone(),
+                api_base_url: cfg.general.api_base_url.clone(),
+                determinism_mode: cfg.general.determinism_mode,
+            }),
+            server: adapteros_server_api::state::ServerConfigApi {
+                http_port: Some(cfg.server.port),
+                https_port: None,
+                uds_socket: cfg.server.uds_socket.clone(),
+                production_mode: cfg.server.production_mode,
+                review_webhook_url: cfg.server.review_webhook_url.clone(),
+                ssrf_protection: cfg.server.ssrf_protection.unwrap_or(true),
+                health_check_db_timeout_ms: cfg.server.health_check_db_timeout_ms,
+                health_check_worker_timeout_ms: cfg.server.health_check_worker_timeout_ms,
+                health_check_models_timeout_ms: cfg.server.health_check_models_timeout_ms,
+                skip_worker_check: cfg.server.skip_worker_check,
+                worker_heartbeat_interval_secs: cfg.server.worker_heartbeat_interval_secs,
+            },
+            security: adapteros_server_api::state::SecurityConfigApi {
+                jwt_mode: cfg.security.jwt_mode.clone(),
+                token_ttl_seconds: cfg.security.token_ttl_seconds,
+                access_token_ttl_seconds: Some(cfg.security.access_token_ttl_seconds),
+                session_ttl_seconds: Some(cfg.security.session_ttl_seconds),
+                jwt_additional_ed25519_public_keys: cfg
+                    .security
+                    .jwt_additional_ed25519_public_keys
+                    .clone(),
+                jwt_additional_hmac_secrets: cfg.security.jwt_additional_hmac_secrets.clone(),
+                require_mfa: cfg.security.require_mfa,
+                require_pf_deny: cfg.security.require_pf_deny,
+                dev_login_enabled: cfg.security.dev_login_enabled,
+                cookie_same_site: Some(cfg.security.cookie_same_site.clone()),
+                cookie_domain: cfg.security.cookie_domain.clone(),
+                cookie_secure: cfg.security.cookie_secure,
+                clock_skew_seconds: cfg.security.clock_skew_seconds,
+                dev_bypass: cfg.security.dev_bypass,
+                allow_registration: cfg.security.allow_registration,
+                ci_attestation_public_keys: cfg.security.ci_attestation_public_keys.clone(),
+            },
+            auth: adapteros_server_api::state::AuthConfigApi {
+                dev_algo: cfg.auth.dev_algo.clone(),
+                prod_algo: cfg.auth.prod_algo.clone(),
+                session_lifetime: cfg.auth.session_lifetime,
+                lockout_threshold: cfg.auth.lockout_threshold,
+                lockout_cooldown: cfg.auth.lockout_cooldown,
+            },
+            self_hosting: adapteros_server_api::state::SelfHostingConfigApi {
+                mode: cfg.self_hosting.mode.clone(),
+                repo_allowlist: cfg.self_hosting.repo_allowlist.clone(),
+                promotion_threshold: cfg.self_hosting.promotion_threshold,
+                require_human_approval: cfg.self_hosting.mode.eq_ignore_ascii_case("safe"),
+            },
+            performance: Default::default(),
+            streaming: Default::default(),
+            paths: adapteros_server_api::PathsConfig {
+                artifacts_root: cfg.paths.artifacts_root.clone(),
+                bundles_root: cfg.paths.bundles_root.clone(),
+                adapters_root: cfg.paths.adapters_root.clone(),
+                plan_dir: cfg.paths.plan_dir.clone(),
+                datasets_root: cfg.paths.datasets_root.clone(),
+                documents_root: cfg.paths.documents_root.clone(),
+                synthesis_model_path: cfg.paths.synthesis_model_path.clone(),
+            },
+            chat_context: Default::default(),
+            seed_mode: SeedMode::default(),
+            backend_profile: BackendKind::default_inference_backend(),
+            worker_id: 0,
+            timeouts: Default::default(),
+            rate_limit: Some(adapteros_server_api::rate_limit::RateLimiterConfig {
+                requests_per_minute: cfg.rate_limits.requests_per_minute,
+                burst_size: cfg.rate_limits.burst_size,
+                ..Default::default()
+            }),
+            inference_cache: Default::default(),
+        }))
+    };
 
     if let Err(e) =
         adapteros_server_api::runtime_config_store::apply_loaded_runtime_config(db, &api_config)

@@ -7,7 +7,6 @@
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::ChatSession;
@@ -17,6 +16,7 @@ use axum::{
 };
 use tracing::info;
 
+use super::access::ensure_session_write_access;
 use super::types::UpdateCollectionRequest;
 
 /// Update the collection binding for a chat session
@@ -55,8 +55,7 @@ pub async fn update_session_collection(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session).await?;
 
     // Update collection binding
     state

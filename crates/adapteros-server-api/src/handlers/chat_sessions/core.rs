@@ -19,6 +19,9 @@ use axum::{
 };
 use tracing::{debug, info};
 
+use super::access::{
+    ensure_session_read_access, ensure_session_write_access, resolve_session_list_user_filter,
+};
 use super::types::{
     CreateChatSessionRequest, CreateChatSessionResponse, ListSessionsQuery,
     UpdateChatSessionRequest,
@@ -305,8 +308,7 @@ pub async fn update_chat_session(
                 .with_details(format!("Chat session '{}' does not exist", session_id))
         })?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session).await?;
 
     let current_source = session
         .source_type
@@ -441,8 +443,8 @@ pub async fn list_chat_sessions(
     // Tenant isolation check
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
-    // List sessions - filter by user_id if provided, otherwise show all for tenant
-    let user_filter = query.user_id.or(Some(claims.sub.clone()));
+    // Non-admin callers can only list their own sessions.
+    let user_filter = resolve_session_list_user_filter(&claims, query.user_id)?;
     let source_filter = query.source_type;
     let document_filter = query.document_id;
     let sessions = state
@@ -500,8 +502,7 @@ pub async fn get_chat_session(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_read_access(&state, &claims, &session).await?;
 
     Ok(Json(session))
 }
@@ -540,8 +541,7 @@ pub async fn delete_chat_session(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session).await?;
 
     // Soft delete session (moves to trash)
     state

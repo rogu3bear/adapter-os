@@ -1,27 +1,11 @@
 ---
 source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 434
 expression: "json!({\n    \"status\": tenant_forbidden_status.as_u16(), \"body\": tenant_forbidden_body\n})"
 ---
 {
   "body": {
     "data": [
-      {
-        "created_at": "<timestamp>",
-        "default_pinned_adapter_ids": null,
-        "default_stack_id": null,
-        "id": "default",
-        "itar_flag": false,
-        "kv_residency_policy_id": "kv_residency_v1",
-        "max_adapters": null,
-        "max_kv_cache_bytes": null,
-        "max_storage_gb": null,
-        "max_training_jobs": null,
-        "name": "Default",
-        "rate_limit_rpm": 1000,
-        "schema_version": "2.0.0",
-        "status": "active",
-        "updated_at": "<timestamp>"
-      },
       {
         "created_at": "<timestamp>",
         "default_pinned_adapter_ids": "[\"adapter-test\"]",
@@ -61,7 +45,7 @@ expression: "json!({\n    \"status\": tenant_forbidden_status.as_u16(), \"body\"
     "page": 1,
     "pages": 1,
     "schema_version": "2.0.0",
-    "total": 3
+    "total": 2
   },
   "status": 200
 }

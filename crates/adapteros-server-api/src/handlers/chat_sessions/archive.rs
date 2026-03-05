@@ -18,6 +18,7 @@ use axum::{
 };
 use tracing::info;
 
+use super::access::ensure_session_write_access;
 use super::types::{ArchiveSessionRequest, ListArchivedQuery};
 
 /// Archive a session
@@ -55,8 +56,7 @@ pub async fn archive_session(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session).await?;
 
     state
         .db
@@ -101,8 +101,7 @@ pub async fn restore_session(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session).await?;
 
     state
         .db
@@ -148,8 +147,7 @@ pub async fn hard_delete_session(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session).await?;
 
     state
         .db

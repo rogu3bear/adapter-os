@@ -463,6 +463,58 @@ impl<'a> InferenceCore<'a> {
             .await?;
         }
 
+        // 0.55 Resolve and validate pinned adapters before worker selection.
+        // This preserves tenant-isolation semantics even when no compatible worker
+        // is currently available.
+        let (pinned_adapter_ids, unavailable_pinned_adapters) = if let Some(session) =
+            session.as_ref()
+        {
+            let pinned_ids = if request.pinned_adapter_ids.is_some() {
+                request.pinned_adapter_ids.clone()
+            } else {
+                parse_pinned_adapter_ids(session.pinned_adapter_ids.as_deref())
+            };
+            (pinned_ids, None::<Vec<String>>)
+        } else if let Some(ref session_id) = request.session_id {
+            // Fallback: session not preloaded (shouldn't happen, but keep legacy path)
+            let pinned_ids = if request.pinned_adapter_ids.is_some() {
+                request.pinned_adapter_ids.clone()
+            } else {
+                match self.state.db.get_chat_session(session_id).await {
+                    Ok(Some(session)) => {
+                        parse_pinned_adapter_ids(session.pinned_adapter_ids.as_deref())
+                    }
+                    Ok(None) => {
+                        debug!(session_id = %session_id, "Session not found for pinned adapters");
+                        None
+                    }
+                    Err(e) => {
+                        warn!(session_id = %session_id, error = ?e, "Failed to fetch session for pinned adapters");
+                        None
+                    }
+                }
+            };
+
+            (pinned_ids, None::<Vec<String>>)
+        } else {
+            (None, None)
+        };
+
+        if let Some(pins) = pinned_adapter_ids.as_ref() {
+            self.validate_ids_against_allowlist(
+                pins,
+                &request.cpid,
+                &tenant_adapter_allowlist,
+                "Pinned adapter",
+            )
+            .await?;
+            self.validate_adapter_ids_loadable(pins, &request.request_id)
+                .await?;
+            validate_pinned_within_effective_set(&request.effective_adapter_ids, &pinned_adapter_ids)?;
+            self.validate_pinned_adapters_for_tenant(&request.cpid, pins)
+                .await?;
+        }
+
         if let Some(effective) = request.effective_adapter_ids.as_ref() {
             inference_span.record("adapters", tracing::field::display(effective.join(",")));
         } else if let Some(adapters) = request.adapters.as_ref() {
@@ -839,69 +891,6 @@ impl<'a> InferenceCore<'a> {
             );
         }
 
-        // 2.5. Resolve pinned adapters from session (CHAT-PIN-02)
-        // ┌─────────────────────────────────────────────────────────────────┐
-        // │ Pinned Adapter Pipeline: Session-level preferences              │
-        // │ - Pinned adapters receive PINNED_BOOST to their priors          │
-        // │ - Non-pinned adapters can still be selected with high scores    │
-        // │ - Unavailable pinned adapters are tracked for UI warning        │
-        // └─────────────────────────────────────────────────────────────────┘
-        let (pinned_adapter_ids, unavailable_pinned_adapters) = if let Some(session) =
-            session.as_ref()
-        {
-            let pinned_ids = if request.pinned_adapter_ids.is_some() {
-                request.pinned_adapter_ids.clone()
-            } else {
-                parse_pinned_adapter_ids(session.pinned_adapter_ids.as_deref())
-            };
-            (pinned_ids, None::<Vec<String>>)
-        } else if let Some(ref session_id) = request.session_id {
-            // Fallback: session not preloaded (shouldn't happen, but keep legacy path)
-            let pinned_ids = if request.pinned_adapter_ids.is_some() {
-                request.pinned_adapter_ids.clone()
-            } else {
-                match self.state.db.get_chat_session(session_id).await {
-                    Ok(Some(session)) => {
-                        parse_pinned_adapter_ids(session.pinned_adapter_ids.as_deref())
-                    }
-                    Ok(None) => {
-                        debug!(session_id = %session_id, "Session not found for pinned adapters");
-                        None
-                    }
-                    Err(e) => {
-                        warn!(session_id = %session_id, error = ?e, "Failed to fetch session for pinned adapters");
-                        None
-                    }
-                }
-            };
-
-            (pinned_ids, None::<Vec<String>>)
-        } else {
-            (None, None)
-        };
-
-        // Enforce pinned adapters are permitted and loadable for this tenant
-        if let Some(pins) = pinned_adapter_ids.as_ref() {
-            self.validate_ids_against_allowlist(
-                pins,
-                &request.cpid,
-                &tenant_adapter_allowlist,
-                "Pinned adapter",
-            )
-            .await?;
-            self.validate_adapter_ids_loadable(pins, &request.request_id)
-                .await?;
-        }
-
-        // Enforce pinned adapters must be within effective set (if provided)
-        validate_pinned_within_effective_set(&request.effective_adapter_ids, &pinned_adapter_ids)?;
-
-        // Guard: pinned adapters must exist for the request tenant before worker call
-        if let Some(pins) = pinned_adapter_ids.as_ref() {
-            self.validate_pinned_adapters_for_tenant(&request.cpid, pins)
-                .await?;
-        }
-
         let routing_policy = Some(execution_policy.routing.clone().unwrap_or_default());
 
         // Compute policy mask digest for the worker call
@@ -921,26 +910,25 @@ impl<'a> InferenceCore<'a> {
         let routing_mode = request
             .routing_determinism_mode
             .unwrap_or(RoutingDeterminismMode::Deterministic);
-        let adapter_stable_ids = if routing_mode == RoutingDeterminismMode::Deterministic {
-            match request.effective_adapter_ids.as_ref() {
-                Some(effective_ids) if effective_ids.is_empty() => None,
-                Some(effective_ids) => Some(
-                    self.resolve_stable_ids_for_adapters(&request.cpid, effective_ids)
-                        .await?,
-                ),
-                None => Some(self.resolve_stable_ids_for_tenant(&request.cpid).await?),
+        let (stable_id_map, weight_map) = match request.effective_adapter_ids.as_ref() {
+            Some(effective_ids) if effective_ids.is_empty() => (None, None),
+            Some(effective_ids) => {
+                let (stable, weights) = self
+                    .resolve_adapter_maps_for_adapters(&request.cpid, effective_ids)
+                    .await?;
+                (Some(stable), Some(weights))
             }
+            None => {
+                let (stable, weights) = self.resolve_adapter_maps_for_tenant(&request.cpid).await?;
+                (Some(stable), Some(weights))
+            }
+        };
+        let adapter_stable_ids = if routing_mode == RoutingDeterminismMode::Deterministic {
+            stable_id_map
         } else {
             None
         };
-        let adapter_version_weights = match request.effective_adapter_ids.as_ref() {
-            Some(effective_ids) if effective_ids.is_empty() => None,
-            Some(effective_ids) => Some(
-                self.resolve_version_weights_for_adapters(&request.cpid, effective_ids)
-                    .await?,
-            ),
-            None => Some(self.resolve_version_weights_for_tenant(&request.cpid).await?),
-        };
+        let adapter_version_weights = weight_map;
 
         let worker_request = WorkerInferRequest {
             cpid: request.cpid.clone(),
@@ -2055,17 +2043,27 @@ impl<'a> InferenceCore<'a> {
         correlation_ids
     }
 
-    async fn resolve_stable_ids_for_adapters(
+    /// Resolve stable-id and version-weight maps for an explicit adapter list in a single pass.
+    ///
+    /// This avoids duplicate DB lookups when both maps are required for the same request.
+    async fn resolve_adapter_maps_for_adapters(
         &self,
         tenant_id: &str,
         adapter_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, u64>, InferenceError> {
+    ) -> Result<
+        (
+            std::collections::HashMap<String, u64>,
+            std::collections::HashMap<String, f32>,
+        ),
+        InferenceError,
+    > {
         let mut stable_ids =
+            std::collections::HashMap::with_capacity(adapter_ids.len().saturating_mul(2));
+        let mut weights =
             std::collections::HashMap::with_capacity(adapter_ids.len().saturating_mul(2));
         let mut seen = std::collections::HashSet::with_capacity(adapter_ids.len());
 
         for requested in adapter_ids {
-            // Avoid duplicate DB lookups when effective_adapter_ids contains repeats.
             if !seen.insert(requested.as_str()) {
                 continue;
             }
@@ -2077,7 +2075,7 @@ impl<'a> InferenceCore<'a> {
                 .await
                 .map_err(|e| {
                     InferenceError::DatabaseError(format!(
-                        "Failed to resolve stable_id for adapter '{}': {}",
+                        "Failed to resolve adapter metadata for '{}': {}",
                         requested, e
                     ))
                 })?
@@ -2092,23 +2090,39 @@ impl<'a> InferenceCore<'a> {
                 .stable_id
                 .and_then(|v| (v > 0).then_some(v as u64))
                 .unwrap_or(0);
+            let weight = adapter
+                .effective_version_weight
+                .filter(|w| w.is_finite())
+                .unwrap_or(1.0)
+                .clamp(0.0, 2.0) as f32;
 
-            // Insert for the requested key and all canonical forms so the worker can
-            // look up by either internal UUID (`id`) or external adapter ID (`adapter_id`).
             stable_ids.insert(requested.clone(), stable_id);
+            weights.insert(requested.clone(), weight);
+
             stable_ids.insert(adapter.id.clone(), stable_id);
+            weights.insert(adapter.id.clone(), weight);
             if let Some(adapter_id) = adapter.adapter_id.clone() {
-                stable_ids.insert(adapter_id, stable_id);
+                stable_ids.insert(adapter_id.clone(), stable_id);
+                weights.insert(adapter_id, weight);
             }
         }
 
-        Ok(stable_ids)
+        Ok((stable_ids, weights))
     }
 
-    async fn resolve_stable_ids_for_tenant(
+    /// Resolve stable-id and version-weight maps for all tenant adapters in a single pass.
+    ///
+    /// This avoids repeated full-table adapter scans in the request hot path.
+    async fn resolve_adapter_maps_for_tenant(
         &self,
         tenant_id: &str,
-    ) -> Result<std::collections::HashMap<String, u64>, InferenceError> {
+    ) -> Result<
+        (
+            std::collections::HashMap<String, u64>,
+            std::collections::HashMap<String, f32>,
+        ),
+        InferenceError,
+    > {
         let adapters = self
             .state
             .db
@@ -2116,107 +2130,36 @@ impl<'a> InferenceCore<'a> {
             .await
             .map_err(|e| {
                 InferenceError::DatabaseError(format!(
-                    "Failed to list adapters for tenant '{}' stable_id resolution: {}",
+                    "Failed to list adapters for tenant '{}' metadata resolution: {}",
                     tenant_id, e
                 ))
             })?;
 
         let mut stable_ids =
             std::collections::HashMap::with_capacity(adapters.len().saturating_mul(2));
+        let mut weights =
+            std::collections::HashMap::with_capacity(adapters.len().saturating_mul(2));
+
         for adapter in adapters {
             let stable_id = adapter
                 .stable_id
                 .and_then(|v| (v > 0).then_some(v as u64))
                 .unwrap_or(0);
+            let weight = adapter
+                .effective_version_weight
+                .filter(|w| w.is_finite())
+                .unwrap_or(1.0)
+                .clamp(0.0, 2.0) as f32;
+
             stable_ids.insert(adapter.id.clone(), stable_id);
-            if let Some(adapter_id) = adapter.adapter_id.clone() {
-                stable_ids.insert(adapter_id, stable_id);
-            }
-        }
-
-        Ok(stable_ids)
-    }
-
-    async fn resolve_version_weights_for_adapters(
-        &self,
-        tenant_id: &str,
-        adapter_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, f32>, InferenceError> {
-        let mut weights =
-            std::collections::HashMap::with_capacity(adapter_ids.len().saturating_mul(2));
-        let mut seen = std::collections::HashSet::with_capacity(adapter_ids.len());
-
-        for requested in adapter_ids {
-            if !seen.insert(requested.as_str()) {
-                continue;
-            }
-
-            let adapter = self
-                .state
-                .db
-                .get_adapter_for_tenant(tenant_id, requested)
-                .await
-                .map_err(|e| {
-                    InferenceError::DatabaseError(format!(
-                        "Failed to resolve version weight for adapter '{}': {}",
-                        requested, e
-                    ))
-                })?
-                .ok_or_else(|| {
-                    InferenceError::AdapterNotFound(format!(
-                        "Adapter '{}' not found for tenant {}",
-                        requested, tenant_id
-                    ))
-                })?;
-
-            let weight = adapter
-                .effective_version_weight
-                .filter(|w| w.is_finite())
-                .unwrap_or(1.0)
-                .clamp(0.0, 2.0) as f32;
-
-            weights.insert(requested.clone(), weight);
             weights.insert(adapter.id.clone(), weight);
             if let Some(adapter_id) = adapter.adapter_id.clone() {
+                stable_ids.insert(adapter_id.clone(), stable_id);
                 weights.insert(adapter_id, weight);
             }
         }
 
-        Ok(weights)
-    }
-
-    async fn resolve_version_weights_for_tenant(
-        &self,
-        tenant_id: &str,
-    ) -> Result<std::collections::HashMap<String, f32>, InferenceError> {
-        let adapters = self
-            .state
-            .db
-            .list_adapters_for_tenant_unthrottled(tenant_id)
-            .await
-            .map_err(|e| {
-                InferenceError::DatabaseError(format!(
-                    "Failed to list adapters for tenant '{}' version weight resolution: {}",
-                    tenant_id, e
-                ))
-            })?;
-
-        let mut weights =
-            std::collections::HashMap::with_capacity(adapters.len().saturating_mul(2));
-        for adapter in adapters {
-            let weight = adapter
-                .effective_version_weight
-                .filter(|w| w.is_finite())
-                .unwrap_or(1.0)
-                .clamp(0.0, 2.0) as f32;
-
-            weights.insert(adapter.id.clone(), weight);
-            if let Some(adapter_id) = adapter.adapter_id.clone() {
-                weights.insert(adapter_id, weight);
-            }
-        }
-
-        Ok(weights)
+        Ok((stable_ids, weights))
     }
 
     /// Validate pinned adapters belong to the requesting tenant.

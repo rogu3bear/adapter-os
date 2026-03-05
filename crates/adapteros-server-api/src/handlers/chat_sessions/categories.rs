@@ -17,6 +17,7 @@ use axum::{
     Extension, Json,
 };
 
+use super::access::ensure_session_write_access;
 use super::types::{CreateCategoryRequest, SetCategoryRequest, UpdateCategoryRequest};
 
 /// List all categories for the tenant
@@ -247,8 +248,7 @@ pub async fn set_session_category(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session).await?;
 
     state
         .db

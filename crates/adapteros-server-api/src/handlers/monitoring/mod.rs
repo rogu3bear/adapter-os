@@ -1017,7 +1017,7 @@ pub async fn list_process_monitoring_reports(
         }
     };
 
-    let reports = rows
+    let mut reports: Vec<ProcessMonitoringReportResponse> = rows
         .into_iter()
         .map(|row| {
             let metadata = row
@@ -1048,6 +1048,49 @@ pub async fn list_process_monitoring_reports(
             }
         })
         .collect();
+
+    let include_metrics_alias =
+        report_type_filter.is_none_or(|report_type| report_type == "metrics_alias");
+    if include_metrics_alias {
+        let metrics = fetch_process_health_metrics_with_fallback(
+            &state,
+            adapteros_system_metrics::MetricFilters {
+                worker_id: None,
+                tenant_id: Some(tenant_id.clone()),
+                metric_name: None,
+                start_time: None,
+                end_time: None,
+                limit: Some(1000),
+            },
+        )
+        .await?;
+
+        let report_data = serde_json::to_value(metrics).map_err(|e| {
+            database_error(format!(
+                "Failed to serialize synthesized metrics_alias report: {}",
+                e
+            ))
+        })?;
+
+        reports.insert(
+            0,
+            ProcessMonitoringReportResponse {
+                id: format!("metrics-alias-{}", tenant_id),
+                name: "Health Metrics Alias".to_string(),
+                description: Some(
+                    "Synthesized report mirroring /v1/monitoring/health-metrics".to_string(),
+                ),
+                tenant_id,
+                report_type: "metrics_alias".to_string(),
+                report_config: json!({}),
+                generated_at: Utc::now().to_rfc3339(),
+                report_data: Some(report_data),
+                file_path: None,
+                file_size_bytes: None,
+                created_by: Some("system".to_string()),
+            },
+        );
+    }
 
     Ok(Json(reports))
 }

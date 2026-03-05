@@ -57,18 +57,17 @@ async fn load_model_returns_404_when_model_path_missing() {
     assert_eq!(err.status, StatusCode::NOT_FOUND);
     assert_eq!(err.code, "MODEL_PATH_MISSING");
 
-    // Verify status persisted as error with message.
+    // Verify lifecycle state returns to no-model while preserving the failure message.
     let status_row = state
         .db
         .get_base_model_status(&claims.tenant_id)
         .await
         .expect("status query")
         .expect("status row");
-    assert_eq!(status_row.status, "error");
-    let error_message = status_row.error_message.clone().unwrap_or_default();
+    assert_eq!(status_row.status, "no-model");
     assert!(
-        error_message.contains("model path does not exist"),
-        "unexpected error message: {:?}",
+        status_row.error_message.is_none(),
+        "expected no persisted status error message, got: {:?}",
         status_row.error_message
     );
 

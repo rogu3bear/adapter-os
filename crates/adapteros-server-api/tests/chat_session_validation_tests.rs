@@ -204,6 +204,48 @@ async fn list_sessions_respects_source_filters() {
 }
 
 #[tokio::test]
+async fn non_admin_cannot_list_other_users_sessions() {
+    let state = setup_state(None).await.expect("state");
+    let mut claims = test_admin_claims();
+    claims.role = "operator".to_string();
+    claims.roles = vec!["operator".to_string()];
+
+    let req = CreateChatSessionRequest {
+        tenant_id: None,
+        name: "Operator owned session".to_string(),
+        title: None,
+        stack_id: None,
+        collection_id: None,
+        document_id: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
+        metadata_json: None,
+        tags: None,
+    };
+    let _ = create_chat_session(State(state.clone()), Extension(claims.clone()), Json(req))
+        .await
+        .expect("session created");
+
+    let query = ListSessionsQuery {
+        user_id: Some("someone-else".to_string()),
+        limit: None,
+        source_type: None,
+        document_id: None,
+    };
+
+    let result =
+        list_chat_sessions(State(state), Extension(claims), axum::extract::Query(query)).await;
+    let err = result.expect_err("expected forbidden");
+    assert_eq!(err.status, StatusCode::FORBIDDEN);
+    assert!(
+        err.message
+            .contains("Only admins can list sessions for other users"),
+        "unexpected error message: {}",
+        err.message
+    );
+}
+
+#[tokio::test]
 async fn document_session_with_matching_collection_is_created_and_listed() {
     let state = setup_state(None).await.expect("state");
     let claims = test_admin_claims();

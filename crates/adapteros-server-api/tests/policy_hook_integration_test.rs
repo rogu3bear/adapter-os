@@ -647,13 +647,14 @@ async fn test_toggle_writes_audit_record() -> Result<()> {
     Ok(())
 }
 
-/// Test: Unimplemented policies pass with warning
+/// Test: Unimplemented policies fail closed
 ///
 /// Verifies that policies in AGENTS.md that don't have validators yet
 /// (deterministic_io, drift, mplora, naming, dependency_security)
-/// return a passing result with a warning instead of erroring
+/// return valid=false with a blocking violation (fail-closed) instead of
+/// silently passing open.
 #[tokio::test]
-async fn test_unimplemented_policies_pass_with_warning() -> Result<()> {
+async fn test_unimplemented_policies_fail_closed() -> Result<()> {
     use adapteros_policy::policy_packs::PolicyPackManager;
 
     let manager = PolicyPackManager::new();
@@ -680,25 +681,30 @@ async fn test_unimplemented_policies_pass_with_warning() -> Result<()> {
         match result {
             Ok(validation) => {
                 assert!(
-                    validation.valid,
-                    "Policy {} should return valid=true",
+                    !validation.valid,
+                    "Policy {} should return valid=false",
                     policy_id
                 );
                 assert!(
-                    !validation.warnings.is_empty(),
-                    "Policy {} should have a warning about not being implemented",
+                    !validation.violations.is_empty(),
+                    "Policy {} should include a blocking violation",
                     policy_id
                 );
                 assert!(
-                    validation.warnings[0]
+                    validation.violations[0]
                         .message
                         .contains("not yet implemented"),
                     "Warning should mention 'not yet implemented'"
                 );
+                assert!(
+                    validation.warnings.is_empty(),
+                    "Policy {} should not emit non-blocking warnings in fail-closed mode",
+                    policy_id
+                );
             }
             Err(e) => {
                 panic!(
-                    "Policy {} should return Ok with warning, not error: {}",
+                    "Policy {} should return Ok with blocking violation, not error: {}",
                     policy_id, e
                 );
             }

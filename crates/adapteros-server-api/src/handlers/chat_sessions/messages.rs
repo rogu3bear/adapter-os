@@ -7,7 +7,6 @@
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use adapteros_db::{AddMessageParams, InferenceEvidence};
 use axum::{
@@ -17,6 +16,7 @@ use axum::{
 };
 use tracing::debug;
 
+use super::access::{ensure_session_read_access, ensure_session_write_access};
 use super::types::{AddChatMessageRequest, ChatMessageResponse};
 
 /// Add a message to a chat session
@@ -55,8 +55,7 @@ pub async fn add_chat_message(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session).await?;
 
     // Generate message ID
     let message_id = crate::id_generator::readable_message_id("msg");
@@ -130,8 +129,7 @@ pub async fn get_chat_messages(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_read_access(&state, &claims, &session).await?;
 
     // Get limit from query
     let limit = query.get("limit").and_then(|s| s.parse::<i64>().ok());
@@ -183,8 +181,7 @@ pub async fn get_session_summary(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_read_access(&state, &claims, &session).await?;
 
     // Get summary
     let summary = state

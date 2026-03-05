@@ -19,6 +19,7 @@
 //!
 //! 【2025-01-25†prd-ux-01†chat_sessions_handlers】
 
+pub(crate) mod access;
 pub(crate) mod archive;
 pub(crate) mod categories;
 pub(crate) mod collection;

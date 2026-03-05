@@ -17,6 +17,7 @@ use axum::{
     Extension, Json,
 };
 
+use super::access::{ensure_session_read_access, ensure_session_write_access};
 use super::types::{AssignTagsRequest, CreateTagRequest, UpdateTagRequest};
 
 /// List all tags for the tenant
@@ -233,8 +234,7 @@ pub async fn assign_tags_to_session(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session).await?;
 
     state
         .db
@@ -284,8 +284,7 @@ pub async fn get_session_tags(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_read_access(&state, &claims, &session).await?;
 
     let tags = state
         .db
@@ -331,8 +330,7 @@ pub async fn remove_tag_from_session(
         .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session).await?;
 
     state
         .db

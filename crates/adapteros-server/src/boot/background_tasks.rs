@@ -162,6 +162,32 @@ fn resolve_training_worker_bin() -> String {
         }
     }
 
+    // In local/dev environments, backend and training worker are often built in
+    // workspace `target/` but launched from different cwd/PATH contexts.
+    let mut roots = Vec::new();
+
+    if let Ok(var_dir) = std::env::var("AOS_VAR_DIR") {
+        let path = std::path::PathBuf::from(var_dir);
+        if let Some(parent) = path.parent() {
+            roots.push(parent.to_path_buf());
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd);
+    }
+
+    for root in roots {
+        for candidate in [
+            root.join("target/debug/aos-training-worker"),
+            root.join("target/release/aos-training-worker"),
+        ] {
+            if candidate.exists() {
+                return candidate.to_string_lossy().to_string();
+            }
+        }
+    }
+
     "aos-training-worker".to_string()
 }
 

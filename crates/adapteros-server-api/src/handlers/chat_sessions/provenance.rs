@@ -6,7 +6,6 @@
 
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::{
@@ -20,6 +19,7 @@ use axum::{
 };
 use tracing::debug;
 
+use super::access::ensure_session_read_access;
 use super::types::{AdapterProvenanceRow, BaseModelRow};
 
 /// Get provenance chain for a chat session
@@ -78,9 +78,9 @@ pub async fn get_chat_provenance(
             )
         })?;
 
-    // Verify tenant access
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_read_access(&state, &claims, &session)
+        .await
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Count messages for the session
     let messages = state

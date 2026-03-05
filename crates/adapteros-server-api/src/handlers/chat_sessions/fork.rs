@@ -16,6 +16,7 @@ use axum::{
 };
 use tracing::info;
 
+use super::access::ensure_session_read_access;
 use super::types::{ForkChatSessionRequest, ForkChatSessionResponse, ForkedFromInfo};
 
 /// Fork an existing chat session
@@ -57,10 +58,7 @@ pub async fn fork_chat_session(
         })?
         .ok_or_else(|| ApiError::not_found("Session"))?;
 
-    // Validate tenant isolation
-    if source_session.tenant_id != claims.tenant_id {
-        return Err(ApiError::not_found("Session"));
-    }
+    ensure_session_read_access(&state, &claims, &source_session).await?;
 
     let source_name = source_session.name.clone();
 

@@ -1269,6 +1269,8 @@ mod file_validation_tests {
         let path = dir.join(name);
         let mut file = File::create(&path).await.unwrap();
         file.write_all(content.as_bytes()).await.unwrap();
+        file.flush().await.unwrap();
+        file.sync_all().await.unwrap();
         path
     }
 

@@ -48,20 +48,13 @@ async fn delete_endpoints_succeed_and_404() {
     let state = common::setup_state(None)
         .await
         .expect("failed to set up state");
-    adapteros_db::sqlx::query(
-        "INSERT OR IGNORE INTO tenants (id, name) VALUES ('system', 'System Tenant')",
-    )
-    .execute(state.db.pool_result().expect("db pool"))
-    .await
-    .expect("insert system tenant");
-
-    // Create a document under the system tenant
+    // Create a document under the default tenant used by dev-no-auth
     let doc_id = Uuid::now_v7().to_string();
     state
         .db
         .create_document(CreateDocumentParams {
             id: doc_id.clone(),
-            tenant_id: "system".to_string(),
+            tenant_id: "default".to_string(),
             name: "doc".to_string(),
             content_hash: "hash".to_string(),
             file_path: "var/test-documents/aos-test-doc".to_string(),
@@ -72,11 +65,11 @@ async fn delete_endpoints_succeed_and_404() {
         .await
         .expect("create document");
 
-    // Create a collection under the system tenant
+    // Create a collection under the default tenant used by dev-no-auth
     let coll_id = state
         .db
         .create_collection(CreateCollectionParams {
-            tenant_id: "system".to_string(),
+            tenant_id: "default".to_string(),
             name: "coll".to_string(),
             description: None,
             metadata_json: None,
@@ -84,7 +77,7 @@ async fn delete_endpoints_succeed_and_404() {
         .await
         .expect("create collection");
 
-    // Create a dataset tied to system tenant for evidence
+    // Create a dataset tied to default tenant for evidence
     let dataset_id = state
         .db
         .create_training_dataset(
@@ -102,7 +95,7 @@ async fn delete_endpoints_succeed_and_404() {
         .await
         .expect("create dataset");
     adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
-        .bind("system")
+        .bind("default")
         .bind(&dataset_id)
         .execute(state.db.pool_result().expect("db pool"))
         .await
@@ -140,7 +133,7 @@ async fn delete_endpoints_succeed_and_404() {
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     let deleted_doc = state
         .db
-        .get_document("system", &doc_id)
+        .get_document("default", &doc_id)
         .await
         .expect("query doc");
     assert!(deleted_doc.is_none(), "document should be deleted");
@@ -160,7 +153,7 @@ async fn delete_endpoints_succeed_and_404() {
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     let deleted_coll = state
         .db
-        .get_collection("system", &coll_id)
+        .get_collection("default", &coll_id)
         .await
         .expect("query collection");
     assert!(deleted_coll.is_none(), "collection should be deleted");

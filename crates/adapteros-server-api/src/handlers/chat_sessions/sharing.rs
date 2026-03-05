@@ -17,6 +17,7 @@ use axum::{
 };
 use serde::Serialize;
 
+use super::access::{ensure_session_read_access, ensure_session_write_access};
 use super::types::{ListArchivedQuery, ShareSessionRequest};
 
 /// Single share entry matching the UI's `SessionShareInfo` shape.
@@ -48,6 +49,19 @@ pub struct SharedSessionInfo {
 #[derive(Debug, Clone, Serialize)]
 pub struct SharedWithMeResponse {
     pub sessions: Vec<SharedSessionInfo>,
+}
+
+fn normalize_share_permission(permission: &str) -> Option<&'static str> {
+    if permission.eq_ignore_ascii_case("view") || permission.eq_ignore_ascii_case("read") {
+        return Some("view");
+    }
+    if permission.eq_ignore_ascii_case("comment") {
+        return Some("comment");
+    }
+    if permission.eq_ignore_ascii_case("collaborate") || permission.eq_ignore_ascii_case("write") {
+        return Some("collaborate");
+    }
+    None
 }
 
 /// Share a session
@@ -108,8 +122,20 @@ pub async fn share_session(
             )
         })?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session)
+        .await
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+
+    let permission = normalize_share_permission(&req.permission).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Invalid share permission")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details("permission must be one of: view, comment, collaborate"),
+            ),
+        )
+    })?;
 
     let shared_at = chrono::Utc::now().to_rfc3339();
     let mut shares = Vec::new();
@@ -121,7 +147,7 @@ pub async fn share_session(
             .share_session_with_workspace(
                 &session_id,
                 workspace_id,
-                &req.permission,
+                permission,
                 &claims.sub,
                 req.expires_at.as_deref(),
             )
@@ -139,7 +165,7 @@ pub async fn share_session(
         shares.push(SessionShareInfo {
             share_id: id,
             user_id: workspace_id.clone(),
-            permission: req.permission.clone(),
+            permission: permission.to_string(),
             shared_at: shared_at.clone(),
         });
     }
@@ -153,7 +179,7 @@ pub async fn share_session(
                     &session_id,
                     user_id,
                     &claims.tenant_id,
-                    &req.permission,
+                    permission,
                     &claims.sub,
                     req.expires_at.as_deref(),
                 )
@@ -171,7 +197,7 @@ pub async fn share_session(
             shares.push(SessionShareInfo {
                 share_id: id,
                 user_id: user_id.clone(),
-                permission: req.permission.clone(),
+                permission: permission.to_string(),
                 shared_at: shared_at.clone(),
             });
         }
@@ -233,8 +259,9 @@ pub async fn get_session_shares(
             )
         })?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_read_access(&state, &claims, &session)
+        .await
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let db_shares = state
         .db
@@ -325,8 +352,9 @@ pub async fn revoke_session_share(
             )
         })?;
 
-    // Tenant isolation check
-    validate_tenant_isolation(&claims, &session.tenant_id)?;
+    ensure_session_write_access(&state, &claims, &session)
+        .await
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let share_type = params.get("type").map(|s| s.as_str()).unwrap_or("user");
 
@@ -405,4 +433,28 @@ pub async fn get_sessions_shared_with_me(
         .collect();
 
     Ok(Json(SharedWithMeResponse { sessions }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_share_permission;
+
+    #[test]
+    fn normalize_share_permission_accepts_legacy_aliases() {
+        assert_eq!(normalize_share_permission("read"), Some("view"));
+        assert_eq!(normalize_share_permission("write"), Some("collaborate"));
+        assert_eq!(normalize_share_permission("view"), Some("view"));
+        assert_eq!(normalize_share_permission("comment"), Some("comment"));
+        assert_eq!(
+            normalize_share_permission("collaborate"),
+            Some("collaborate")
+        );
+    }
+
+    #[test]
+    fn normalize_share_permission_rejects_unknown_values() {
+        assert_eq!(normalize_share_permission("owner"), None);
+        assert_eq!(normalize_share_permission("admin"), None);
+        assert_eq!(normalize_share_permission(""), None);
+    }
 }

@@ -15,7 +15,9 @@ use axum::http::StatusCode;
 use axum::Extension;
 
 mod common;
-use common::{delete_test_training_job, setup_state, test_admin_claims, test_viewer_claims};
+use common::{
+    delete_test_training_job, setup_state, test_admin_claims, test_viewer_claims, TestkitEnvGuard,
+};
 
 /// Test listing training jobs returns tenant-scoped results
 #[tokio::test]
@@ -98,6 +100,67 @@ async fn list_training_jobs_returns_tenant_scoped_results() -> Result<()> {
     delete_test_training_job(&state, "job-tenant1-2").await?;
     delete_test_training_job(&state, "job-default-1").await?;
 
+    Ok(())
+}
+
+/// Admin listing should fall back to DB records when orchestrator cache is empty.
+#[tokio::test]
+async fn list_training_jobs_admin_falls_back_to_db_without_e2e_mode() -> Result<()> {
+    let _env_guard = TestkitEnvGuard::disabled().await;
+    let state = setup_state(None).await.expect("state");
+
+    adapteros_db::sqlx::query(
+        "INSERT INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("git-repo-1")
+    .bind("repo-1")
+    .bind("/tmp/repo-1")
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind("ready")
+    .bind("tenant-1-user")
+    .execute(state.db.pool_result()?)
+    .await
+    .expect("git repository seed should succeed");
+
+    adapteros_db::sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, tenant_id, training_config_json, status, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("job-admin-db-fallback")
+    .bind("repo-1")
+    .bind("tenant-1")
+    .bind("{\"rank\":16,\"alpha\":32}")
+    .bind("pending")
+    .bind("{}")
+    .bind("tenant-1-user")
+    .execute(state.db.pool_result()?)
+    .await
+    .expect("test insert should succeed");
+
+    let claims = test_admin_claims();
+    let result = list_training_jobs(
+        State(state.clone()),
+        Extension(claims),
+        Query(TrainingListParams::default()),
+    )
+    .await;
+
+    assert!(result.is_ok(), "list should succeed");
+    let jobs = result.unwrap().0;
+    assert!(
+        jobs.jobs
+            .iter()
+            .any(|job| job.id == "job-admin-db-fallback"),
+        "admin list should include DB-backed jobs when in-memory list is empty"
+    );
+
+    delete_test_training_job(&state, "job-admin-db-fallback")
+        .await
+        .expect("test cleanup should succeed");
     Ok(())
 }
 

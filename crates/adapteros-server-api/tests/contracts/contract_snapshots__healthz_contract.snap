@@ -1,5 +1,6 @@
 ---
 source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 339
 expression: "json!({ \"status\": health_status.as_u16(), \"body\": health_body })"
 ---
 {
@@ -7,17 +8,17 @@ expression: "json!({ \"status\": health_status.as_u16(), \"body\": health_body }
     "build_id": "<redacted>",
     "crate_manifest": {
       "adapteros-config": "0.2.0",
-      "adapteros-core": "0.14.1",
-      "adapteros-crypto": "0.14.1",
-      "adapteros-db": "0.14.1",
-      "adapteros-lora-kernel-mtl": "0.14.1",
-      "adapteros-lora-mlx-ffi": "0.14.1",
-      "adapteros-lora-router": "0.14.1",
-      "adapteros-lora-worker": "0.14.1",
-      "adapteros-policy": "0.14.1",
-      "adapteros-server": "0.14.1",
+      "adapteros-core": "0.14.2",
+      "adapteros-crypto": "0.14.2",
+      "adapteros-db": "0.14.2",
+      "adapteros-lora-kernel-mtl": "0.14.2",
+      "adapteros-lora-mlx-ffi": "0.14.2",
+      "adapteros-lora-router": "0.14.2",
+      "adapteros-lora-worker": "0.14.2",
+      "adapteros-policy": "0.14.2",
+      "adapteros-server": "0.14.2",
       "adapteros-server-api": "0.5.0",
-      "adapteros-telemetry": "0.14.1"
+      "adapteros-telemetry": "0.14.2"
     },
     "crate_manifest_digest": "<redacted>",
     "schema_version": "2.0.0",
