@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 **Milestone:** v1.1.18 System Stabilization (active)
 **Current phase:** Phases 49 & 50 complete — next up Phase 51
-**Status:** Phases 49 (training worker spawn) and 50 (runtime state hygiene) complete
+**Status:** Ready to plan
 
 ## Session Log
 
