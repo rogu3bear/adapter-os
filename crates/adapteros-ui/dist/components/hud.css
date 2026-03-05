@@ -64,8 +64,8 @@
     border-radius: var(--radius, 12px);
     border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
     overflow: hidden;
-    transition: opacity 200ms var(--ease-default, ease),
-                transform 200ms var(--ease-default, ease);
+    transition: opacity var(--duration-normal) var(--ease-default, ease),
+                transform var(--duration-normal) var(--ease-default, ease);
     animation: hud-enter var(--hud-enter-slow) var(--hud-ease-out) both;
 }
 
@@ -135,7 +135,7 @@
     color: var(--color-muted-foreground, oklch(0.55 0.02 250));
     margin-top: var(--space-1, 0.25rem);
     opacity: 0;
-    transition: opacity 150ms;
+    transition: opacity var(--duration-normal);
 }
 
 .hud-msg:hover .hud-msg-meta { opacity: 1; }
@@ -165,7 +165,7 @@
     color: var(--color-muted-foreground, oklch(0.55 0.02 250));
     text-decoration: none;
     cursor: pointer;
-    transition: color 150ms, background 150ms, border-color 150ms;
+    transition: color var(--duration-normal), background var(--duration-normal), border-color var(--duration-normal);
     animation: hud-enter var(--hud-enter-fast) var(--hud-ease-out) both;
 }
 
@@ -233,7 +233,7 @@
     align-items: center;
     justify-content: center;
     font-size: 0.75rem;
-    transition: background 150ms;
+    transition: background var(--duration-normal);
 }
 
 .hud-input-btn--send {
@@ -365,7 +365,7 @@
     text-decoration: none;
     padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
     border-radius: var(--radius, 12px);
-    transition: color 150ms, background 150ms;
+    transition: color var(--duration-normal), background var(--duration-normal);
 }
 
 .hud-action-link:hover {
@@ -397,7 +397,7 @@
     text-align: left;
     cursor: pointer;
     color: var(--color-foreground, oklch(0.2 0.02 250));
-    transition: background 100ms;
+    transition: background var(--duration-fast);
     text-decoration: none;
 }
 
@@ -440,7 +440,7 @@
 .progress-rail-fill {
     height: 100%;
     background: var(--action-primary-bg, oklch(0.55 0.15 250));
-    transition: width 300ms ease-out;
+    transition: width var(--duration-slow) ease-out;
     border-radius: 0 1.5px 1.5px 0;
 }
 
@@ -479,7 +479,7 @@
     color: var(--color-muted-foreground, oklch(0.55 0.02 250));
     letter-spacing: var(--tracking-tight, -0.025em);
     cursor: pointer;
-    transition: color 150ms;
+    transition: color var(--duration-normal);
     background: none;
     border: none;
     padding: 0.75rem 0.5rem;
@@ -505,7 +505,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 300ms;
+    transition: background var(--duration-slow);
 }
 
 .hud-system-dot::after {
@@ -513,7 +513,7 @@
     width: 0.625rem;
     height: 0.625rem;
     border-radius: 50%;
-    transition: background 300ms, box-shadow 300ms;
+    transition: background var(--duration-slow), box-shadow var(--duration-slow);
 }
 
 .hud-system-dot--ready::after {
@@ -540,7 +540,7 @@
     color: var(--color-muted-foreground, oklch(0.55 0.02 250));
     text-decoration: none;
     cursor: pointer;
-    transition: color 150ms;
+    transition: color var(--duration-normal);
     background: none;
     border: none;
     padding: 0;
@@ -596,7 +596,7 @@
     align-items: center;
     justify-content: center;
     color: var(--color-muted-foreground, oklch(0.55 0.02 250));
-    transition: color 150ms, background 150ms;
+    transition: color var(--duration-normal), background var(--duration-normal);
 }
 
 .slide-panel-close:hover {
@@ -608,7 +608,7 @@
 .hud-desktop:has(.slide-panel) .hud-card {
     opacity: 0.3;
     pointer-events: none;
-    transition: opacity 250ms var(--ease-default, ease);
+    transition: opacity var(--duration-slow) var(--ease-default, ease);
 }
 
 .slide-panel-backdrop {

@@ -434,7 +434,7 @@ p, h1, h2, h3, h4, h5, h6 {
 
 /* Card hover lift effect */
 .hover-lift {
-    transition: transform 200ms ease, box-shadow 200ms ease;
+    transition: transform var(--duration-normal) var(--ease-default), box-shadow var(--duration-normal) var(--ease-default);
 }
 .hover-lift:hover {
     transform: translateY(-2px);
