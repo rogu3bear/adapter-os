@@ -245,6 +245,9 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
         "Runtime var base resolved"
     );
 
+    // Update supervision state (crash-vs-rebuild discrimination)
+    super::supervision_state::update_supervision_state_on_boot(&runtime_dir.path);
+
     // Derive effective JWT mode and session lifetime from auth config
     {
         let mut cfg = server_config

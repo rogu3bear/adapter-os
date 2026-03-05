@@ -60,6 +60,7 @@ pub mod security;
 mod server;
 pub mod startup_orchestrator;
 pub mod startup_recovery;
+pub mod supervision_state;
 mod tasks;
 mod timings;
 
@@ -90,6 +91,7 @@ pub use startup_orchestrator::{
     StartupRecoveryPath, StartupSnapshot,
 };
 pub use startup_recovery::{run_startup_recovery, StartupRecoveryReport};
+pub use supervision_state::{update_supervision_state_on_boot, SupervisionState};
 pub use tasks::{BackgroundTaskSpawner, SpawnError, SpawnResult};
 pub use timings::BootTimings;
 
