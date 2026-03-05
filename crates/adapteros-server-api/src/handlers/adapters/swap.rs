@@ -237,44 +237,63 @@ pub async fn swap_adapters(
             ));
         }
     } else {
-        // Fallback: direct DB updates if no lifecycle manager
-        state
-            .lifecycle_db()
-            .update_adapter_state_tx_for_tenant(
-                &claims.tenant_id,
-                &req.old_adapter_id,
-                "unloaded",
-                "swap_no_lifecycle_manager",
-            )
-            .await
-            .map_err(|e| {
-                error!(
-                    tenant_id = %claims.tenant_id,
-                    adapter_id = %req.old_adapter_id,
-                    error = %e,
-                    "Failed to update old adapter state"
-                );
-                ApiError::internal("failed to update adapter state").with_details(e.to_string())
-            })?;
+        // Fail closed: adapter swap requires lifecycle manager for GPU weight management
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "LIFECYCLE_UNAVAILABLE",
+            "Adapter swap requires lifecycle manager; inference deployment not configured",
+        ));
+    }
 
-        state
-            .lifecycle_db()
-            .update_adapter_state_tx_for_tenant(
-                &claims.tenant_id,
-                &req.new_adapter_id,
-                "warm",
-                "swap_no_lifecycle_manager",
-            )
+    // Dispatch swap command to worker over UDS so GPU-resident weights are updated
+    {
+        let inference_core = crate::inference_core::InferenceCore::new(&state);
+        match inference_core
+            .select_worker_for_tenant(&claims.tenant_id)
             .await
-            .map_err(|e| {
-                error!(
-                    tenant_id = %claims.tenant_id,
-                    adapter_id = %req.new_adapter_id,
+        {
+            Ok(worker_binding) => {
+                let uds_path = std::path::PathBuf::from(&worker_binding.uds_path);
+                let uds_client =
+                    crate::uds_client::UdsClient::new(std::time::Duration::from_secs(30));
+                let swap_command = adapteros_lora_worker::AdapterCommand::Swap {
+                    add_ids: vec![req.new_adapter_id.clone()],
+                    remove_ids: vec![req.old_adapter_id.clone()],
+                    expected_stack_hash: None,
+                };
+                match uds_client
+                    .send_adapter_command_json(&uds_path, &swap_command)
+                    .await
+                {
+                    Ok(result) if result.success => {
+                        info!(
+                            old_adapter_id = %req.old_adapter_id,
+                            new_adapter_id = %req.new_adapter_id,
+                            stack_hash = ?result.stack_hash,
+                            "Worker confirmed adapter swap via UDS"
+                        );
+                    }
+                    Ok(result) => {
+                        warn!(
+                            message = %result.message,
+                            "Worker reported swap issue, DB state already updated"
+                        );
+                    }
+                    Err(e) => {
+                        // DB state is already updated; log UDS failure.
+                        // Worker may be temporarily unavailable — swap will
+                        // take effect on next adapter resolution.
+                        error!(error = %e, "Failed to send swap command to worker via UDS");
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
                     error = %e,
-                    "Failed to update new adapter state"
+                    "No worker available for UDS swap dispatch; DB state updated but GPU swap deferred"
                 );
-                ApiError::internal("failed to update adapter state").with_details(e.to_string())
-            })?;
+            }
+        }
     }
 
     let duration_ms = start_time.elapsed().as_millis() as u64;

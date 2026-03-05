@@ -58,6 +58,67 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use utoipa::ToSchema;
 
+/// Preload adapters in the worker before starting inference stream.
+///
+/// Sends `AdapterCommand::Preload` for each adapter ID via UDS. If any
+/// preload fails, returns an error so the caller can fail fast before
+/// starting the SSE stream.
+async fn preload_adapters_for_inference(
+    state: &AppState,
+    tenant_id: &str,
+    adapter_ids: &[String],
+) -> Result<(), ApiError> {
+    if adapter_ids.is_empty() {
+        return Ok(());
+    }
+
+    let inference_core = InferenceCore::new(state);
+    let worker_binding = inference_core
+        .select_worker_for_tenant(tenant_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "WORKER_UNAVAILABLE",
+                &format!("No worker available for adapter preload: {}", e),
+            )
+        })?;
+
+    let uds_path = std::path::PathBuf::from(&worker_binding.uds_path);
+    let uds_client = UdsClient::new(Duration::from_secs(30));
+
+    for adapter_id in adapter_ids {
+        let preload_cmd = adapteros_lora_worker::AdapterCommand::Preload {
+            adapter_id: adapter_id.clone(),
+            hash: adapteros_core::B3Hash::default(),
+        };
+        match uds_client
+            .send_adapter_command_json(&uds_path, &preload_cmd)
+            .await
+        {
+            Ok(result) if result.success => {
+                debug!(adapter_id = %adapter_id, "Adapter preloaded for inference");
+            }
+            Ok(result) => {
+                // Non-success may mean already loaded (idempotent); log and continue
+                debug!(
+                    adapter_id = %adapter_id,
+                    message = %result.message,
+                    "Adapter preload returned non-success (may be already loaded)"
+                );
+            }
+            Err(e) => {
+                return Err(ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "ADAPTER_PRELOAD_FAILED",
+                    &format!("Failed to preload adapter {}: {}", adapter_id, e),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Streaming inference request
 ///
 /// Accepts the same fields as the standard `/v1/infer` endpoint but returns
@@ -1294,6 +1355,13 @@ pub async fn streaming_infer(
         if let Some(coreml_mode) = lock.coreml_mode {
             internal_request.coreml_mode = Some(coreml_mode);
         }
+    }
+
+    // Preload adapters before starting stream (fail fast, not mid-stream)
+    if let Some(ref adapter_ids) = internal_request.effective_adapter_ids {
+        preload_adapters_for_inference(&state, &claims.tenant_id, adapter_ids)
+            .await
+            .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     }
 
     // Clone data for the stream

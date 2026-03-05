@@ -10,6 +10,7 @@
 
 use adapteros_core::{CircuitBreaker, CircuitBreakerConfig, StandardCircuitBreaker};
 use adapteros_inference_contract::{UDS_INFER_CANCEL_PREFIX, UDS_INFER_PATH};
+use adapteros_lora_worker::{AdapterCommand, AdapterCommandResult};
 use serde::Deserialize;
 use serde_json;
 use std::path::Path;
@@ -1753,6 +1754,25 @@ impl UdsClient {
         }
 
         Ok(())
+    }
+
+    /// Send a JSON-encoded AdapterCommand to the worker via UDS.
+    ///
+    /// Uses the worker's `POST /adapter/command` route which accepts the
+    /// tagged `AdapterCommand` enum as JSON body and returns an
+    /// `AdapterCommandResult`.
+    pub async fn send_adapter_command_json(
+        &self,
+        uds_path: &Path,
+        command: &AdapterCommand,
+    ) -> Result<AdapterCommandResult, UdsClientError> {
+        let body = serde_json::to_value(command)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+        let response = self
+            .send_http_request(uds_path, "POST", "/adapter/command", Some(body))
+            .await?;
+        serde_json::from_value(response)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))
     }
 
     /// Cancel an active inference request via UDS
