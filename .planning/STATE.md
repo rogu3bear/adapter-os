@@ -11,8 +11,8 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 **Milestone:** v1.1.18 System Stabilization (active)
 **Current phase:** Phase 54 — Performance and Security Hardening
-**Current Plan:** Not started
-**Status:** Ready to plan
+**Current Plan:** Plan 02 of 3 complete
+**Status:** Executing
 
 ## Session Log
 
@@ -33,6 +33,7 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - 2026-03-05: Phase 52 plan 02 complete: bootstrap.sh idempotent dependency installer + .adapteros-root project root marker.
 - 2026-03-05: Phase 52 plan 03 complete: start script first-run detection, pre-flight dep checks, model-missing fail-fast, migration count logging, zero-touch config defaults validated.
 - 2026-03-05: Phase 52 complete: Full Portability — all 3 plans delivered (path resolution, bootstrap, fresh-clone experience).
+- 2026-03-05: Phase 54 plan 02 complete: per-tier rate limiting (health/public/internal/protected RPM), SecurityConfig debug redaction, security audit + secret exposure contract scripts.
 
 ## Decisions
 
@@ -60,9 +61,13 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - UmaMemoryConfig named to avoid collision with adapteros-policy::packs::memory::MemoryConfig
 - MemoryLimits::from_uma_config sets both max_vram and max_system_ram to same effective ceiling (unified memory)
 - Boot warmup already wired via inference_warmup module -- no additional plumbing needed
+- Tightened RATE_LIMIT_EXEMPT_PATHS: removed /v1/system/, /v1/models/, /v1/plans (mutation routes must not bypass)
+- Health tier unconditionally bypasses rate limiting -- probes must never be throttled
+- Per-tier RPM override is Option<u32> with fallback to global requests_per_minute
+- SecurityConfig redacts jwt_secret and jwt_additional_hmac_secrets in Debug impl
 
 ## Session
 
-**Last Date:** 2026-03-05T06:14:00Z
-**Stopped At:** Completed 54-01-PLAN.md
+**Last Date:** 2026-03-05T06:50:20Z
+**Stopped At:** Completed 54-02-PLAN.md
 **Resume File:** None
