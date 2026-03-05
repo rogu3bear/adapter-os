@@ -13042,8 +13042,6 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-futures"
 version = "0.4.61"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe88540d1c934c4ec8e6db0afa536876c5441289d7f9f9123d4f065ac1250a6b"
 dependencies = [
  "cfg-if",
  "futures-util",
@@ -14277,7 +14275,3 @@ dependencies = [
  "syn 2.0.117",
  "winnow",
 ]
-
-[[patch.unused]]
-name = "wasm-bindgen-futures"
-version = "0.4.58"

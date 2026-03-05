@@ -1,13 +1,15 @@
 use alloc::collections::VecDeque;
 use alloc::rc::Rc;
 use core::cell::{Cell, RefCell};
+use core::panic::AssertUnwindSafe;
 use js_sys::Promise;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsError;
 
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen]
-    fn queueMicrotask(closure: &Closure<dyn FnMut(JsValue)>);
+    fn queueMicrotask(closure: &Closure<dyn FnMut(JsValue) -> Result<(), JsError>>);
 
     type Global;
 
@@ -75,7 +77,7 @@ impl QueueState {
 pub(crate) struct Queue {
     state: Rc<QueueState>,
     promise: Promise,
-    closure: Closure<dyn FnMut(JsValue)>,
+    closure: Closure<dyn FnMut(JsValue) -> Result<(), JsError>>,
     has_queue_microtask: bool,
 }
 
@@ -89,7 +91,7 @@ impl Queue {
             if self.has_queue_microtask {
                 queueMicrotask(&self.closure);
             } else {
-                let _ = self.promise.then(&self.closure);
+                let _ = self.promise.then_map(&self.closure);
             }
         }
     }
@@ -124,11 +126,14 @@ impl Queue {
             promise: Promise::resolve(&JsValue::undefined()),
 
             closure: {
-                let state = Rc::clone(&state);
+                let state = AssertUnwindSafe(Rc::clone(&state));
 
                 // This closure will only be called on the next microtask event
                 // tick
-                Closure::new(move |_| state.run_all())
+                Closure::new(move |_| {
+                    state.run_all();
+                    Ok(())
+                })
             },
 
             state,

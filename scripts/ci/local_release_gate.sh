@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 : "${LOCAL_RELEASE_MODE:=standard}"
 : "${LOCAL_RELEASE_RUN_INFERENCE:=0}"
 : "${LOCAL_RELEASE_GOVERNANCE_MODE:=enforce}"
+: "${GOVERNANCE_TARGET_MANIFEST:=$ROOT_DIR/docs/governance/target-manifest.json}"
 : "${AOS_SERVER_PORT:=18080}"
 : "${AOS_API_URL:=http://localhost:${AOS_SERVER_PORT}}"
 : "${LOCAL_RELEASE_BUNDLE_DIR:=$ROOT_DIR/target/release-bundle}"
@@ -58,6 +59,31 @@ capture_release_evidence() {
     "$LOCAL_RELEASE_EVIDENCE_DIR/release_verification.log"
 }
 
+governance_blocked_external_exception_reason() {
+  local governance_repo="$1"
+  local governance_branch="$2"
+
+  if [[ ! -f "$GOVERNANCE_TARGET_MANIFEST" ]]; then
+    return 1
+  fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+
+  jq -r --arg repo "$governance_repo" --arg branch "$governance_branch" '
+    first(.targets[]? | select(.repo == $repo and .branch == $branch)) as $target
+    | if $target == null then
+        empty
+      else
+        ($target.approved_exceptions // []
+          | map(select(.type == "blocked_external") | (.reason // ""))
+          | map(select(length > 0))
+          | .[0] // empty)
+      end
+  ' "$GOVERNANCE_TARGET_MANIFEST"
+}
+
 run_governance_preflight() {
   case "$LOCAL_RELEASE_GOVERNANCE_MODE" in
     off)
@@ -69,11 +95,15 @@ run_governance_preflight() {
     warn|enforce)
       echo ""
       echo "-> Governance preflight (${LOCAL_RELEASE_GOVERNANCE_MODE})"
+      local governance_repo governance_branch governance_required_context exception_reason
+      governance_repo="${GOVERNANCE_REPO:-rogu3bear/adapter-os}"
+      governance_branch="${GOVERNANCE_BRANCH:-main}"
+      governance_required_context="${GOVERNANCE_REQUIRED_CONTEXT:-FFI AddressSanitizer (push)}"
       set +e
       preflight_output="$(bash scripts/ci/check_governance_preflight.sh \
-        --repo "${GOVERNANCE_REPO:-rogu3bear/adapter-os}" \
-        --branch "${GOVERNANCE_BRANCH:-main}" \
-        --required-context "${GOVERNANCE_REQUIRED_CONTEXT:-FFI AddressSanitizer (push)}" 2>&1)"
+        --repo "${governance_repo}" \
+        --branch "${governance_branch}" \
+        --required-context "${governance_required_context}" 2>&1)"
       preflight_rc=$?
       set -e
       printf '%s\n' "$preflight_output"
@@ -84,6 +114,12 @@ run_governance_preflight() {
           ;;
         20)
           if [[ "$LOCAL_RELEASE_GOVERNANCE_MODE" == "enforce" ]]; then
+            exception_reason="$(governance_blocked_external_exception_reason "$governance_repo" "$governance_branch" || true)"
+            if [[ -n "$exception_reason" ]]; then
+              echo "WARN: governance preflight blocked_external is manifest-approved for ${governance_repo}@${governance_branch}; continuing in enforce mode."
+              echo "INFO: governance approved_exception reason: ${exception_reason}"
+              return 0
+            fi
             echo "ERROR: governance preflight blocked_external (enforced)." >&2
             exit 1
           fi

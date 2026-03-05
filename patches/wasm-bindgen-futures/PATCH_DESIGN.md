@@ -1,6 +1,8 @@
-# Re-Entrancy Protection Patch for wasm-bindgen-futures 0.4.58
+# Re-Entrancy Protection Patch for wasm-bindgen-futures 0.4.61
 
 ## Bug Summary
+
+This patch is rebased onto upstream `wasm-bindgen-futures 0.4.61`.
 
 `Task::run()` in `singlethread.rs:132` calls `self.inner.borrow_mut()` and holds the
 `RefMut` for the entire duration of the poll. During the poll, web_sys DOM calls cross
@@ -41,19 +43,18 @@ added by re-entrant scheduling.
 ### Layer 2: `try_borrow_mut()` in `Task::run()` (Safety Belt)
 
 Replace `self.inner.borrow_mut()` with `self.inner.try_borrow_mut()`. If the borrow
-fails (task is already being polled), push the task back to the front of the queue
-so it will be retried. This requires changing `run()` to accept `Rc<Self>` so it can
-re-queue itself.
+fails (task is already being polled), return gracefully instead of panicking. The
+task remains safe to re-poll through normal wakeup/queue flow.
 
 However, this layer should **never** fire in practice if Layer 1 is correct. It exists
 only as a defense-in-depth measure.
 
 ### Why Not Layer 2 Alone?
 
-Layer 2 alone requires changing `run(&self)` to `run(this: Rc<Self>)`. This works but
-is more invasive than necessary. The re-entrancy guard in `run_all` prevents the
-problematic call from ever reaching `Task::run()`, making it the primary fix. Layer 2
-provides a safety net that prevents a panic even if the guard has a gap.
+Layer 2 alone avoids the panic, but it does not prevent re-entrant `run_all` churn.
+The re-entrancy guard in `run_all` prevents nested queue-drain execution in the first
+place, making it the primary fix. Layer 2 provides a safety net if that guard ever
+misses an edge case.
 
 ### Why Not Layer 1 Alone?
 

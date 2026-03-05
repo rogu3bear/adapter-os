@@ -81,11 +81,15 @@ else
 fi
 
 if [[ "$MVP_SMOKE_SKIP_UI_BUILD" == "1" ]]; then
-  log "Skipping ui pnpm build (set MVP_SMOKE_SKIP_UI_BUILD=0 to enable)"
+  log "Skipping ui build (set MVP_SMOKE_SKIP_UI_BUILD=0 to enable)"
 else
   UI_DIR="$MVP_SMOKE_UI_DIR"
   if [[ -z "$UI_DIR" ]]; then
-    if [[ -d "ui" ]]; then
+    if [[ -f "ui/package.json" ]]; then
+      UI_DIR="ui"
+    elif [[ -f "crates/adapteros-ui/package.json" || -f "crates/adapteros-ui/Trunk.toml" ]]; then
+      UI_DIR="crates/adapteros-ui"
+    elif [[ -d "ui" ]]; then
       UI_DIR="ui"
     elif [[ -d "crates/adapteros-ui" ]]; then
       UI_DIR="crates/adapteros-ui"
@@ -93,10 +97,19 @@ else
   fi
 
   if [[ -n "$UI_DIR" && -d "$UI_DIR" ]]; then
-    run_step_in_dir "ui pnpm build" "$UI_DIR" pnpm build
+    if [[ -f "$UI_DIR/package.json" ]]; then
+      run_step_in_dir "ui pnpm build" "$UI_DIR" pnpm build
+    elif [[ -f "$UI_DIR/Trunk.toml" ]]; then
+      require_cmd trunk
+      run_step_in_dir "ui trunk build --release" "$UI_DIR" env NO_COLOR=true trunk build --release
+    else
+      TOTAL=$((TOTAL + 1))
+      err "ui build (missing package.json/Trunk.toml in $UI_DIR; set MVP_SMOKE_UI_DIR)"
+      FAILED=$((FAILED + 1))
+    fi
   else
     TOTAL=$((TOTAL + 1))
-    err "ui pnpm build (missing directory; set MVP_SMOKE_UI_DIR)"
+    err "ui build (missing directory; set MVP_SMOKE_UI_DIR)"
     FAILED=$((FAILED + 1))
   fi
 fi

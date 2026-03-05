@@ -172,7 +172,13 @@ prune_log_archives() {
     [ "$keep_count" -gt 0 ] 2>/dev/null || return 0
 
     local -a archives
-    mapfile -t archives < <(ls -1t "${base_file}".20* 2>/dev/null || true)
+    if command -v mapfile >/dev/null 2>&1; then
+        mapfile -t archives < <(ls -1t "${base_file}".20* 2>/dev/null || true)
+    else
+        while IFS= read -r archive; do
+            [ -n "$archive" ] && archives+=("$archive")
+        done < <(ls -1t "${base_file}".20* 2>/dev/null || true)
+    fi
     local count="${#archives[@]}"
     if [ "$count" -le "$keep_count" ]; then
         return 0
@@ -2092,6 +2098,7 @@ start_node() {
         --cas-path "$PROJECT_ROOT/var/cas" \
         --kernel-path "$PROJECT_ROOT/var/kernels" \
         --plan-path "$PROJECT_ROOT/var/plans" \
+        --peer-keys-dir "$PROJECT_ROOT/var/peers" \
         > "$NODE_LOG" 2>&1 &
     local pid=$!
 
