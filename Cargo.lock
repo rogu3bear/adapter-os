@@ -10480,12 +10480,16 @@ version = "5.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a62d7f86047af0077255a29494136b9aaaf697c76ff70b8e49cded4e2623c14"
 dependencies = [
+ "aes",
+ "cbc",
  "futures-util",
  "generic-array",
  "getrandom 0.2.17",
+ "hkdf",
  "num",
  "once_cell",
  "serde",
+ "sha2",
  "zbus",
 ]
 
@@ -12001,6 +12005,7 @@ dependencies = [
  "signal-hook-registry",
  "socket2 0.6.2",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -13975,6 +13980,7 @@ dependencies = [
  "rustix 1.1.4",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",

@@ -9,6 +9,10 @@ Get adapterOS running on macOS in a few steps.
 - **macOS 13.0+** with Apple Silicon (M1/M2/M3/M4)
 - **Rust** — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 - **MLX** — `brew install mlx`
+- **Production macOS builds** (`cargo build --release --workspace --exclude adapteros-fuzz --features production-macos`) require:
+  - **Full Xcode** — Command Line Tools alone are not enough for `xcrun metal` or `xcodebuild -downloadComponent MetalToolchain`
+  - **Active Xcode developer dir** — `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`
+  - **CMake** — `brew install cmake`
 
 ---
 
@@ -84,6 +88,8 @@ cd crates/adapteros-ui && trunk serve
 ## Verify
 
 ```bash
+xcrun --find metal
+cmake --version
 ./start preflight
 ./aosctl doctor
 ./aosctl preflight

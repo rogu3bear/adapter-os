@@ -50,7 +50,7 @@ fn adapter_command_preload_serializes_correctly() {
     let hash = B3Hash::hash(b"test-adapter");
     let cmd = AdapterCommand::Preload {
         adapter_id: "test-adapter".into(),
-        hash: hash.clone(),
+        hash,
     };
     let json = serde_json::to_string(&cmd).unwrap();
 
@@ -125,7 +125,7 @@ fn adapter_command_swap_with_expected_hash() {
     let cmd = AdapterCommand::Swap {
         add_ids: vec!["a1".into(), "a2".into()],
         remove_ids: vec!["b1".into()],
-        expected_stack_hash: Some(hash.clone()),
+        expected_stack_hash: Some(hash),
     };
     let json = serde_json::to_string(&cmd).unwrap();
     let roundtrip: AdapterCommand = serde_json::from_str(&json).unwrap();

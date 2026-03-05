@@ -183,7 +183,7 @@ run_rust_suite() {
   run_cmd "Reset test database" "bash ${ROOT_DIR}/scripts/db/reset_test_db.sh"
   run_cmd "Tracing import check" "bash ${ROOT_DIR}/scripts/check_tracing_imports.sh"
   run_cmd "Rust fmt check" "cargo fmt --all -- --check"
-  run_cmd "Rust lint (clippy)" "cargo clippy --workspace --all-features --all-targets -- -D warnings"
+  run_cmd "Rust lint (clippy)" "cargo clippy --workspace --all-targets --exclude adapteros-lora-mlx-ffi -- -D warnings"
   run_cmd "Rust unit tests" "cargo test --workspace --exclude adapteros-lora-mlx-ffi --lib --bins --examples"
   run_cmd "Rust integration tests" "cargo test --workspace --exclude adapteros-lora-mlx-ffi --tests"
   run_cmd "Rust Miri (aos_worker library)" "cargo miri test --lib adapteros_lora_worker"

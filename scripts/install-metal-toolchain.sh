@@ -27,6 +27,15 @@ echo -e "${BLUE}adapterOS Metal Toolchain Installer${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
+print_full_xcode_guidance() {
+    echo -e "${YELLOW}Full Xcode is required for Metal compilation and toolchain management.${NC}"
+    echo -e "${YELLOW}Command Line Tools alone do not provide xcodebuild or a usable metal compiler.${NC}"
+    echo -e "${YELLOW}Install Xcode.app, then select it as the active developer directory:${NC}"
+    echo -e "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    echo -e "${YELLOW}If the Metal Toolchain component is still missing, run:${NC}"
+    echo -e "  xcodebuild -downloadComponent MetalToolchain"
+}
+
 # Check if running on macOS
 if [[ "$(uname)" != "Darwin" ]]; then
     echo -e "${RED}Error: This script must be run on macOS${NC}"
@@ -35,8 +44,8 @@ fi
 
 # Check if Xcode is installed
 if ! command -v xcodebuild &> /dev/null; then
-    echo -e "${RED}Error: Xcode Command Line Tools not installed${NC}"
-    echo -e "${YELLOW}Install with: xcode-select --install${NC}"
+    echo -e "${RED}Error: Full Xcode is required for Metal builds${NC}"
+    print_full_xcode_guidance
     exit 1
 fi
 
@@ -49,7 +58,8 @@ if xcrun --find metal &> /dev/null; then
     METAL_PATH=$(xcrun --find metal)
     echo -e "${GREEN}✓ Metal compiler found: ${METAL_PATH}${NC}"
 else
-    echo -e "${RED}Error: Metal compiler not found${NC}"
+    echo -e "${RED}Error: Metal compiler not found in the active developer directory${NC}"
+    print_full_xcode_guidance
     exit 1
 fi
 
@@ -146,5 +156,5 @@ echo -e "  1. Build adapterOS: ${YELLOW}cargo build${NC}"
 echo -e "  2. Test Metal kernels: ${YELLOW}cargo test -p adapteros-lora-kernel-mtl${NC}"
 echo ""
 echo -e "${BLUE}For more information, see:${NC}"
-echo -e "  ${YELLOW}docs/METAL_TOOLCHAIN_SETUP.md${NC}"
+echo -e "  ${YELLOW}QUICKSTART.md${NC}"
 echo ""
