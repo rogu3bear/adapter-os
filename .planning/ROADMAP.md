@@ -51,7 +51,7 @@ Closed the training execution gap by enforcing worker/preflight readiness before
 - [x] **Phase 49: Training Worker Spawn Fix** - Fix binary PATH resolution so training worker spawns successfully on backend boot. (v1.1.18) (completed 2026-03-05)
 - [x] **Phase 50: Runtime State Hygiene** - Clean stale sockets, degraded markers, and restart counters on boot. (v1.1.18) (completed 2026-03-05)
 - [x] **Phase 51: Adapter Inference End-to-End Activation** - Make adapters functional: hot-swap inference, measurable adapter influence, trainable adapters. (v1.1.18) (completed 2026-03-05)
-- [ ] **Phase 52: Full Portability** - Cross-platform builds, relocatable paths, environment-independent config. (v1.1.18)
+- [x] **Phase 52: Full Portability** - Cross-platform builds, relocatable paths, environment-independent config. (v1.1.18) (completed 2026-03-05)
 - [x] **Phase 53: UI Harmony and Visual Polish** - Strip bloat, unify Liquid Glass visual language, Apple-themed minimalism. (v1.1.18) (completed 2026-03-05)
 - [ ] **Phase 54: Performance and Security Hardening** - Optimize speed, minimize memory, harden attack surfaces. (v1.1.18)
 
@@ -211,7 +211,7 @@ Plans:
 | 49. Training Worker Spawn Fix                      | 2/2            | Complete | 2026-03-05 |
 | 50. Runtime State Hygiene                           | 2/2 | Complete   | 2026-03-05 |
 | 51. Adapter Inference End-to-End Activation         | 3/3 | Complete    | 2026-03-05 |
-| 52. Full Portability                                | 2/3 | In Progress|  |
+| 52. Full Portability                                | 3/3 | Complete   | 2026-03-05 |
 | 53. UI Harmony and Visual Polish                    | 3/3 | Complete    | 2026-03-05 |
 | 54. Performance and Security Hardening              | 1/3 | In Progress|  |
 

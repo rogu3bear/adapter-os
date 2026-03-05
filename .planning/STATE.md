@@ -30,6 +30,9 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - 2026-03-05: Phase 53 plan 02 complete: chat and dashboard polish — removed 8 redundant/dead elements, 7 interaction fixes, focus-visible states, glass tier 3 overlay.
 - 2026-03-05: Phase 53 plan 03 complete: secondary surface polish — sidebar glass T2, skeleton loading on 5 pages, EmptyState on 6 views.
 - 2026-03-05: Phase 54 plan 01 complete: UMA memory ceiling (75% default, 15% headroom) + inference benchmark script (TTFT/throughput/peak memory/MLX baseline comparison).
+- 2026-03-05: Phase 52 plan 02 complete: bootstrap.sh idempotent dependency installer + .adapteros-root project root marker.
+- 2026-03-05: Phase 52 plan 03 complete: start script first-run detection, pre-flight dep checks, model-missing fail-fast, migration count logging, zero-touch config defaults validated.
+- 2026-03-05: Phase 52 complete: Full Portability — all 3 plans delivered (path resolution, bootstrap, fresh-clone experience).
 
 ## Decisions
 
@@ -50,6 +53,10 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - Glass tier 3 for overlays via inline style with var(--glass-bg-3) + backdrop-filter
 - Sidebar uses Tier 2 glass (12px blur) to match navigation surface spec
 - SkeletonTable/SkeletonCard for all loading states; EmptyState component for all empty data views
+- First-run detection uses var/ existence (not separate marker) — warn before ensure_var_dirs creates it
+- check_build_deps exits hard on failure — fail fast over confusing cargo errors
+- Migration count filters out down migrations to show forward schema count only
+- require_manifest=false is the portability-safe loader option for zero-config boot
 - UmaMemoryConfig named to avoid collision with adapteros-policy::packs::memory::MemoryConfig
 - MemoryLimits::from_uma_config sets both max_vram and max_system_ram to same effective ceiling (unified memory)
 - Boot warmup already wired via inference_warmup module -- no additional plumbing needed
