@@ -849,4 +849,31 @@ port = 8888
         std::env::remove_var("AOS_PRODUCTION_MODE");
         std::env::remove_var("AOS_SERVER_PORT");
     }
+
+    /// Verify that config loads successfully with require_manifest=false and
+    /// no config file path, producing a valid config with default values.
+    #[test]
+    fn test_config_loads_without_manifest() {
+        let _env = TestEnvGuard::new();
+        let options = LoaderOptions {
+            require_manifest: false,
+            ..Default::default()
+        };
+        let loader = ConfigLoader::with_options(options);
+
+        // Load with no manifest path at all -- pure defaults + env
+        let result = loader.load(vec![], None);
+        assert!(
+            result.is_ok(),
+            "Config should load without manifest: {:?}",
+            result.err()
+        );
+
+        let config = result.unwrap();
+        assert!(config.is_frozen(), "Config should be frozen after load");
+        assert!(
+            !config.get_metadata().hash.is_empty(),
+            "Config hash should be non-empty"
+        );
+    }
 }
