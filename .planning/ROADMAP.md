@@ -212,7 +212,7 @@ Plans:
 | 50. Runtime State Hygiene                           | 2/2 | Complete   | 2026-03-05 |
 | 51. Adapter Inference End-to-End Activation         | 3/3 | Complete    | 2026-03-05 |
 | 52. Full Portability                                | 0/0            | Pending  |            |
-| 53. UI Harmony and Visual Polish                    | 0/0            | Pending  |            |
+| 53. UI Harmony and Visual Polish                    | 0/3            | Planned  |            |
 | 54. Performance and Security Hardening              | 0/0            | Pending  |            |
 
 ### Phase 51: Adapter Inference End-to-End Activation
@@ -251,6 +251,13 @@ Plans:
 **Goal**: Strip UI bloat, unify visual language to Apple-themed minimalism (Liquid Glass), and make every surface feel effortless — zero unnecessary elements, consistent spacing/typography, and instant visual clarity.
 **Depends on**: Phase 51
 **Requirements**: UI-53-01, UI-53-02, UI-53-03, A11Y-53-01
+**Plans**: 3 plans
+
+Plans:
+- [ ] 53-01-PLAN.md -- Design system foundation: font migration, transition tokens, shadow/border policy
+- [ ] 53-02-PLAN.md -- Chat/inference workspace and dashboard audit + polish
+- [ ] 53-03-PLAN.md -- Secondary surfaces audit + polish (adapters, models, training, settings, system, navigation)
+
 **Success Criteria**:
 
 1. Every page passes a visual audit: no orphaned components, no dead controls, no redundant text.
