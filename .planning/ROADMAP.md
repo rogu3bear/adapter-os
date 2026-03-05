@@ -184,6 +184,12 @@ Plans:
 **Goal**: Clean stale sockets, degraded markers, and restart counters on boot.
 **Depends on**: Phase 48
 **Requirements**: RTH-01, RTH-02, RTH-03
+**Plans**: 2 plans
+
+Plans:
+- [ ] 50-01-PLAN.md -- Stale socket and marker cleanup on boot
+- [ ] 50-02-PLAN.md -- Supervision state JSON migration with crash-vs-rebuild discrimination
+
 **Success Criteria**:
 
 1. SecD socket is cleaned on boot when no backing process exists.
@@ -199,4 +205,4 @@ Plans:
 | -------------------------------------------------- | -------------- | -------- | ---------- |
 | 48. Commit Dirty Tree                              | 0/1            | Pending  |            |
 | 49. Training Worker Spawn Fix                      | 0/2            | Pending  |            |
-| 50. Runtime State Hygiene                           | 0/1            | Pending  |            |
+| 50. Runtime State Hygiene                           | 0/2            | Pending  |            |
