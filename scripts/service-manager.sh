@@ -2229,10 +2229,20 @@ show_status() {
     local backend_restart_count=""
     local backend_last_restart_cause=""
     local backend_last_restart_ts=""
+    local total_restarts=""
     if [ -f "$BACKEND_SUPERVISION_STATE_FILE" ]; then
-        backend_restart_count=$(awk -F= '/^restart_count=/{print $2}' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null | tail -1)
-        backend_last_restart_cause=$(awk -F= '/^last_restart_cause=/{print $2}' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null | tail -1)
-        backend_last_restart_ts=$(awk -F= '/^last_restart_ts=/{print $2}' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null | tail -1)
+        if command -v jq >/dev/null 2>&1 && jq -e . "$BACKEND_SUPERVISION_STATE_FILE" >/dev/null 2>&1; then
+            # JSON format (new)
+            backend_restart_count=$(jq -r '.crash_restart_count // 0' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null)
+            total_restarts=$(jq -r '.total_restart_count // 0' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null)
+            backend_last_restart_cause=$(jq -r '.last_restart_cause // "none"' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null)
+            backend_last_restart_ts=$(jq -r '.last_restart_ts // ""' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null)
+        else
+            # Legacy key=value format (backward compat)
+            backend_restart_count=$(awk -F= '/^restart_count=/{print $2}' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null | tail -1)
+            backend_last_restart_cause=$(awk -F= '/^last_restart_cause=/{print $2}' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null | tail -1)
+            backend_last_restart_ts=$(awk -F= '/^last_restart_ts=/{print $2}' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null | tail -1)
+        fi
     fi
 
     if [ "$backend_ownership" = "launchd" ] && [[ "${launchd_runs:-}" =~ ^[0-9]+$ ]]; then
@@ -2256,9 +2266,9 @@ show_status() {
     fi
 
     if [ -n "${backend_last_restart_ts:-}" ]; then
-        echo -e "          ${WHITE}Backend restarts: ${backend_restart_count} (last cause: ${backend_last_restart_cause} at ${backend_last_restart_ts})${NC}"
+        echo -e "          ${WHITE}Backend restarts: ${backend_restart_count} crashes (${total_restarts:-$backend_restart_count} total) (last cause: ${backend_last_restart_cause} at ${backend_last_restart_ts})${NC}"
     else
-        echo -e "          ${WHITE}Backend restarts: ${backend_restart_count} (last cause: ${backend_last_restart_cause})${NC}"
+        echo -e "          ${WHITE}Backend restarts: ${backend_restart_count} crashes (${total_restarts:-$backend_restart_count} total) (last cause: ${backend_last_restart_cause})${NC}"
     fi
 
     # UI status
