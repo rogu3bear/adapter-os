@@ -14,9 +14,9 @@ Milestone focus: stabilize runtime — fix training worker spawn, clean stale st
 
 ### Runtime Hygiene
 
-- [ ] **RTH-01**: Stale SecD socket is cleaned up on boot when no backing process exists
-- [ ] **RTH-02**: Training worker degraded marker is cleared when worker successfully starts
-- [ ] **RTH-03**: Backend restart counter reflects actual crash count, not dev-rebuild kickstarts
+- [x] **RTH-01**: Stale SecD socket is cleaned up on boot when no backing process exists
+- [x] **RTH-02**: Training worker degraded marker is cleared when worker successfully starts
+- [x] **RTH-03**: Backend restart counter reflects actual crash count, not dev-rebuild kickstarts
 
 ### Tree Commit
 
@@ -94,9 +94,9 @@ Milestone focus: stabilize runtime — fix training worker spawn, clean stale st
 |-------------|-------|--------|
 | WRK-01 | Phase 49 | Pending |
 | WRK-02 | Phase 49 | Pending |
-| RTH-01 | Phase 50 | Pending |
-| RTH-02 | Phase 50 | Pending |
-| RTH-03 | Phase 50 | Pending |
+| RTH-01 | Phase 50 | Complete |
+| RTH-02 | Phase 50 | Complete |
+| RTH-03 | Phase 50 | Complete |
 | GIT-01 | Phase 48 | Pending |
 | GIT-02 | Phase 48 | Pending |
 | REL-47-01 | Phase 47 | Complete |

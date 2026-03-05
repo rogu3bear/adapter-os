@@ -2,7 +2,7 @@
 
 ## Milestone v1.1.18: System Stabilization (In Progress)
 
-Fix runtime blockers preventing full-stack operation: training worker spawn PATH resolution, stale runtime state cleanup (SecD socket, degraded markers), and commit the 84-file accumulated diff to establish a clean baseline.
+Fix runtime blockers preventing full-stack operation: training worker spawn PATH resolution, stale runtime state cleanup (SecD socket, degraded markers), commit the 84-file accumulated diff, activate adapter inference end-to-end, and achieve full portability.
 
 ## Previous Milestone v1.1.17: Production Cut Closure (Complete)
 
@@ -49,7 +49,11 @@ Closed the training execution gap by enforcing worker/preflight readiness before
 - [x] **Phase 47: Production Cut Contract Closure** - Execute `.planning/PROD_CUT.md` gate set with strict prod-mode policies and evidence capture.
 - [ ] **Phase 48: Commit Dirty Tree** - Commit the 84-file accumulated diff in logical atomic commits to establish a clean baseline. (v1.1.18)
 - [ ] **Phase 49: Training Worker Spawn Fix** - Fix binary PATH resolution so training worker spawns successfully on backend boot. (v1.1.18)
-- [ ] **Phase 50: Runtime State Hygiene** - Clean stale sockets, degraded markers, and restart counters on boot. (v1.1.18)
+- [x] **Phase 50: Runtime State Hygiene** - Clean stale sockets, degraded markers, and restart counters on boot. (v1.1.18) (completed 2026-03-05)
+- [ ] **Phase 51: Adapter Inference End-to-End Activation** - Make adapters functional: hot-swap inference, measurable adapter influence, trainable adapters. (v1.1.18)
+- [ ] **Phase 52: Full Portability** - Cross-platform builds, relocatable paths, environment-independent config. (v1.1.18)
+- [ ] **Phase 53: UI Harmony and Visual Polish** - Strip bloat, unify Liquid Glass visual language, Apple-themed minimalism. (v1.1.18)
+- [ ] **Phase 54: Performance and Security Hardening** - Optimize speed, minimize memory, harden attack surfaces. (v1.1.18)
 
 ## Phase Details
 
@@ -199,10 +203,62 @@ Plans:
 ## Progress
 
 **Execution Order:**
-48 -> 49, 50 (49 and 50 are independent after 48)
+48 -> 49, 50 (independent) -> 51 -> 52, 53, 54 (independent after 51)
 
 | Phase                                              | Plans Complete | Status   | Completed  |
 | -------------------------------------------------- | -------------- | -------- | ---------- |
-| 48. Commit Dirty Tree                              | 0/1            | Pending  |            |
+| 48. Commit Dirty Tree                              | 1/1            | Complete | 2026-03-04 |
 | 49. Training Worker Spawn Fix                      | 0/2            | Pending  |            |
-| 50. Runtime State Hygiene                           | 0/2            | Pending  |            |
+| 50. Runtime State Hygiene                           | 2/2 | Complete   | 2026-03-05 |
+| 51. Adapter Inference End-to-End Activation         | 0/0            | Pending  |            |
+| 52. Full Portability                                | 0/0            | Pending  |            |
+| 53. UI Harmony and Visual Polish                    | 0/0            | Pending  |            |
+| 54. Performance and Security Hardening              | 0/0            | Pending  |            |
+
+### Phase 51: Adapter Inference End-to-End Activation
+
+**Goal**: Make LoRA adapters functional end-to-end: hot-swap during inference with stable output, adapters measurably influence generation, and training produces usable adapters.
+**Depends on**: Phase 49, Phase 50
+**Requirements**: INF-51-01, INF-51-02, TRN-51-01, TRN-51-02
+**Success Criteria**:
+
+1. Adapter hot-swap during inference completes without crash or hang.
+2. Inference output with adapter loaded differs measurably from base model output.
+3. Training pipeline produces an adapter that loads and influences inference.
+4. Round-trip: train adapter → load adapter → infer with adapter produces coherent output.
+
+### Phase 52: Full Portability
+
+**Goal**: Make AdapterOS fully portable: cross-platform builds, relocatable runtime paths, and environment-independent configuration so the system runs on any Apple Silicon Mac without manual setup.
+**Depends on**: Phase 51
+**Requirements**: PORT-52-01, PORT-52-02, PORT-52-03
+**Success Criteria**:
+
+1. System builds and runs on a fresh Apple Silicon Mac with only documented prerequisites.
+2. Runtime paths are relocatable (no hardcoded absolute paths).
+3. Configuration works without environment-specific overrides for default operation.
+4. `./start` brings the full stack up from a clean clone.
+
+### Phase 53: UI Harmony and Visual Polish
+
+**Goal**: Strip UI bloat, unify visual language to Apple-themed minimalism (Liquid Glass), and make every surface feel effortless — zero unnecessary elements, consistent spacing/typography, and instant visual clarity.
+**Depends on**: Phase 51
+**Requirements**: UI-53-01, UI-53-02, UI-53-03, A11Y-53-01
+**Success Criteria**:
+
+1. Every page passes a visual audit: no orphaned components, no dead controls, no redundant text.
+2. Typography, spacing, and color follow Liquid Glass design system consistently across all surfaces.
+3. Core workflows (infer, train, manage adapters) complete in minimal clicks with clear visual feedback.
+4. UI feels native-quality on macOS — no web-app jank, smooth transitions, responsive layout.
+
+### Phase 54: Performance and Security Hardening
+
+**Goal**: Exceed expectations on speed and security: optimize inference latency, minimize memory footprint, harden all attack surfaces, and make the system feel instant and bulletproof.
+**Depends on**: Phase 51
+**Requirements**: PERF-54-01, PERF-54-02, SEC-54-01, SEC-54-02
+**Success Criteria**:
+
+1. Inference latency meets or beats comparable local LoRA tools (time-to-first-token, throughput).
+2. Memory usage stays within UMA budget — no OOM on 16GB machines with reasonable adapter counts.
+3. All API endpoints pass security audit: auth enforcement, input validation, rate limiting, no injection vectors.
+4. Secrets (keys, tokens, model weights) are never logged, exposed in errors, or accessible without auth.
