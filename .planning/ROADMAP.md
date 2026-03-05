@@ -167,6 +167,12 @@ Closed the training execution gap by enforcing worker/preflight readiness before
 **Goal**: Fix binary PATH resolution so training worker spawns successfully on backend boot.
 **Depends on**: Phase 48
 **Requirements**: WRK-01, WRK-02
+**Plans**: 2 plans
+
+Plans:
+- [ ] 49-01-PLAN.md -- Binary resolution fix and preflight boot gate
+- [ ] 49-02-PLAN.md -- Supervisor circuit breaker and crash job cleanup
+
 **Success Criteria**:
 
 1. Training worker process starts when backend boots.
@@ -192,5 +198,5 @@ Closed the training execution gap by enforcing worker/preflight readiness before
 | Phase                                              | Plans Complete | Status   | Completed  |
 | -------------------------------------------------- | -------------- | -------- | ---------- |
 | 48. Commit Dirty Tree                              | 0/1            | Pending  |            |
-| 49. Training Worker Spawn Fix                      | 0/1            | Pending  |            |
+| 49. Training Worker Spawn Fix                      | 0/2            | Pending  |            |
 | 50. Runtime State Hygiene                           | 0/1            | Pending  |            |
