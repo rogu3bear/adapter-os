@@ -43,7 +43,7 @@ rand_pcg = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 
 # Metal (macOS)
-metal = "0.28"
+metal = "0.30"
 objc = "0.2"
 
 # Utilities
