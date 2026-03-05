@@ -1,6 +1,5 @@
 {
   "mode": "yolo",
-  "depth": "comprehensive",
   "model_profile": "quality",
   "workflow": {
     "research": true,
@@ -40,5 +39,6 @@
     "always_confirm_destructive": true,
     "always_confirm_external_services": true
   },
-  "brave_search": false
+  "brave_search": false,
+  "granularity": "fine"
 }

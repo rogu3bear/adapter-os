@@ -33,7 +33,7 @@ Closed the training execution gap by enforcing worker/preflight readiness before
 - ✅ **v1.1.15 AdapterOps Timeline, Command Deck Parity, and Dataset Version Pinning** - Completed (phases 43-45).
 - ✅ **v1.1.16 Training Pipeline Execution Hardening** - Completed (phase 46, 2026-02-28).
 - ✅ **v1.1.17 Production Cut Closure** - Completed (phase 47, 2026-03-04); canonical scope/gates in `.planning/PROD_CUT.md`, receipts in `.planning/prod-cut/evidence/`.
-- [ ] **v1.1.18 System Stabilization** - Active; fix training worker spawn, clean stale runtime state, commit dirty tree.
+- [x] **v1.1.18 System Stabilization** - Completed 2026-03-05; training worker spawn and runtime hygiene fixed, portability/UI/security hardening delivered through phase 54.
 
 ## Phases
 
@@ -47,13 +47,13 @@ Closed the training execution gap by enforcing worker/preflight readiness before
 - [x] **Phase 45: Dataset Version-Pinned Training Contract** - Move wizard submit to typed training request and carry dataset version provenance. (completed 2026-02-28)
 - [x] **Phase 46: Training Pipeline Execution Hardening** - Fail closed when training worker is unavailable, enforce algorithm/version preflight before enqueue, and pin 27B model resolution for training path consistency. (completed 2026-02-28)
 - [x] **Phase 47: Production Cut Contract Closure** - Execute `.planning/PROD_CUT.md` gate set with strict prod-mode policies and evidence capture.
-- [ ] **Phase 48: Commit Dirty Tree** - Commit the 84-file accumulated diff in logical atomic commits to establish a clean baseline. (v1.1.18)
+- [x] **Phase 48: Commit Dirty Tree** - Commit the 84-file accumulated diff in logical atomic commits to establish a clean baseline. (v1.1.18) (completed 2026-03-04)
 - [x] **Phase 49: Training Worker Spawn Fix** - Fix binary PATH resolution so training worker spawns successfully on backend boot. (v1.1.18) (completed 2026-03-05)
 - [x] **Phase 50: Runtime State Hygiene** - Clean stale sockets, degraded markers, and restart counters on boot. (v1.1.18) (completed 2026-03-05)
 - [x] **Phase 51: Adapter Inference End-to-End Activation** - Make adapters functional: hot-swap inference, measurable adapter influence, trainable adapters. (v1.1.18) (completed 2026-03-05)
 - [x] **Phase 52: Full Portability** - Cross-platform builds, relocatable paths, environment-independent config. (v1.1.18) (completed 2026-03-05)
 - [x] **Phase 53: UI Harmony and Visual Polish** - Strip bloat, unify Liquid Glass visual language, Apple-themed minimalism. (v1.1.18) (completed 2026-03-05)
-- [ ] **Phase 54: Performance and Security Hardening** - Optimize speed, minimize memory, harden attack surfaces. (v1.1.18)
+- [x] **Phase 54: Performance and Security Hardening** - Optimize speed, minimize memory, harden attack surfaces. (v1.1.18) (completed 2026-03-05)
 
 ## Phase Details
 
@@ -174,8 +174,8 @@ Closed the training execution gap by enforcing worker/preflight readiness before
 **Plans**: 2 plans
 
 Plans:
-- [ ] 49-01-PLAN.md -- Binary resolution fix and preflight boot gate
-- [ ] 49-02-PLAN.md -- Supervisor circuit breaker and crash job cleanup
+- [x] 49-01-PLAN.md -- Binary resolution fix and preflight boot gate
+- [x] 49-02-PLAN.md -- Supervisor circuit breaker and crash job cleanup
 
 **Success Criteria**:
 
@@ -191,8 +191,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 50-01-PLAN.md -- Stale socket and marker cleanup on boot
-- [ ] 50-02-PLAN.md -- Supervision state JSON migration with crash-vs-rebuild discrimination
+- [x] 50-01-PLAN.md -- Stale socket and marker cleanup on boot
+- [x] 50-02-PLAN.md -- Supervision state JSON migration with crash-vs-rebuild discrimination
 
 **Success Criteria**:
 
@@ -213,7 +213,7 @@ Plans:
 | 51. Adapter Inference End-to-End Activation         | 3/3 | Complete    | 2026-03-05 |
 | 52. Full Portability                                | 3/3 | Complete   | 2026-03-05 |
 | 53. UI Harmony and Visual Polish                    | 3/3 | Complete    | 2026-03-05 |
-| 54. Performance and Security Hardening              | 2/3 | In Progress|  |
+| 54. Performance and Security Hardening              | 3/3 | Complete   | 2026-03-05 |
 
 ### Phase 51: Adapter Inference End-to-End Activation
 
@@ -223,9 +223,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 51-01-PLAN.md -- Wire API swap handler and streaming inference to worker via UDS adapter commands
-- [ ] 51-02-PLAN.md -- Integration tests for hot-swap stability and adapter influence verification
-- [ ] 51-03-PLAN.md -- Training-to-inference round-trip test and requirements registration
+- [x] 51-01-PLAN.md -- Wire API swap handler and streaming inference to worker via UDS adapter commands
+- [x] 51-02-PLAN.md -- Integration tests for hot-swap stability and adapter influence verification
+- [x] 51-03-PLAN.md -- Training-to-inference round-trip test and requirements registration
 
 **Success Criteria**:
 
@@ -242,9 +242,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 52-01-PLAN.md -- Path relocation hardening and layered model discovery
-- [ ] 52-02-PLAN.md -- Bootstrap script and project root marker
-- [ ] 52-03-PLAN.md -- Fresh clone start integration and zero-touch config validation
+- [x] 52-01-PLAN.md -- Path relocation hardening and layered model discovery
+- [x] 52-02-PLAN.md -- Bootstrap script and project root marker
+- [x] 52-03-PLAN.md -- Fresh clone start integration and zero-touch config validation
 
 **Success Criteria**:
 
@@ -261,9 +261,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 53-01-PLAN.md -- Design system foundation: font migration, transition tokens, shadow/border policy
-- [ ] 53-02-PLAN.md -- Chat/inference workspace and dashboard audit + polish
-- [ ] 53-03-PLAN.md -- Secondary surfaces audit + polish (adapters, models, training, settings, system, navigation)
+- [x] 53-01-PLAN.md -- Design system foundation: font migration, transition tokens, shadow/border policy
+- [x] 53-02-PLAN.md -- Chat/inference workspace and dashboard audit + polish
+- [x] 53-03-PLAN.md -- Secondary surfaces audit + polish (adapters, models, training, settings, system, navigation)
 
 **Success Criteria**:
 
@@ -280,9 +280,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md -- UMA ceiling config, boot warmup, and inference benchmark suite
-- [ ] 54-02-PLAN.md -- Per-tier rate limits, security audit script, and secret exposure scanner
-- [ ] 54-03-PLAN.md -- Eviction notification pipeline (SSE + UI toast), model weight protection, security audit trail
+- [x] 54-01-PLAN.md -- UMA ceiling config, boot warmup, and inference benchmark suite
+- [x] 54-02-PLAN.md -- Per-tier rate limits, security audit script, and secret exposure scanner
+- [x] 54-03-PLAN.md -- Eviction notification pipeline (SSE + UI toast), model weight protection, security audit trail
 
 **Success Criteria**:
 

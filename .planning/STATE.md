@@ -2,17 +2,17 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-04)
+See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Deterministic, verifiable LoRA inference on Apple Silicon so every operator action and model response is reproducible and auditable.
-**Current focus:** System stabilization — fix training worker spawn, clean stale runtime state, commit dirty tree, activate adapter inference end-to-end.
+**Current focus:** Milestone closeout and planning reconciliation after completing phase 54.
 
 ## Position
 
-**Milestone:** v1.1.18 System Stabilization (active)
-**Current phase:** Phase 54 — Performance and Security Hardening
-**Current Plan:** Plan 02 of 3 complete
-**Status:** Executing
+**Milestone:** v1.1.18 System Stabilization (completed)
+**Current phase:** Phase 54 — Performance and Security Hardening (completed)
+**Current Plan:** Plan 03 of 3 complete
+**Status:** Completed
 
 ## Session Log
 
@@ -34,6 +34,9 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - 2026-03-05: Phase 52 plan 03 complete: start script first-run detection, pre-flight dep checks, model-missing fail-fast, migration count logging, zero-touch config defaults validated.
 - 2026-03-05: Phase 52 complete: Full Portability — all 3 plans delivered (path resolution, bootstrap, fresh-clone experience).
 - 2026-03-05: Phase 54 plan 02 complete: per-tier rate limiting (health/public/internal/protected RPM), SecurityConfig debug redaction, security audit + secret exposure contract scripts.
+- 2026-03-05: Phase 54 plan 03 complete: eviction notification pipeline to alerts SSE + UI toast, structured auth/rate/input audit events, model weight permission hardening.
+- 2026-03-05: Phase 54 complete: all 3 plans delivered with targeted checks passing (`adapteros-server-api`, `adapteros-server`, `adapteros-memory`, `ui-check`, security audit script).
+- 2026-03-05: v1.1.18 planning artifacts reconciled (`ROADMAP`, `REQUIREMENTS`, `PROJECT`, `STATE`) to remove phase/requirement drift.
 
 ## Decisions
 
@@ -65,9 +68,12 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 - Health tier unconditionally bypasses rate limiting -- probes must never be throttled
 - Per-tier RPM override is Option<u32> with fallback to global requests_per_minute
 - SecurityConfig redacts jwt_secret and jwt_additional_hmac_secrets in Debug impl
+- Alerts stream remains poll-based for persisted alerts but now also forwards live memory-eviction events via broadcast channel
+- Adapter eviction UI notification uses warning toast and triggers model/health refetch to preserve operator situational awareness
+- Boot applies recursive POSIX mode hardening on `var/models` (dirs `0700`, files `0600`) with warning-only fallback on permission failures
 
 ## Session
 
-**Last Date:** 2026-03-05T06:50:20Z
-**Stopped At:** Completed 54-02-PLAN.md
+**Last Date:** 2026-03-05T09:47:07Z
+**Stopped At:** Completed 54-03-PLAN.md and milestone reconciliation
 **Resume File:** None
