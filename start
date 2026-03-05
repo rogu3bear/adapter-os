@@ -726,8 +726,65 @@ check_aosctl_installation() {
 # Core Functions
 # =============================================================================
 
+first_run_check() {
+    if [ ! -d "$AOS_VAR_DIR" ]; then
+        echo ""
+        echo "First run detected."
+        echo "  Run ./bootstrap.sh --verify to ensure all dependencies are installed."
+        echo ""
+    fi
+}
+
+check_build_deps() {
+    local failed=0
+
+    if ! brew ls --versions mlx >/dev/null 2>&1; then
+        fg_error "Missing MLX headers: run ./bootstrap.sh or: brew install mlx"
+        failed=1
+    fi
+
+    if ! rustup target list --installed 2>/dev/null | grep -q wasm32-unknown-unknown; then
+        fg_error "Missing WASM target: run ./bootstrap.sh or: rustup target add wasm32-unknown-unknown"
+        failed=1
+    fi
+
+    return $failed
+}
+
+check_model_available() {
+    # Skip check if AOS_MODEL_PATH is set and points to an existing directory
+    if [ -n "${AOS_MODEL_PATH:-}" ] && [ -d "$AOS_MODEL_PATH" ]; then
+        return 0
+    fi
+
+    # Check var/models/ for any subdirectory
+    if [ -d "$AOS_VAR_DIR/models" ]; then
+        local found
+        found=$(find "$AOS_VAR_DIR/models" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+            return 0
+        fi
+    fi
+
+    # Check shared user cache
+    if [ -d "$HOME/.cache/adapteros/models" ]; then
+        local found
+        found=$(find "$HOME/.cache/adapteros/models" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+            return 0
+        fi
+    fi
+
+    echo ""
+    fg_error "No model found. Run: aosctl model pull <model-name>"
+    echo "  Available models: https://huggingface.co/collections/Qwen"
+    echo ""
+    return 1
+}
+
 ensure_var_dirs() {
     mkdir -p "$AOS_VAR_DIR/run"
+    mkdir -p "$AOS_VAR_DIR/models"
     mkdir -p "$AOS_LOG_DIR"
     ensure_backend_log_alias
 }
@@ -1294,6 +1351,10 @@ show_status() {
 }
 
 do_preflight() {
+    if ! check_build_deps; then
+        echo "  Run ./bootstrap.sh to install missing dependencies."
+        return 1
+    fi
     if ! check_start_dependencies "preflight"; then
         return 1
     fi
@@ -1586,6 +1647,11 @@ start_backend() {
     fi
     print_step "success" "Preflight checks passed"
 
+    # Fail fast if no model is available
+    if ! check_model_available; then
+        return 1
+    fi
+
     # Start
     start_backend_animated
 
@@ -1649,6 +1715,7 @@ start_all() {
         cargo xtask check-cache 2>/dev/null || true
     fi
 
+    first_run_check
     ensure_var_dirs
 
     #region agent log
@@ -1683,6 +1750,11 @@ start_all() {
 
     print_step "success" "Preflight checks passed"
     echo ""
+
+    # Fail fast if no model is available
+    if ! check_model_available; then
+        return 1
+    fi
 
     # Start services
     local backend_ok=0
@@ -2220,6 +2292,10 @@ main() {
 
     case "$cmd" in
         up|start|"")
+            if ! check_build_deps; then
+                echo "  Run ./bootstrap.sh to install missing dependencies."
+                exit 1
+            fi
             check_start_dependencies "up"
             run_dev_log_hygiene
             start_all
@@ -2231,6 +2307,10 @@ main() {
             show_status
             ;;
         backend)
+            if ! check_build_deps; then
+                echo "  Run ./bootstrap.sh to install missing dependencies."
+                exit 1
+            fi
             check_start_dependencies "backend"
             run_dev_log_hygiene
             start_backend

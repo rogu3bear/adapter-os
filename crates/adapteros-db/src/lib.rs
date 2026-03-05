@@ -1215,7 +1215,15 @@ impl Db {
 
         // Run migrations with a timeout to avoid hanging on locked databases.
         self.ensure_disk_space("database migrations")?;
-        info!("Applying database migrations...");
+        let pending = migrator
+            .iter()
+            .filter(|m| !m.migration_type.is_down_migration())
+            .count();
+        if pending > 0 {
+            info!("Initializing database ({} migrations)...", pending);
+        } else {
+            info!("Database schema up to date");
+        }
         tokio::time::timeout(Self::migration_timeout(), migrator.run(self.pool_result()?))
         .await
         .map_err(|_| {
