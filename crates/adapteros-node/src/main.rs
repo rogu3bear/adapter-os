@@ -736,19 +736,42 @@ fn node_id_from_public_key(public_key: &ed25519_dalek::VerifyingKey) -> String {
 
 /// Load the node's Ed25519 signing key, generating one if it doesn't exist.
 /// Returns the signing key.
-fn load_or_generate_node_key() -> Result<SigningKey> {
-    let key_path = std::path::Path::new("/var/lib/aos/node.key");
+fn resolve_node_key_path() -> PathBuf {
+    if let Ok(explicit) = std::env::var("AOS_NODE_KEY_PATH") {
+        let trimmed = explicit.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
 
-    if key_path.exists() {
+    // Prefer system path when writable.
+    let system_path = PathBuf::from("/var/lib/aos/node.key");
+    if system_path.exists() {
+        return system_path;
+    }
+
+    // Dev fallback keeps keys under the workspace runtime dir.
+    if let Ok(cwd) = std::env::current_dir() {
+        return cwd.join("var/node/node.key");
+    }
+
+    system_path
+}
+
+fn load_or_generate_node_key() -> Result<SigningKey> {
+    let key_path = resolve_node_key_path();
+    let key_path_ref = key_path.as_path();
+
+    if key_path_ref.exists() {
         // Warn if permissions are loose (do not auto-fix -- operator should know)
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if let Ok(metadata) = std::fs::metadata(key_path) {
+            if let Ok(metadata) = std::fs::metadata(key_path_ref) {
                 let mode = metadata.permissions().mode();
                 if mode & 0o077 != 0 {
                     warn!(
-                        path = %key_path.display(),
+                        path = %key_path_ref.display(),
                         mode = format!("{:o}", mode & 0o777),
                         "Node signing key has loose permissions (should be 0600). \
                          This is a security risk -- the key may be readable by other users."
@@ -756,7 +779,7 @@ fn load_or_generate_node_key() -> Result<SigningKey> {
                 }
             }
         }
-        let key_bytes = std::fs::read(key_path)?;
+        let key_bytes = std::fs::read(key_path_ref)?;
         let key_array: [u8; 32] = key_bytes
             .try_into()
             .map_err(|_| anyhow::anyhow!("Invalid key length"))?;
@@ -765,22 +788,22 @@ fn load_or_generate_node_key() -> Result<SigningKey> {
         // Generate new key for this node
         let mut csprng = rand::rngs::OsRng;
         let key = SigningKey::generate(&mut csprng);
-        if let Some(parent) = key_path.parent() {
+        if let Some(parent) = key_path_ref.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(key_path, key.to_bytes())?;
+        std::fs::write(key_path_ref, key.to_bytes())?;
         // Restrict to owner-only permissions immediately after creation
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(key_path)?.permissions();
+            let mut perms = std::fs::metadata(key_path_ref)?.permissions();
             perms.set_mode(0o600);
-            std::fs::set_permissions(key_path, perms)?;
+            std::fs::set_permissions(key_path_ref, perms)?;
         }
         #[cfg(not(unix))]
         {
             warn!(
-                path = %key_path.display(),
+                path = %key_path_ref.display(),
                 "Cannot restrict key file permissions on non-Unix platform"
             );
         }
@@ -788,7 +811,7 @@ fn load_or_generate_node_key() -> Result<SigningKey> {
         let node_id = node_id_from_public_key(&key.verifying_key());
         info!(
             node_id = %node_id,
-            key_path = %key_path.display(),
+            key_path = %key_path_ref.display(),
             "Generated new node signing key"
         );
         Ok(key)

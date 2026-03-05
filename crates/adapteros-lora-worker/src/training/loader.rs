@@ -14,7 +14,7 @@ use adapteros_types::training::{
     TrainingExampleV1, TRAINING_DATA_CONTRACT_VERSION,
 };
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -27,6 +27,86 @@ const DEFAULT_MAX_TARGET_TOKENS: usize = 128;
 const DEFAULT_STRIDE_TOKENS: usize = 256;
 const SCHEMA_SUPERVISED: &str = "supervised";
 const SCHEMA_RAW_CONTINUATION: &str = "raw_continuation_v1";
+
+fn is_raw_jsonl_row(obj: &Map<String, Value>) -> bool {
+    is_text_with_optional_metadata_raw_row(obj) || is_input_alias_raw_row(obj)
+}
+
+fn is_supervised_jsonl_row(obj: &Map<String, Value>) -> bool {
+    !obj.contains_key("text")
+        && (obj.contains_key("prompt") || obj.contains_key("input"))
+        && (obj.contains_key("completion")
+            || obj.contains_key("response")
+            || obj.contains_key("target")
+            || obj.contains_key("output"))
+}
+
+fn is_input_alias_raw_row(obj: &Map<String, Value>) -> bool {
+    const ALLOWED_INPUT_ALIAS_KEYS: &[&str] = &[
+        "input",
+        "id",
+        "metadata",
+        "split",
+        "weight",
+        "sample_role",
+        "role",
+    ];
+
+    obj.contains_key("input")
+        && !obj.contains_key("text")
+        && !obj.contains_key("prompt")
+        && !obj.contains_key("completion")
+        && !obj.contains_key("response")
+        && !obj.contains_key("target")
+        && !obj.contains_key("output")
+        && obj
+            .keys()
+            .all(|key| ALLOWED_INPUT_ALIAS_KEYS.contains(&key.as_str()))
+}
+
+fn is_text_with_optional_metadata_raw_row(obj: &Map<String, Value>) -> bool {
+    const ALLOWED_TEXT_RAW_KEYS: &[&str] = &[
+        "text",
+        "id",
+        "metadata",
+        "split",
+        "weight",
+        "sample_role",
+        "role",
+    ];
+
+    obj.contains_key("text")
+        && !obj.contains_key("prompt")
+        && !obj.contains_key("input")
+        && !obj.contains_key("completion")
+        && !obj.contains_key("response")
+        && !obj.contains_key("target")
+        && !obj.contains_key("output")
+        && obj
+            .keys()
+            .all(|key| ALLOWED_TEXT_RAW_KEYS.contains(&key.as_str()))
+}
+
+fn extract_prompt(obj: &Map<String, Value>) -> Option<&Value> {
+    obj.get("prompt").or_else(|| obj.get("input"))
+}
+
+fn extract_completion(obj: &Map<String, Value>) -> Option<&Value> {
+    obj.get("completion")
+        .or_else(|| obj.get("response"))
+        .or_else(|| obj.get("target"))
+        .or_else(|| obj.get("output"))
+}
+
+fn extract_raw_text(obj: &Map<String, Value>) -> Option<&Value> {
+    obj.get("text").or_else(|| {
+        if is_input_alias_raw_row(obj) {
+            obj.get("input")
+        } else {
+            None
+        }
+    })
+}
 
 /// Framing constants for training data loading.
 ///
@@ -320,13 +400,12 @@ where
                 ))
             })?;
 
-            let is_supervised =
-                obj.len() == 2 && obj.contains_key("prompt") && obj.contains_key("completion");
-            let is_raw = obj.len() == 1 && obj.contains_key("text");
+            let is_supervised = is_supervised_jsonl_row(obj);
+            let is_raw = is_raw_jsonl_row(obj);
 
             if !is_supervised && !is_raw {
                 return Err(AosError::Training(format!(
-                    "Unsupported JSONL schema at {}:{}; expected {{\"prompt\",\"completion\"}} or {{\"text\"}} only",
+                    "Unsupported JSONL schema at {}:{}; expected supervised rows (prompt/input + completion/response/target/output, metadata/id optional) or raw rows with text (metadata/id optional)",
                     entry_path.display(),
                     line_number
                 )));
@@ -387,8 +466,7 @@ where
             }
 
             if is_supervised {
-                let prompt = obj
-                    .get("prompt")
+                let prompt = extract_prompt(obj)
                     .and_then(|v| v.as_str())
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
@@ -399,8 +477,7 @@ where
                             entry_path.display()
                         ))
                     })?;
-                let completion = obj
-                    .get("completion")
+                let completion = extract_completion(obj)
                     .and_then(|v| v.as_str())
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
@@ -461,8 +538,7 @@ where
                 continue;
             }
 
-            let text = obj
-                .get("text")
+            let text = extract_raw_text(obj)
                 .and_then(|v| v.as_str())
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
@@ -698,6 +774,165 @@ mod tests {
 
         assert_eq!(examples.len(), 1);
         assert_eq!(weight_from_metadata(&examples[0].metadata), Some(0.5));
+    }
+
+    #[test]
+    fn test_load_examples_accepts_canonical_alias_fields() {
+        let tmp = tempdir().expect("failed to create temporary directory for canonical alias test");
+        let manifest_path = tmp.path().join("manifest.json");
+        let canonical_path = tmp.path().join("canonical.jsonl");
+
+        fs::write(
+            &manifest_path,
+            serde_json::json!({
+                "name": "canonical_aliases",
+                "training_contract_version": TRAINING_DATA_CONTRACT_VERSION,
+                "entries": [
+                    { "path": "canonical.jsonl", "format": "jsonl", "weight": 1.0 }
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut canonical_file = File::create(&canonical_path).unwrap();
+        writeln!(
+            canonical_file,
+            "{}",
+            serde_json::json!({
+                "id": "row-1",
+                "input": "Say hello",
+                "target": "Hello!",
+                "metadata": { "split": "train" }
+            })
+        )
+        .unwrap();
+        writeln!(
+            canonical_file,
+            "{}",
+            serde_json::json!({
+                "id": "row-2",
+                "prompt": "Good night",
+                "response": "Sleep well",
+                "metadata": { "split": "train", "source": "auto" }
+            })
+        )
+        .unwrap();
+
+        let encoder =
+            |text: &str| -> Result<Vec<u32>> { Ok(text.chars().map(|c| c as u32).collect()) };
+        let examples = load_examples_with_encoder(&manifest_path, 0, 1024, encoder).unwrap();
+
+        assert_eq!(examples.len(), 2);
+        assert_eq!(
+            examples[0].input_tokens,
+            "Say hello".chars().map(|c| c as u32).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            examples[0].target_tokens,
+            "Hello!".chars().map(|c| c as u32).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            examples[1].input_tokens,
+            "Good night".chars().map(|c| c as u32).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            examples[1].target_tokens,
+            "Sleep well".chars().map(|c| c as u32).collect::<Vec<_>>()
+        );
+
+        let prov0: serde_json::Value = serde_json::from_str(&examples[0].metadata.provenance)
+            .expect("canonical alias provenance should parse");
+        assert_eq!(
+            prov0.get("schema").and_then(|v| v.as_str()),
+            Some(SCHEMA_SUPERVISED)
+        );
+    }
+
+    #[test]
+    fn test_input_only_alias_rows_classify_as_raw() {
+        let raw_alias = serde_json::json!({
+            "id": "row-raw",
+            "input": "alias raw text",
+            "metadata": { "source": "generator" }
+        });
+        let obj = raw_alias
+            .as_object()
+            .expect("raw alias row should be an object");
+
+        assert!(is_raw_jsonl_row(obj));
+        assert!(!is_supervised_jsonl_row(obj));
+        assert_eq!(
+            extract_raw_text(obj).and_then(|v| v.as_str()),
+            Some("alias raw text")
+        );
+    }
+
+    #[test]
+    fn test_text_with_metadata_rows_classify_as_raw() {
+        let raw_text = serde_json::json!({
+            "id": "row-text",
+            "text": "raw text row",
+            "metadata": { "source": "generator" }
+        });
+        let obj = raw_text
+            .as_object()
+            .expect("raw text row should be an object");
+
+        assert!(is_raw_jsonl_row(obj));
+        assert!(!is_supervised_jsonl_row(obj));
+        assert_eq!(
+            extract_raw_text(obj).and_then(|v| v.as_str()),
+            Some("raw text row")
+        );
+    }
+
+    #[test]
+    fn test_load_examples_accepts_input_only_alias_as_raw_continuation() {
+        let tmp =
+            tempdir().expect("failed to create temporary directory for input-only alias test");
+        let manifest_path = tmp.path().join("manifest.json");
+        let data_path = tmp.path().join("input_alias.jsonl");
+
+        fs::write(
+            &manifest_path,
+            serde_json::json!({
+                "name": "input_only_alias",
+                "training_contract_version": TRAINING_DATA_CONTRACT_VERSION,
+                "entries": [
+                    { "path": "input_alias.jsonl", "format": "jsonl", "weight": 1.0 }
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let long_text: String = (0..700u32)
+            .map(|i| (b'a' + (i % 26) as u8) as char)
+            .collect();
+        let mut input_alias_file = File::create(&data_path).unwrap();
+        writeln!(
+            input_alias_file,
+            "{}",
+            serde_json::json!({
+                "id": "row-1",
+                "input": long_text,
+                "metadata": { "split": "train", "source": "auto_generated" }
+            })
+        )
+        .unwrap();
+
+        let encoder =
+            |text: &str| -> Result<Vec<u32>> { Ok(text.chars().map(|c| c as u32).collect()) };
+        let examples = load_examples_with_encoder(&manifest_path, 0, 1024, encoder).unwrap();
+
+        assert!(!examples.is_empty());
+        let prov0: serde_json::Value = serde_json::from_str(&examples[0].metadata.provenance)
+            .expect("raw alias provenance should parse");
+        assert_eq!(
+            prov0.get("schema").and_then(|v| v.as_str()),
+            Some(SCHEMA_RAW_CONTINUATION)
+        );
     }
 
     #[test]

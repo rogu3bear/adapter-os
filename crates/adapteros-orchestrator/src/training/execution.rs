@@ -453,7 +453,8 @@ pub(crate) async fn run_training_job(
                     ProtectedDb::new(database),
                     storage,
                     Some(tokenizer_path.clone()),
-                );
+                )
+                .with_pad_token_id(worker_cfg.pad_token_id);
                 dataset_source = "dataset_versions";
 
                 if version_selections.is_empty() {
@@ -477,12 +478,14 @@ pub(crate) async fn run_training_job(
                         })?;
                     if let Some(active) = dataset_framing_policy {
                         if active != loaded.framing_policy {
-                            return Err(AosError::Validation(format!(
-                                "Dataset version {} framing policy {} does not match {}",
-                                sel.dataset_version_id,
-                                loaded.framing_policy.as_str(),
-                                active.as_str()
-                            )));
+                            warn!(
+                                job_id = %job_id,
+                                dataset_version_id = %sel.dataset_version_id,
+                                active_policy = active.as_str(),
+                                incoming_policy = loaded.framing_policy.as_str(),
+                                "Mixed dataset framing policies detected; normalizing training framing policy to supervised"
+                            );
+                            dataset_framing_policy = Some(TrainingFramingPolicy::Supervised);
                         }
                     } else {
                         dataset_framing_policy = Some(loaded.framing_policy);
@@ -530,7 +533,8 @@ pub(crate) async fn run_training_job(
                     ProtectedDb::new(database),
                     storage,
                     Some(tokenizer_path.clone()),
-                );
+                )
+                .with_pad_token_id(worker_cfg.pad_token_id);
                 dataset_source = "dataset_id";
                 let loaded = dataset_manager
                     .load_dataset_examples(&ds_id)

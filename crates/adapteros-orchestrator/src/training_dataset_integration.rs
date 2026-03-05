@@ -16,7 +16,7 @@ use adapteros_lora_worker::training::TrainingExample as WorkerTrainingExample;
 use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
@@ -26,6 +26,113 @@ use tracing::{debug, info, warn};
 const MAX_INPUT_TOKENS: usize = 256;
 const MAX_TARGET_TOKENS: usize = 128;
 const STRIDE_TOKENS: usize = 256;
+
+fn is_raw_jsonl_row(obj: &Map<String, Value>) -> bool {
+    is_text_with_optional_metadata_raw_row(obj)
+        || is_input_alias_raw_row(obj)
+        || is_prompt_alias_raw_row(obj)
+}
+
+fn is_supervised_jsonl_row(obj: &Map<String, Value>) -> bool {
+    !obj.contains_key("text")
+        && (obj.contains_key("prompt") || obj.contains_key("input"))
+        && (obj.contains_key("completion")
+            || obj.contains_key("response")
+            || obj.contains_key("target")
+            || obj.contains_key("output"))
+}
+
+fn is_input_alias_raw_row(obj: &Map<String, Value>) -> bool {
+    const ALLOWED_INPUT_ALIAS_KEYS: &[&str] = &[
+        "input",
+        "id",
+        "metadata",
+        "split",
+        "weight",
+        "sample_role",
+        "role",
+    ];
+
+    obj.contains_key("input")
+        && !obj.contains_key("text")
+        && !obj.contains_key("prompt")
+        && !obj.contains_key("completion")
+        && !obj.contains_key("response")
+        && !obj.contains_key("target")
+        && !obj.contains_key("output")
+        && obj
+            .keys()
+            .all(|key| ALLOWED_INPUT_ALIAS_KEYS.contains(&key.as_str()))
+}
+
+fn is_prompt_alias_raw_row(obj: &Map<String, Value>) -> bool {
+    const ALLOWED_PROMPT_ALIAS_KEYS: &[&str] = &[
+        "prompt",
+        "id",
+        "metadata",
+        "split",
+        "weight",
+        "sample_role",
+        "role",
+    ];
+
+    obj.contains_key("prompt")
+        && !obj.contains_key("text")
+        && !obj.contains_key("input")
+        && !obj.contains_key("completion")
+        && !obj.contains_key("response")
+        && !obj.contains_key("target")
+        && !obj.contains_key("output")
+        && obj
+            .keys()
+            .all(|key| ALLOWED_PROMPT_ALIAS_KEYS.contains(&key.as_str()))
+}
+
+fn is_text_with_optional_metadata_raw_row(obj: &Map<String, Value>) -> bool {
+    const ALLOWED_TEXT_RAW_KEYS: &[&str] = &[
+        "text",
+        "id",
+        "metadata",
+        "split",
+        "weight",
+        "sample_role",
+        "role",
+    ];
+
+    obj.contains_key("text")
+        && !obj.contains_key("prompt")
+        && !obj.contains_key("input")
+        && !obj.contains_key("completion")
+        && !obj.contains_key("response")
+        && !obj.contains_key("target")
+        && !obj.contains_key("output")
+        && obj
+            .keys()
+            .all(|key| ALLOWED_TEXT_RAW_KEYS.contains(&key.as_str()))
+}
+
+fn extract_prompt(obj: &Map<String, Value>) -> Option<&Value> {
+    obj.get("prompt").or_else(|| obj.get("input"))
+}
+
+fn extract_completion(obj: &Map<String, Value>) -> Option<&Value> {
+    obj.get("completion")
+        .or_else(|| obj.get("response"))
+        .or_else(|| obj.get("target"))
+        .or_else(|| obj.get("output"))
+}
+
+fn extract_raw_text(obj: &Map<String, Value>) -> Option<&Value> {
+    obj.get("text").or_else(|| {
+        if is_input_alias_raw_row(obj) {
+            obj.get("input")
+        } else if is_prompt_alias_raw_row(obj) {
+            obj.get("prompt")
+        } else {
+            None
+        }
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrainingFramingPolicy {
@@ -55,6 +162,7 @@ pub struct TrainingDatasetManager {
     db: ProtectedDb,
     storage_root: PathBuf,
     tokenizer_path: Option<PathBuf>,
+    pad_token_id_override: Option<u32>,
 }
 
 /// Serializable training generation configuration
@@ -132,7 +240,17 @@ impl TrainingDatasetManager {
             db,
             storage_root,
             tokenizer_path,
+            pad_token_id_override: None,
         }
+    }
+
+    /// Override the pad token used for attention mask generation.
+    ///
+    /// When set, this value takes precedence over tokenizer-derived pad token IDs
+    /// so dataset examples align with the active training contract.
+    pub fn with_pad_token_id(mut self, pad_token_id: u32) -> Self {
+        self.pad_token_id_override = Some(pad_token_id);
+        self
     }
 
     /// Load training examples from a specific dataset version (canonical JSONL).
@@ -419,7 +537,7 @@ impl TrainingDatasetManager {
     ) -> Result<(Vec<WorkerTrainingExample>, TrainingFramingPolicy)> {
         let content = tokio::fs::read_to_string(path).await?;
         let tokenizer = self.load_text_tokenizer()?;
-        let pad_token_id = match tokenizer.pad_token_id() {
+        let tokenizer_pad_token_id = match tokenizer.pad_token_id() {
             Some(id) => id,
             None => {
                 let eos_id = tokenizer.eos_token_id();
@@ -431,6 +549,17 @@ impl TrainingDatasetManager {
                 eos_id
             }
         };
+        let pad_token_id = self.pad_token_id_override.unwrap_or(tokenizer_pad_token_id);
+        if let Some(override_id) = self.pad_token_id_override {
+            if override_id != tokenizer_pad_token_id {
+                tracing::warn!(
+                    dataset_id = %dataset_id,
+                    tokenizer_pad_token_id,
+                    training_pad_token_id = override_id,
+                    "Overriding tokenizer pad_token_id with training config pad_token_id for dataset integration"
+                );
+            }
+        }
 
         let mut examples = Vec::new();
         let mut schema_mode: Option<TrainingFramingPolicy> = None;
@@ -465,9 +594,8 @@ impl TrainingDatasetManager {
                 ))
             })?;
 
-            let is_supervised =
-                obj.len() == 2 && obj.contains_key("prompt") && obj.contains_key("completion");
-            let is_raw = obj.len() == 1 && obj.contains_key("text");
+            let is_supervised = is_supervised_jsonl_row(obj);
+            let is_raw = is_raw_jsonl_row(obj);
             let line_schema = if is_supervised {
                 TrainingFramingPolicy::Supervised
             } else if is_raw {
@@ -475,7 +603,7 @@ impl TrainingDatasetManager {
             } else {
                 let keys = obj.keys().cloned().collect::<Vec<_>>().join(", ");
                 return Err(AosError::Validation(format!(
-                    "Unsupported JSONL schema at line {} in {} (fields: {}). Expected {{\"prompt\",\"completion\"}} or {{\"text\"}} only",
+                    "Unsupported JSONL schema at line {} in {} (fields: {}). Expected supervised rows (prompt/input + completion/response/target/output, metadata/id optional) or raw rows with text (metadata/id optional)",
                     line_number,
                     path.display(),
                     keys
@@ -498,8 +626,7 @@ impl TrainingDatasetManager {
 
             match line_schema {
                 TrainingFramingPolicy::Supervised => {
-                    let prompt = obj
-                        .get("prompt")
+                    let prompt = extract_prompt(obj)
                         .and_then(|v| v.as_str())
                         .map(str::trim)
                         .filter(|s| !s.is_empty())
@@ -510,8 +637,7 @@ impl TrainingDatasetManager {
                                 path.display()
                             ))
                         })?;
-                    let completion = obj
-                        .get("completion")
+                    let completion = extract_completion(obj)
                         .and_then(|v| v.as_str())
                         .map(str::trim)
                         .filter(|s| !s.is_empty())
@@ -568,8 +694,7 @@ impl TrainingDatasetManager {
                     ));
                 }
                 TrainingFramingPolicy::RawContinuationV1 => {
-                    let text = obj
-                        .get("text")
+                    let text = extract_raw_text(obj)
                         .and_then(|v| v.as_str())
                         .map(str::trim)
                         .filter(|s| !s.is_empty())
@@ -582,11 +707,68 @@ impl TrainingDatasetManager {
                         })?;
                     let tokens = tokenizer.encode(text)?;
                     if tokens.len() <= MAX_INPUT_TOKENS {
+                        if tokens.len() < 2 {
+                            tracing::warn!(
+                                dataset_id = %dataset_id,
+                                line_number,
+                                token_count = tokens.len(),
+                                "Raw text row too short for continuation fallback; dropping row"
+                            );
+                            continue;
+                        }
+
+                        // Fallback for short raw rows: keep continuation semantics by
+                        // predicting the final token from the preceding context.
+                        let split_at = tokens.len() - 1;
+                        let input_tokens = tokens[..split_at].to_vec();
+                        let target_tokens = tokens[split_at..].to_vec();
+
+                        let mut provenance = BTreeMap::new();
+                        provenance.insert(
+                            "schema".to_string(),
+                            serde_json::Value::String(line_schema.as_str().to_string()),
+                        );
+                        provenance.insert(
+                            "source_path".to_string(),
+                            serde_json::Value::String(source_path.clone()),
+                        );
+                        provenance.insert(
+                            "line_number".to_string(),
+                            serde_json::Value::String(line_number.to_string()),
+                        );
+                        provenance.insert(
+                            "chunk_index".to_string(),
+                            serde_json::Value::String("0".to_string()),
+                        );
+                        provenance.insert(
+                            "short_row_fallback".to_string(),
+                            serde_json::Value::String("true".to_string()),
+                        );
+                        let provenance = provenance_from_map(&provenance).map_err(|e| {
+                            AosError::Validation(format!("Failed to serialize provenance: {}", e))
+                        })?;
+                        let metadata = ExampleMetadataV1::new(
+                            dataset_id.to_string(),
+                            line_number as u64,
+                            source_hash.clone(),
+                            provenance,
+                            created_at,
+                        );
+                        let attention_mask = WorkerTrainingExample::attention_mask_from_tokens(
+                            &input_tokens,
+                            pad_token_id,
+                        );
+                        examples.push(WorkerTrainingExample::new(
+                            input_tokens,
+                            target_tokens,
+                            attention_mask,
+                            metadata,
+                        ));
                         tracing::warn!(
                             dataset_id = %dataset_id,
                             line_number,
                             token_count = tokens.len(),
-                            "Raw text row too short for continuation framing; dropping row"
+                            "Raw text row used short-row continuation fallback"
                         );
                         continue;
                     }
@@ -815,6 +997,108 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_canonical_alias_rows_classify_as_supervised() {
+        let canonical_alias = serde_json::json!({
+            "id": "row-1",
+            "input": "Hello",
+            "target": "World",
+            "metadata": {"split": "train"}
+        });
+        let canonical_response = serde_json::json!({
+            "id": "row-2",
+            "prompt": "Good",
+            "response": "Morning",
+            "metadata": {"split": "train", "source": "auto"}
+        });
+
+        let alias_obj = canonical_alias
+            .as_object()
+            .expect("canonical alias row should be an object");
+        let response_obj = canonical_response
+            .as_object()
+            .expect("canonical response row should be an object");
+
+        assert!(is_supervised_jsonl_row(alias_obj));
+        assert!(is_supervised_jsonl_row(response_obj));
+        assert!(!is_raw_jsonl_row(alias_obj));
+        assert!(!is_raw_jsonl_row(response_obj));
+
+        assert_eq!(
+            extract_prompt(alias_obj).and_then(|v| v.as_str()),
+            Some("Hello")
+        );
+        assert_eq!(
+            extract_completion(alias_obj).and_then(|v| v.as_str()),
+            Some("World")
+        );
+        assert_eq!(
+            extract_prompt(response_obj).and_then(|v| v.as_str()),
+            Some("Good")
+        );
+        assert_eq!(
+            extract_completion(response_obj).and_then(|v| v.as_str()),
+            Some("Morning")
+        );
+    }
+
+    #[test]
+    fn test_input_only_alias_rows_classify_as_raw() {
+        let raw_alias = serde_json::json!({
+            "id": "row-raw",
+            "input": "alias raw text",
+            "metadata": {"source": "generator"}
+        });
+        let raw_alias_obj = raw_alias
+            .as_object()
+            .expect("raw alias row should be an object");
+
+        assert!(is_raw_jsonl_row(raw_alias_obj));
+        assert!(!is_supervised_jsonl_row(raw_alias_obj));
+        assert_eq!(
+            extract_raw_text(raw_alias_obj).and_then(|v| v.as_str()),
+            Some("alias raw text")
+        );
+    }
+
+    #[test]
+    fn test_prompt_only_alias_rows_classify_as_raw() {
+        let prompt_alias = serde_json::json!({
+            "id": "row-prompt-raw",
+            "prompt": "alias prompt raw text",
+            "metadata": {"source": "eval"}
+        });
+        let prompt_alias_obj = prompt_alias
+            .as_object()
+            .expect("prompt alias row should be an object");
+
+        assert!(is_raw_jsonl_row(prompt_alias_obj));
+        assert!(!is_supervised_jsonl_row(prompt_alias_obj));
+        assert_eq!(
+            extract_raw_text(prompt_alias_obj).and_then(|v| v.as_str()),
+            Some("alias prompt raw text")
+        );
+    }
+
+    #[test]
+    fn test_text_with_metadata_rows_classify_as_raw() {
+        let raw_text = serde_json::json!({
+            "id": "row-text",
+            "text": "raw text row",
+            "metadata": {"source": "generator"}
+        });
+        let raw_text_obj = raw_text
+            .as_object()
+            .expect("raw text row should be an object");
+
+        assert!(is_raw_jsonl_row(raw_text_obj));
+        assert!(!is_supervised_jsonl_row(raw_text_obj));
+        assert_eq!(
+            extract_raw_text(raw_text_obj).and_then(|v| v.as_str()),
+            Some("raw text row")
+        );
+    }
+
     #[tokio::test]
     async fn test_load_raw_text_examples() {
         let temp_dir = new_test_tempdir();
@@ -848,6 +1132,43 @@ mod tests {
             assert!(example.target_tokens.len() <= MAX_TARGET_TOKENS);
             assert_eq!(example.attention_mask.len(), example.input_tokens.len());
         }
+    }
+
+    #[tokio::test]
+    async fn test_load_short_raw_text_examples_with_fallback() {
+        let temp_dir = new_test_tempdir();
+        let storage_path = temp_dir.path().join("raw-short.jsonl");
+
+        let db_path = temp_dir.path().join("test.db");
+        let db = Db::connect(db_path.to_str().unwrap()).await.unwrap();
+        let tokenizer_path = fixture_tokenizer_path();
+        let manager = TrainingDatasetManager::new(
+            ProtectedDb::new(db),
+            temp_dir.path().to_path_buf(),
+            Some(tokenizer_path.clone()),
+        );
+
+        let short_row = serde_json::json!({"text": "router metric steady"}).to_string();
+        tokio::fs::write(&storage_path, format!("{}\n", short_row))
+            .await
+            .unwrap();
+
+        let (loaded, framing_policy) = manager
+            .load_examples_from_jsonl(&storage_path, "ds-raw-short")
+            .await
+            .unwrap();
+
+        assert_eq!(framing_policy, TrainingFramingPolicy::RawContinuationV1);
+        assert_eq!(loaded.len(), 1);
+
+        let tokenizer = QwenTokenizer::from_file(&tokenizer_path).unwrap();
+        let full_tokens = tokenizer.encode("router metric steady").unwrap();
+        assert!(full_tokens.len() >= 2);
+
+        let example = &loaded[0];
+        assert_eq!(example.input_tokens, full_tokens[..full_tokens.len() - 1]);
+        assert_eq!(example.target_tokens, full_tokens[full_tokens.len() - 1..]);
+        assert_eq!(example.attention_mask.len(), example.input_tokens.len());
     }
 
     #[tokio::test]
