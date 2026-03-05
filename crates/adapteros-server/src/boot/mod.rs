@@ -55,6 +55,7 @@ mod metrics;
 pub mod migrations;
 pub mod model_server;
 pub mod runtime;
+pub mod runtime_cleanup;
 pub mod security;
 mod server;
 pub mod startup_orchestrator;
@@ -76,6 +77,7 @@ pub use invariants::{
 };
 pub use metrics::{initialize_metrics, MetricsContext};
 pub use runtime::{initialize_runtime, RuntimeContext};
+pub use runtime_cleanup::clean_stale_runtime_state;
 pub use security::{
     initialize_security, log_effective_config, run_preflight_checks,
     validate_production_security_env, SecurityContext, SecurityEnvValidation,
