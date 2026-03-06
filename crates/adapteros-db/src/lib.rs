@@ -200,7 +200,8 @@ pub use kv_isolation_scan::{
     KvIsolationTenantSummary,
 };
 pub use setup::{
-    SetupDiscoveredModel, SetupSeedItem, SetupSeedOptions, SetupSeedResult, SetupSeedStatus,
+    SetupDiscoveredModel, SetupSeedItem, SetupSeedOptions, SetupSeedRepoDatasetItem,
+    SetupSeedRepoDatasetsOptions, SetupSeedRepoDatasetsResult, SetupSeedResult, SetupSeedStatus,
 };
 pub use storage_issues::{NewStorageIssue, StorageIssue};
 pub use storage_reconciliation::{StorageIssueParams, StorageReconciliationIssue};

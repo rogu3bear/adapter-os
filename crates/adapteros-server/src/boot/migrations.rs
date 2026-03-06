@@ -9,10 +9,11 @@
 //! - Handling the --migrate-only CLI flag for early exit
 
 use adapteros_api_types::FailureCode;
-use adapteros_db::Db;
+use adapteros_db::{Db, SetupSeedRepoDatasetsOptions};
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
 use anyhow::Result;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use tracing::{error, info, instrument, warn};
 
@@ -103,6 +104,40 @@ pub async fn run_migrations(
         return Err(anyhow::anyhow!("System tenant bootstrap failed: {}", e));
     }
     info!("System tenant bootstrap complete");
+
+    let seed_tenant = match db.get_tenant("default").await {
+        Ok(Some(_)) => "default",
+        _ => "system",
+    };
+    match db
+        .setup_seed_repo_datasets(
+            Path::new("training/datasets"),
+            SetupSeedRepoDatasetsOptions {
+                force: false,
+                tenant_id: seed_tenant,
+                imported_by: "system",
+            },
+        )
+        .await
+    {
+        Ok(summary) => {
+            info!(
+                tenant_id = seed_tenant,
+                total = summary.total,
+                seeded = summary.seeded,
+                skipped = summary.skipped,
+                failed = summary.failed,
+                "Repo training dataset bootstrap complete"
+            );
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                tenant_id = seed_tenant,
+                "Failed to seed repo training datasets"
+            );
+        }
+    }
 
     // Transition boot state: Migrating → Seeding (seeding complete)
     boot_state.seeding().await;
