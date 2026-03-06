@@ -1,0 +1,747 @@
+/*
+ * adapterOS Liquid Glass Theme Pack
+ * PRD-UI-100: Glass morphism design tokens and component overrides
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * LIQUID GLASS DESIGN SPEC - DO NOT FREESTYLE
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * TIER SYSTEM (use strictly, no random translucency):
+ *   Tier 1 (--glass-bg-1): headers, nav, inputs        | blur: 9.6px  | alpha: 70%
+ *   Tier 2 (--glass-bg-2): cards, panels, aside        | blur: 12px   | alpha: 78%
+ *   Tier 3 (--glass-bg-3): dialogs, popovers, menus    | blur: 15.6px | alpha: 85%
+ *
+ * BORDERS (required - glass without borders looks like fog):
+ *   Width: 1px
+ *   Color: hsla(215, 20%, 60%, 0.30) light / hsla(215, 25%, 55%, 0.35) dark
+ *
+ * NOISE (break banding, not dirty monitor):
+ *   Opacity: 2% light / 2.5% dark
+ *   Pattern: fractalNoise, 0.8 baseFrequency, 4 octaves
+ *
+ * MOTION (state change only, not constant wiggle):
+ *   Allowed: connecting, loading, success, error transitions
+ *   Forbidden: idle animations, decorative movement
+ *   Duration: 200-300ms ease for glass transitions
+ *
+ * TEXT CONTRAST (glass murders readability - fight it):
+ *   Minimum: WCAG AA (4.5:1 normal, 3:1 large/UI)
+ *   Dark mode: use --color-foreground, not white
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+/* ===== Glass Design Tokens ===== */
+:root {
+    /* Glass background layers (light mode: white-based translucency 70-85% alpha) */
+    --glass-bg-1: hsla(0, 0%, 100%, 0.70);
+    --glass-bg-2: hsla(0, 0%, 100%, 0.78);
+    --glass-bg-3: hsla(0, 0%, 100%, 0.85);
+
+    /* Glass border (dark edge on light bg — white borders are invisible on white) */
+    --glass-border: hsla(215, 20%, 60%, 0.30);
+
+    /* Glass shadows with HSL tints (colored soft shadows) */
+    --glass-shadow-sm: 0 1px 2px hsla(220, 60%, 50%, 0.10),
+                       0 1px 3px hsla(220, 60%, 50%, 0.06);
+    --glass-shadow-md: 0 4px 6px hsla(220, 60%, 50%, 0.12),
+                       0 2px 4px hsla(220, 60%, 50%, 0.07),
+                       0 1px 2px hsla(220, 60%, 50%, 0.04);
+    --glass-shadow-lg: 0 10px 15px hsla(220, 60%, 50%, 0.14),
+                       0 4px 6px hsla(220, 60%, 50%, 0.08),
+                       0 2px 4px hsla(220, 60%, 50%, 0.05);
+
+    /* Glass effects */
+    --glass-blur: 12px;
+    --glass-saturation: 1.2;
+    --glass-noise-opacity: 0.02;
+    --glass-highlight: linear-gradient(
+        135deg,
+        hsla(0, 0%, 100%, 0.4) 0%,
+        hsla(0, 0%, 100%, 0.1) 50%,
+        hsla(0, 0%, 100%, 0) 100%
+    );
+    --glass-glow: 0 0 20px hsla(220, 100%, 70%, 0.15);
+
+    /* Elevation blur multipliers */
+    --glass-blur-1: calc(var(--glass-blur) * 0.8);
+    --glass-blur-2: var(--glass-blur);
+    --glass-blur-3: calc(var(--glass-blur) * 1.3);
+}
+
+/* Dark mode: deep blue translucency (65-80% alpha), stronger blur (16px vs 12px) */
+.dark {
+    --glass-bg-1: hsla(222, 47%, 8%, 0.65);
+    --glass-bg-2: hsla(222, 47%, 10%, 0.72);
+    --glass-bg-3: hsla(222, 47%, 12%, 0.80);
+
+    --glass-border: hsla(215, 25%, 55%, 0.35);
+
+    --glass-shadow-sm: 0 1px 2px hsla(220, 80%, 20%, 0.22),
+                       0 1px 3px hsla(220, 80%, 10%, 0.14);
+    --glass-shadow-md: 0 4px 6px hsla(220, 80%, 15%, 0.28),
+                       0 2px 4px hsla(220, 80%, 10%, 0.16),
+                       0 1px 2px hsla(220, 80%, 5%, 0.10);
+    --glass-shadow-lg: 0 10px 15px hsla(220, 80%, 10%, 0.32),
+                       0 4px 6px hsla(220, 80%, 5%, 0.20),
+                       0 2px 4px hsla(220, 80%, 0%, 0.12);
+
+    --glass-blur: 16px;
+    --glass-saturation: 1.4;
+    --glass-noise-opacity: 0.025;
+    --glass-highlight: linear-gradient(
+        135deg,
+        hsla(210, 100%, 90%, 0.12) 0%,
+        hsla(210, 100%, 80%, 0.04) 50%,
+        hsla(210, 100%, 70%, 0) 100%
+    );
+    --glass-glow: 0 0 30px hsla(220, 100%, 60%, 0.12);
+}
+
+/* ===== Noise Texture SVG (inline for performance) ===== */
+.theme-glass {
+    --glass-noise-url: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    /* Primary: saturated blue accent (not gray) for modern CTA feel */
+    --action-primary-bg: color-mix(in srgb, hsl(221 75% 48%) 78%, var(--glass-bg-2));
+    --action-primary-bg-hover: color-mix(in srgb, hsl(221 75% 52%) 85%, var(--glass-bg-2));
+    --action-primary-border: color-mix(in srgb, hsl(221 70% 55%) 45%, var(--glass-border));
+    --action-primary-fab-bg: color-mix(in srgb, var(--color-primary) 40%, var(--glass-bg-3));
+    --action-primary-fab-bg-hover: color-mix(in srgb, var(--color-primary) 48%, var(--glass-bg-3));
+    --action-primary-fab-border: var(--action-primary-border);
+    --action-destructive-bg: color-mix(in srgb, var(--color-destructive) 60%, var(--glass-bg-2));
+    --action-destructive-bg-hover: color-mix(in srgb, var(--color-destructive) 68%, var(--glass-bg-2));
+    --action-destructive-border: color-mix(in srgb, var(--color-destructive) 50%, var(--glass-border));
+    --action-destructive-glow: 0 0 20px color-mix(in srgb, var(--color-destructive) 26%, transparent);
+    --action-outline-border: var(--glass-border);
+    --glass-field-bg: color-mix(in srgb, var(--glass-bg-1) 88%, var(--color-background));
+    --glass-field-border: color-mix(in srgb, var(--glass-border) 92%, var(--color-border));
+    --glass-table-bg: color-mix(in srgb, var(--glass-bg-2) 86%, var(--color-card));
+    --glass-table-header-bg: color-mix(in srgb, var(--glass-bg-1) 82%, var(--color-muted));
+}
+
+/* ===== Feature Detection with Fallback ===== */
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass header,
+    .theme-glass nav,
+    .theme-glass .input,
+    .theme-glass .select,
+    .theme-glass textarea,
+    .theme-glass .adapter-magnet-bar,
+    .theme-glass .chat-adapters-region {
+        backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
+    }
+    .theme-glass .card,
+    .theme-glass aside,
+    .theme-glass .btn-ghost,
+    .theme-glass .table-wrapper,
+    .theme-glass .table-row:hover {
+        backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+    }
+    .theme-glass .dialog-content,
+    .theme-glass .adapter-chip-tooltip {
+        backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+    }
+}
+
+/* Fallback for browsers without backdrop-filter support */
+@supports not (backdrop-filter: blur(1px)) {
+    .theme-glass .card,
+    .theme-glass .dialog-content,
+    .theme-glass header,
+    .theme-glass nav,
+    .theme-glass aside,
+    .theme-glass .table-wrapper {
+        background-color: var(--color-background);
+        opacity: 0.98;
+    }
+}
+
+/* ===== Glass Component Overrides ===== */
+
+/* Card Component */
+.theme-glass .card {
+    background: color-mix(in srgb, var(--glass-bg-2) 88%, var(--color-card));
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow-md);
+    position: relative;
+    overflow: hidden;
+}
+
+.theme-glass .card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--glass-highlight);
+    pointer-events: none;
+    z-index: 1;
+    mask-image: linear-gradient(
+        135deg,
+        black 0%,
+        transparent 60%
+    );
+    -webkit-mask-image: linear-gradient(
+        135deg,
+        black 0%,
+        transparent 60%
+    );
+}
+
+.theme-glass .card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--glass-noise-url);
+    opacity: var(--glass-noise-opacity);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.theme-glass .card > * {
+    position: relative;
+    z-index: 2;
+}
+
+/* Dialog Content */
+.theme-glass .dialog-content {
+    background: var(--glass-bg-3);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow-lg), var(--glass-glow);
+    /* Explicitly maintain fixed positioning from base styles */
+    position: fixed;
+    overflow: hidden;
+}
+
+.theme-glass .dialog-content::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--glass-highlight);
+    pointer-events: none;
+    z-index: 1;
+    mask-image: linear-gradient(
+        135deg,
+        black 0%,
+        transparent 50%
+    );
+    -webkit-mask-image: linear-gradient(
+        135deg,
+        black 0%,
+        transparent 50%
+    );
+}
+
+.theme-glass .dialog-content::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--glass-noise-url);
+    opacity: var(--glass-noise-opacity);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.theme-glass .dialog-content > :not(.dialog-close) {
+    position: relative;
+    z-index: 2;
+}
+
+.theme-glass .dialog-content > .dialog-close {
+    position: absolute;
+    z-index: 3;
+    display: inline-flex;
+    width: auto;
+    height: auto;
+}
+
+/* Scrollable dialogs need overflow-y: auto to work properly */
+.theme-glass .dialog-content.dialog-scrollable {
+    overflow-y: auto;
+}
+
+/* Header */
+.theme-glass header {
+    background: var(--glass-bg-1);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow-sm);
+    position: relative;
+}
+
+.theme-glass header::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--glass-noise-url);
+    opacity: var(--glass-noise-opacity);
+    pointer-events: none;
+}
+
+/* Navigation (Taskbar) */
+.theme-glass nav {
+    background: var(--glass-bg-1);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow-sm);
+    position: relative;
+}
+
+.theme-glass nav::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--glass-noise-url);
+    opacity: var(--glass-noise-opacity);
+    pointer-events: none;
+}
+
+/* Aside (Sidebar panels) */
+.theme-glass aside {
+    background: var(--glass-bg-2);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow-md);
+    position: relative;
+}
+
+.theme-glass aside::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--glass-noise-url);
+    opacity: var(--glass-noise-opacity);
+    pointer-events: none;
+}
+
+/* Input and Textarea */
+.theme-glass .input,
+.theme-glass .select,
+.theme-glass textarea {
+    background: var(--glass-field-bg);
+    border: 1px solid var(--glass-field-border);
+    box-shadow: inset 0 1px 2px hsla(220, 60%, 50%, 0.05);
+    transition: all var(--duration-normal) var(--ease-default);
+}
+
+.theme-glass .input:focus,
+.theme-glass .select:focus,
+.theme-glass textarea:focus {
+    border-color: hsla(220, 80%, 60%, 0.5);
+    box-shadow: inset 0 1px 2px hsla(220, 60%, 50%, 0.05),
+                0 0 0 3px hsla(220, 80%, 60%, 0.15);
+}
+
+/* Ghost Button - styles defined in components.css, glass blur applied via @supports above */
+
+/* Table surface */
+.theme-glass .table-wrapper {
+    background: var(--glass-table-bg);
+    border-color: var(--glass-border);
+}
+
+.theme-glass .table-header tr {
+    background: var(--glass-table-header-bg);
+    border-bottom-color: color-mix(in srgb, var(--glass-border) 86%, var(--color-border));
+}
+
+/* Table Row Hover */
+.theme-glass .table-row:hover {
+    background: color-mix(in srgb, var(--glass-bg-1) 90%, transparent);
+}
+
+/* ===== Elevation System ===== */
+.theme-glass [data-elevation="1"] {
+    background: var(--glass-bg-1);
+    box-shadow: var(--glass-shadow-sm);
+    position: relative;
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass [data-elevation="1"] {
+        backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
+    }
+}
+
+.theme-glass [data-elevation="2"] {
+    background: var(--glass-bg-2);
+    box-shadow: var(--glass-shadow-md);
+    position: relative;
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass [data-elevation="2"] {
+        backdrop-filter: blur(var(--glass-blur-2)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-2)) saturate(var(--glass-saturation));
+    }
+}
+
+.theme-glass [data-elevation="3"] {
+    background: var(--glass-bg-3);
+    box-shadow: var(--glass-shadow-lg);
+    position: relative;
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass [data-elevation="3"] {
+        backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+    }
+}
+
+/* Inner glow highlights using mask gradients for elevation */
+.theme-glass [data-elevation="1"]::before,
+.theme-glass [data-elevation="2"]::before,
+.theme-glass [data-elevation="3"]::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--glass-highlight);
+    pointer-events: none;
+    border-radius: inherit;
+}
+
+.theme-glass [data-elevation="1"]::before {
+    mask-image: linear-gradient(135deg, black 0%, transparent 40%);
+    -webkit-mask-image: linear-gradient(135deg, black 0%, transparent 40%);
+}
+
+.theme-glass [data-elevation="2"]::before {
+    mask-image: linear-gradient(135deg, black 0%, transparent 50%);
+    -webkit-mask-image: linear-gradient(135deg, black 0%, transparent 50%);
+}
+
+.theme-glass [data-elevation="3"]::before {
+    mask-image: linear-gradient(135deg, black 0%, transparent 60%);
+    -webkit-mask-image: linear-gradient(135deg, black 0%, transparent 60%);
+}
+
+/* Noise overlay for elevation elements */
+.theme-glass [data-elevation="1"]::after,
+.theme-glass [data-elevation="2"]::after,
+.theme-glass [data-elevation="3"]::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--glass-noise-url);
+    opacity: var(--glass-noise-opacity);
+    pointer-events: none;
+    border-radius: inherit;
+}
+
+/* Content positioning for elevation elements */
+.theme-glass [data-elevation="1"] > *,
+.theme-glass [data-elevation="2"] > *,
+.theme-glass [data-elevation="3"] > * {
+    position: relative;
+    z-index: 2;
+}
+
+/* ===== Additional Glass Utilities ===== */
+
+/* Glass panel utility class */
+.theme-glass .glass-panel {
+    background: var(--glass-bg-2);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow-md);
+    border-radius: var(--radius);
+    position: relative;
+    overflow: hidden;
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass .glass-panel {
+        backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+    }
+}
+
+.theme-glass .glass-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--glass-highlight);
+    pointer-events: none;
+    z-index: 1;
+    mask-image: linear-gradient(135deg, black 0%, transparent 50%);
+    -webkit-mask-image: linear-gradient(135deg, black 0%, transparent 50%);
+}
+
+.theme-glass .glass-panel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--glass-noise-url);
+    opacity: var(--glass-noise-opacity);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.theme-glass .glass-panel > * {
+    position: relative;
+    z-index: 2;
+}
+
+/* Dropdown menus and popovers */
+.theme-glass .dropdown,
+.theme-glass .popover,
+.theme-glass [role="menu"] {
+    background: var(--glass-bg-3);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow-lg), var(--glass-glow);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass .dropdown,
+    .theme-glass .popover,
+    .theme-glass [role="menu"] {
+        backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+    }
+}
+
+/* Start menu glass effect */
+.theme-glass .start-menu {
+    background: var(--glass-bg-3);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow-lg), var(--glass-glow);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass .start-menu {
+        backdrop-filter: blur(calc(var(--glass-blur) * 1.5)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.5)) saturate(var(--glass-saturation));
+    }
+}
+
+/* Chat dock panel */
+.theme-glass .chat-dock {
+    background: var(--glass-bg-2);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow-md);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass .chat-dock {
+        backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+    }
+}
+
+/* Tooltip glass effect */
+.theme-glass [role="tooltip"] {
+    background: var(--glass-bg-3);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow-sm);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass [role="tooltip"] {
+        backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+    }
+}
+
+/* ===== Transitions for Glass Toggle ===== */
+.theme-glass .card,
+.theme-glass .dialog-content,
+.theme-glass header,
+.theme-glass nav,
+.theme-glass aside,
+.theme-glass .input,
+.theme-glass textarea,
+.theme-glass .btn-ghost,
+.theme-glass .table-row {
+    transition: background-color var(--duration-slow) var(--ease-default),
+                backdrop-filter var(--duration-slow) var(--ease-default),
+                box-shadow var(--duration-slow) var(--ease-default),
+                border-color var(--duration-slow) var(--ease-default);
+}
+
+/* ===== Text Contrast Safety for Glass Theme ===== */
+/*
+ * WCAG AA Compliance for Glass Backgrounds:
+ * - Normal text (<18pt): 4.5:1 contrast ratio minimum
+ * - Large text (>=18pt or >=14pt bold): 3:1 contrast ratio minimum
+ * - UI components: 3:1 contrast ratio minimum
+ *
+ * Strategy: Use text-shadow and slight color adjustments to ensure
+ * readability on translucent glass backgrounds.
+ */
+
+/* High-contrast text color tokens for glass backgrounds */
+.theme-glass {
+    /* Light mode: Darker text for better contrast on light glass */
+    --glass-text-primary: hsl(222.2 84% 4.9%);           /* #0a0e1a - 15.8:1 on white */
+    --glass-text-secondary: hsl(218 22% 24%);            /* stronger secondary contrast */
+    --glass-text-muted: hsl(216 15% 32%);                /* stronger muted contrast */
+}
+
+/* Support both class placements:
+ * - `html.dark body.theme-glass` (current runtime)
+ * - `.dark.theme-glass` (same-element fallback)
+ */
+.dark .theme-glass,
+.dark.theme-glass {
+    /* Dark mode: Lighter text for better contrast on dark glass */
+    --glass-text-primary: hsl(210 40% 98%);              /* #f5f7fa - 16.2:1 on dark bg */
+    --glass-text-secondary: hsl(215 20% 82%);            /* stronger secondary contrast */
+    --glass-text-muted: hsl(215 19% 74%);                /* stronger muted contrast */
+}
+
+/* Apply high-contrast colors to text on glass elements */
+.theme-glass .card,
+.theme-glass .dialog-content,
+.theme-glass header,
+.theme-glass nav,
+.theme-glass aside,
+.theme-glass .table-wrapper {
+    color: var(--glass-text-primary);
+}
+
+.theme-glass .card .text-muted-foreground,
+.theme-glass .dialog-content .text-muted-foreground,
+.theme-glass header .text-muted-foreground,
+.theme-glass nav .text-muted-foreground {
+    color: var(--glass-text-muted);
+}
+
+/* Add subtle text shadow for improved legibility on glass */
+.theme-glass .card-title,
+.theme-glass .dialog-title,
+.theme-glass h1,
+.theme-glass h2,
+.theme-glass h3 {
+    text-shadow: 0 1px 0 color-mix(in srgb, var(--color-background) 65%, transparent);
+    color: var(--glass-text-primary);
+}
+
+/* Small text gets a more opaque background to ensure readability */
+.theme-glass .text-xs,
+.theme-glass .text-sm {
+    text-shadow: none;
+}
+
+/* Ensure status badges remain readable on glass */
+.theme-glass .badge {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+/* Form labels need extra contrast on glass backgrounds */
+.theme-glass .label,
+.theme-glass label {
+    text-shadow: none;
+    color: var(--glass-text-primary);
+}
+
+/* Input placeholder text contrast */
+.theme-glass .input::placeholder,
+.theme-glass textarea::placeholder {
+    color: var(--glass-text-muted);
+}
+
+/* Table cells with important data should have subtle backing */
+.theme-glass .table-cell {
+    text-shadow: none;
+}
+
+/* Table header cells need good contrast */
+.theme-glass .table-header-cell {
+    color: var(--glass-text-secondary);
+    font-weight: 600;
+}
+
+/* Muted foreground text needs higher opacity on glass for readability */
+.theme-glass .text-muted-foreground {
+    color: var(--glass-text-muted);
+}
+
+/* Status indicator text needs to be clearly visible */
+.theme-glass .text-status-error,
+.theme-glass .text-status-warning,
+.theme-glass .text-status-success,
+.theme-glass .text-status-info {
+    text-shadow: 0 1px 0 color-mix(in srgb, var(--color-background) 55%, transparent);
+    font-weight: 500; /* Slightly heavier for better readability */
+}
+
+/* Navigation link contrast on glass */
+.theme-glass nav a,
+.theme-glass nav button {
+    color: var(--glass-text-primary);
+}
+
+.theme-glass nav a:hover,
+.theme-glass nav button:hover {
+    color: var(--glass-text-primary);
+}
+
+/* Ensure button text remains readable on glass buttons */
+.theme-glass .btn-secondary,
+.theme-glass .btn-ghost,
+.theme-glass .btn-outline {
+    color: var(--glass-text-primary);
+}
+
+/* Tab button contrast on glass */
+.theme-glass .tab-button {
+    color: var(--glass-text-muted);
+}
+
+.theme-glass .tab-button:hover,
+.theme-glass .tab-button-active {
+    color: var(--glass-text-primary);
+}
+
+/* ===== Compact Mode ===== */
+/* Reduces spacing, padding, and font sizes for a denser layout */
+
+.compact {
+    --shell-page-padding: 0.625rem;
+    font-size: 0.9375rem;
+}
+
+.compact .card {
+    padding: 0.625rem;
+}
+
+.compact .shell-page {
+    gap: 0.75rem;
+}
+
+.compact h1, .compact .heading-1 { font-size: 1.375rem; }
+.compact h2, .compact .heading-2 { font-size: 1.125rem; }
+.compact h3, .compact .heading-3 { font-size: 0.9375rem; }
+.compact h4, .compact .heading-4 { font-size: 0.8125rem; }
+
+.compact .space-y-6 > * + * { margin-top: 1rem; }
+.compact .space-y-4 > * + * { margin-top: 0.625rem; }
+.compact .gap-6 { gap: 1rem; }
+.compact .gap-4 { gap: 0.625rem; }
+.compact .gap-3 { gap: 0.5rem; }
+.compact .gap-2 { gap: 0.375rem; }
+
+.compact .p-4 { padding: 0.625rem; }
+.compact .p-3 { padding: 0.5rem; }
+.compact .px-4 { padding-left: 0.625rem; padding-right: 0.625rem; }
+.compact .py-3 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.compact .py-2 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+.compact .mb-4 { margin-bottom: 0.625rem; }
+.compact .mb-6 { margin-bottom: 1rem; }
+.compact .mt-4 { margin-top: 0.625rem; }
+
+@media (forced-colors: active) {
+  .glass-tier-1, .glass-tier-2, .glass-tier-3 {
+    background: Canvas;
+    border-color: CanvasText;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .glass-tier-1, .glass-tier-2, .glass-tier-3 {
+    backdrop-filter: none;
+    background: var(--color-background);
+    border: 1px solid var(--color-foreground);
+  }
+}

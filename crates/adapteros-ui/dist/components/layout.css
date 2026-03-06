@@ -41,6 +41,10 @@
   background-color: hsl(210 40% 96.1% / 0.05);
 }
 
+.shell-main > * {
+  animation: page-enter var(--duration-slow) var(--ease-default) both;
+}
+
 .logic-rail {
   border-top: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
   border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 20%, var(--color-border));
@@ -183,7 +187,7 @@
   font-weight: 600;
   padding: 0.24rem 0.5rem;
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: all var(--duration-fast) var(--ease-default);
 }
 
 .logic-link-btn:hover {
@@ -424,7 +428,7 @@
   text-decoration: none;
   font-size: 0.6875rem;
   padding: 0.19rem 0.48rem;
-  transition: all 120ms ease;
+  transition: all var(--duration-fast) var(--ease-default);
 }
 
 .logic-action-pill:hover {
@@ -536,13 +540,12 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  border-right: 1px solid var(--color-border);
-  background: var(--glass-bg-1, var(--color-background));
-  backdrop-filter: blur(var(--glass-blur-1, 9.6px));
-  -webkit-backdrop-filter: blur(var(--glass-blur-1, 9.6px));
+  background: var(--glass-bg-2, var(--color-background));
+  backdrop-filter: blur(var(--glass-blur-2, 12px));
+  -webkit-backdrop-filter: blur(var(--glass-blur-2, 12px));
   flex-shrink: 0;
   overflow: hidden;
-  transition: width 200ms ease;
+  transition: width var(--duration-normal) var(--ease-default);
   z-index: 10;
 }
 
@@ -578,7 +581,7 @@
   background: transparent;
   color: var(--color-muted-foreground);
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default), color var(--duration-normal) var(--ease-default);
 }
 
 .sidebar-toggle:hover {
@@ -589,7 +592,7 @@
 .sidebar-toggle:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
 
 .sidebar-toggle-icon {
-  transition: transform 200ms ease;
+  transition: transform var(--duration-normal) var(--ease-default);
 }
 
 .sidebar-toggle-icon--flipped {
@@ -627,7 +630,7 @@
   font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default), color var(--duration-normal) var(--ease-default);
   text-decoration: none;
   text-align: left;
   line-height: 1.25;
@@ -667,7 +670,7 @@
   color: var(--color-muted-foreground);
   font-size: 0.8125rem;
   text-decoration: none;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default), color var(--duration-normal) var(--ease-default);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -723,7 +726,7 @@
 .sidebar-chevron {
   flex-shrink: 0;
   margin-left: auto;
-  transition: transform 200ms ease;
+  transition: transform var(--duration-normal) var(--ease-default);
   color: var(--color-muted-foreground);
 }
 
@@ -751,7 +754,7 @@
   font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default), color var(--duration-normal) var(--ease-default);
 }
 
 .sidebar-profile-toggle:hover {
@@ -821,14 +824,14 @@
   min-width: 0;
   box-sizing: border-box;
   padding-inline-end: var(--layout-panel-padding);
-  transition: width 200ms ease, flex-basis 200ms ease, flex 200ms ease;
+  transition: width var(--duration-normal) var(--ease-default), flex-basis var(--duration-normal) var(--ease-default), flex var(--duration-normal) var(--ease-default);
 }
 
 /* SplitPanel detail column - transition container */
 .split-panel-detail {
   min-width: 0;
   box-sizing: border-box;
-  transition: width 200ms ease, flex-basis 200ms ease, opacity 200ms ease;
+  transition: width var(--duration-normal) var(--ease-default), flex-basis var(--duration-normal) var(--ease-default), opacity var(--duration-normal) var(--ease-default);
 }
 
 /* SplitPanel detail column - collapsed by default, always in DOM for transitions */
@@ -1006,7 +1009,7 @@
   color: var(--color-muted-foreground);
   text-decoration: none;
   transition-property: color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .page-header-breadcrumb-link:hover {
@@ -1090,7 +1093,7 @@
   background: color-mix(in srgb, var(--color-background) 84%, var(--color-accent));
   color: var(--color-foreground);
   cursor: pointer;
-  transition: border-color 120ms ease, background-color 120ms ease;
+  transition: border-color var(--duration-fast) var(--ease-default), background-color var(--duration-fast) var(--ease-default);
 }
 
 .page-scaffold-overflow-trigger:hover {
@@ -1320,7 +1323,7 @@
   box-shadow: inset 0 1px 0 var(--os-bevel-hi), inset 0 -1px 0 var(--os-bevel-lo);
   color: var(--color-muted-foreground);
   transition-property: color, background-color, border-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
   cursor: pointer;
   overflow: hidden;
 }
@@ -1413,7 +1416,7 @@
   border-radius: calc(var(--radius) - 0.125rem);
   cursor: pointer;
   transition-property: background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .search-result:hover {
@@ -1486,7 +1489,7 @@
     border: 1px solid var(--action-primary-fab-border);
     backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
     -webkit-backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
-    transition: all 200ms ease;
+    transition: all var(--duration-normal) var(--ease-default);
   }
 
   .mobile-chat-fab:hover {
@@ -1635,7 +1638,7 @@
   background: color-mix(in srgb, var(--color-background) 76%, var(--color-accent));
   color: var(--color-muted-foreground);
   padding: 0.25rem 0.55rem;
-  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default), color var(--duration-normal) var(--ease-default), border-color var(--duration-normal) var(--ease-default);
 }
 
 .topbar-density-toggle:hover {
@@ -1693,7 +1696,7 @@
   font-size: 0.6875rem;
   text-decoration: none;
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: all var(--duration-fast) var(--ease-default);
 }
 
 .fingerprint-badge__copy:hover,
@@ -1866,7 +1869,7 @@
     border: none;
     color: var(--color-foreground);
     cursor: pointer;
-    transition: background-color 200ms ease;
+    transition: background-color var(--duration-normal) var(--ease-default);
   }
 
   .topbar-hamburger:hover {
@@ -2016,11 +2019,10 @@
   bottom: 0;
   width: min(80vw, 320px);
   background: var(--color-background);
-  border-right: 1px solid var(--color-border);
   box-shadow: var(--glass-shadow-lg);
   z-index: 101;
   transform: translateX(-100%);
-  transition: transform 300ms ease;
+  transition: transform var(--duration-slow) var(--ease-default);
   display: flex;
   flex-direction: column;
 }
@@ -2076,7 +2078,7 @@
   border-radius: 6px;
   text-decoration: none;
   color: var(--color-foreground);
-  transition: background-color 200ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default);
 }
 
 .mobile-menu-link:hover {

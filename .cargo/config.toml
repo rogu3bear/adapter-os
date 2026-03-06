@@ -4,6 +4,12 @@
 [build]
 # Disable debug info for smaller, reproducible binaries
 # Note: macOS-specific link args moved to target-specific sections
+#
+# Native build prerequisite preflight:
+# - Fails fast on missing `cmake` before Cargo spends time compiling dependencies.
+# - To combine with a cache wrapper such as sccache, set:
+#   AOS_INNER_RUSTC_WRAPPER=sccache
+rustc-wrapper = ".cargo/aos-rustc-wrapper.sh"
 rustflags = [
     "-Cdebuginfo=0",
 ]
@@ -25,7 +31,8 @@ rustflags = []
 
 [env]
 # IMPORTANT: sccache and incremental compilation are mutually exclusive.
-# sccache is opt-in via environment (e.g. RUSTC_WRAPPER=sccache)
+# sccache is opt-in via environment (recommended here:
+# AOS_INNER_RUSTC_WRAPPER=sccache, so the workspace preflight wrapper stays active)
 # so CI and clean environments do not require sccache to be installed.
 # Set to "0" to avoid "sccache: incremental compilation is prohibited" errors
 # that break rust-analyzer and cargo metadata.

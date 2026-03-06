@@ -751,7 +751,10 @@ fn ChatWorkspace(
                             class="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm"
                             on:click=move |_| show_mobile_sessions.set(false)
                         />
-                        <div class="fixed inset-y-0 left-0 z-50 w-80 bg-background border-r border-border shadow-xl flex flex-col overflow-hidden">
+                        <div
+                            class="fixed inset-y-0 left-0 z-50 w-80 border-r border-border shadow-xl flex flex-col overflow-hidden"
+                            style="background: var(--glass-bg-3); backdrop-filter: blur(15.6px); -webkit-backdrop-filter: blur(15.6px)"
+                        >
                             <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
                                 <h2 class="text-sm font-semibold">"Sessions"</h2>
                                 <button

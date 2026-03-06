@@ -23,5 +23,7 @@ scripts/ci/check_route_inventory_openapi_coverage.sh
 scripts/contracts/check_error_code_coverage.sh
 scripts/contracts/check_handler_error_response_with_code.sh
 scripts/ci/check_handler_annotations.sh
+scripts/contracts/check_security_audit.sh
+scripts/contracts/check_secret_exposure.sh
 
 echo "=== Rectification Contract Suite: PASSED ==="

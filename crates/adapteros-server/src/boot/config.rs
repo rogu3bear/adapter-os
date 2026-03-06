@@ -92,6 +92,9 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
         );
     }
 
+    // Clean stale runtime state before any service tries to bind sockets
+    super::runtime_cleanup::clean_stale_runtime_state(&runtime_dir.path);
+
     // Load configuration early - needed for logging setup
     // Use eprintln for errors here since logging isn't initialized yet
     let server_config = match Config::load(&cli.config) {
@@ -241,6 +244,9 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
         effective_var_base = %effective_var_base.display(),
         "Runtime var base resolved"
     );
+
+    // Update supervision state (crash-vs-rebuild discrimination)
+    super::supervision_state::update_supervision_state_on_boot(&runtime_dir.path);
 
     // Derive effective JWT mode and session lifetime from auth config
     {

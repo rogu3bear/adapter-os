@@ -55,10 +55,12 @@ mod metrics;
 pub mod migrations;
 pub mod model_server;
 pub mod runtime;
+pub mod runtime_cleanup;
 pub mod security;
 mod server;
 pub mod startup_orchestrator;
 pub mod startup_recovery;
+pub mod supervision_state;
 mod tasks;
 mod timings;
 
@@ -76,6 +78,7 @@ pub use invariants::{
 };
 pub use metrics::{initialize_metrics, MetricsContext};
 pub use runtime::{initialize_runtime, RuntimeContext};
+pub use runtime_cleanup::clean_stale_runtime_state;
 pub use security::{
     initialize_security, log_effective_config, run_preflight_checks,
     validate_production_security_env, SecurityContext, SecurityEnvValidation,
@@ -88,6 +91,7 @@ pub use startup_orchestrator::{
     StartupRecoveryPath, StartupSnapshot,
 };
 pub use startup_recovery::{run_startup_recovery, StartupRecoveryReport};
+pub use supervision_state::{update_supervision_state_on_boot, SupervisionState};
 pub use tasks::{BackgroundTaskSpawner, SpawnError, SpawnResult};
 pub use timings::BootTimings;
 

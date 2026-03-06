@@ -7,10 +7,10 @@
 use crate::api::ApiClient;
 use crate::components::layout::nav_group_label_for_route;
 use crate::components::{
-    AdapterDetailPanel, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    EmptyState, EmptyStateVariant, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
-    PageScaffoldInspector, PageScaffoldPrimaryAction, SplitPanel, SplitRatio, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    AdapterDetailPanel, Badge, BadgeVariant, Button, ButtonVariant, Card, EmptyState,
+    EmptyStateVariant, ErrorDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    PageScaffoldInspector, PageScaffoldPrimaryAction, SkeletonTable, SplitPanel, SplitRatio, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_cached_api_resource, CacheTtl, LoadingState};
@@ -226,43 +226,54 @@ pub fn UpdateCenter() -> impl IntoView {
                 </div>
             </PageScaffoldInspector>
 
-            <AsyncBoundary
-                state=adapters
-                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
-                render=move |data| {
-                    let mut adapters_for_list = data.clone();
-                    adapters_for_list.sort_by_key(|a| a.lifecycle_state.sort_key());
-                    view! {
-                        <SplitPanel
-                            has_selection=has_selection
-                            on_close=on_close_detail
-                            back_label="Back to Versions"
-                            ratio=SplitRatio::TwoFifthsThreeFifths
-                            list_panel=move || {
-                                let data = adapters_for_list.clone();
-                                view! {
-                                    <UpdateCenterList
-                                        adapters=data
-                                        selected_id=selected_id
-                                        command_focus=command_focus
-                                        on_select=on_select
-                                    />
+            {move || {
+                match adapters.try_get().unwrap_or(LoadingState::Idle) {
+                    LoadingState::Idle | LoadingState::Loading => {
+                        view! { <SkeletonTable rows=5 columns=4 /> }.into_any()
+                    }
+                    LoadingState::Error(e) => {
+                        view! {
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
+                            />
+                        }.into_any()
+                    }
+                    LoadingState::Loaded(data) => {
+                        let mut adapters_for_list = data.clone();
+                        adapters_for_list.sort_by_key(|a| a.lifecycle_state.sort_key());
+                        view! {
+                            <SplitPanel
+                                has_selection=has_selection
+                                on_close=on_close_detail
+                                back_label="Back to Versions"
+                                ratio=SplitRatio::TwoFifthsThreeFifths
+                                list_panel=move || {
+                                    let data = adapters_for_list.clone();
+                                    view! {
+                                        <UpdateCenterList
+                                            adapters=data
+                                            selected_id=selected_id
+                                            command_focus=command_focus
+                                            on_select=on_select
+                                        />
+                                    }
                                 }
-                            }
-                            detail_panel=move || {
-                                view! {
-                                    <AdapterDetailPanel
-                                        adapter=selected_adapter
-                                        loading=is_loading
-                                        on_close=on_close_detail
-                                        on_refetch=on_refetch_detail
-                                    />
+                                detail_panel=move || {
+                                    view! {
+                                        <AdapterDetailPanel
+                                            adapter=selected_adapter
+                                            loading=is_loading
+                                            on_close=on_close_detail
+                                            on_refetch=on_refetch_detail
+                                        />
+                                    }
                                 }
-                            }
-                        />
+                            />
+                        }.into_any()
                     }
                 }
-            />
+            }}
         </PageScaffold>
     }
 }

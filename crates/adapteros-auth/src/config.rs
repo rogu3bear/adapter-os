@@ -331,6 +331,16 @@ impl AuthConfig {
 mod tests {
     use super::*;
 
+    fn with_dev_no_auth_cleared<T>(f: impl FnOnce() -> T) -> T {
+        let original = std::env::var("AOS_DEV_NO_AUTH").ok();
+        std::env::remove_var("AOS_DEV_NO_AUTH");
+        let result = f();
+        if let Some(value) = original {
+            std::env::set_var("AOS_DEV_NO_AUTH", value);
+        }
+        result
+    }
+
     #[test]
     fn test_default_config() {
         let config = AuthConfig::default();
@@ -356,10 +366,12 @@ mod tests {
             ..Default::default()
         };
 
-        // Should fail in release mode
-        let result = config.validate_boot_invariants(true);
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AuthError::DevBypassInRelease));
+        with_dev_no_auth_cleared(|| {
+            // Should fail in release mode
+            let result = config.validate_boot_invariants(true);
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), AuthError::DevBypassInRelease));
+        });
     }
 
     #[test]
@@ -367,13 +379,15 @@ mod tests {
         let mut config = AuthConfig::default();
         config.jwt.algorithm = JwtAlgorithm::EdDSA;
 
-        // Should fail without key path
-        let result = config.validate_boot_invariants(true);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            AuthError::JwtModeNotConfigured
-        ));
+        with_dev_no_auth_cleared(|| {
+            // Should fail without key path
+            let result = config.validate_boot_invariants(true);
+            assert!(result.is_err());
+            assert!(matches!(
+                result.unwrap_err(),
+                AuthError::JwtModeNotConfigured
+            ));
+        });
     }
 
     #[test]
@@ -383,8 +397,10 @@ mod tests {
         config.cookie.same_site = "None".to_string();
         config.cookie.secure = false;
 
-        // Should fail in release mode
-        let result = config.validate_boot_invariants(true);
-        assert!(result.is_err());
+        with_dev_no_auth_cleared(|| {
+            // Should fail in release mode
+            let result = config.validate_boot_invariants(true);
+            assert!(result.is_err());
+        });
     }
 }

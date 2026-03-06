@@ -11,21 +11,23 @@ Deterministic, verifiable LoRA inference on Apple Silicon so every operator acti
 ## Current State
 
 **Latest shipped milestone:** v1.1.17 Production Cut Closure (shipped 2026-03-04)
-**Current execution milestone:** v1.1.18 System Stabilization (in progress)
+**Current execution milestone:** v1.1.18 System Stabilization (completed 2026-03-05)
 
 **Known blockers:**
-- Training worker binary exists but spawner fails PATH resolution (`os error 2`).
-- SecD socket stale — process gone, socket/heartbeat lingering in `var/run/`.
-- 84 uncommitted files (+3265/-1548) across 12+ crates. Compiles clean but never committed.
+- No active blockers in v1.1.18 scope. Residual debt remains tracked in roadmap backlogs only.
 
-## Current Milestone: v1.1.18 System Stabilization
+## Current Milestone: v1.1.18 System Stabilization (Completed)
 
-**Goal:** Fix runtime blockers preventing full-stack operation: training worker spawn, stale runtime state cleanup, and commit the large accumulated diff.
+**Goal:** Fix runtime blockers and close stabilization expansion phases for portability, UI quality, and security hardening.
 
 **Target features:**
 - Training worker binary resolution so it spawns on backend boot.
 - Stale socket/marker cleanup on boot (SecD, degraded markers).
 - Atomic commits for the 84-file dirty tree to establish a clean baseline.
+- End-to-end adapter inference activation and round-trip training verification.
+- Full portability hardening (root discovery, bootstrap, fresh-clone startup).
+- UI harmony cleanup with consistent tokens/skeleton/empty states.
+- Performance and security hardening (UMA budget, per-tier rate limits, eviction UX, model permission hardening, structured security audit trail).
 
 ## Requirements
 
@@ -41,7 +43,7 @@ Deterministic, verifiable LoRA inference on Apple Silicon so every operator acti
 - `SEC-47-01`: Release-safe auth posture blocking — v1.1.17
 - `OPS-47-01`: Runbook drill evidence and signing checks release-required — v1.1.17
 
-### Active Requirements
+### Milestone Requirements (Completed)
 
 - `WRK-01`: Training worker spawns successfully when backend starts (binary resolution fixed).
 - `WRK-02`: Training worker reports healthy in service status after boot.
@@ -50,6 +52,10 @@ Deterministic, verifiable LoRA inference on Apple Silicon so every operator acti
 - `RTH-03`: Backend restart counter reflects actual crash count, not dev-rebuild kickstarts.
 - `GIT-01`: All modified files committed in logical, atomic commits.
 - `GIT-02`: Working tree is clean after commit series.
+- `INF-51-01`, `INF-51-02`, `TRN-51-01`, `TRN-51-02`: Adapter inference activation and training round-trip behavior verified.
+- `PORT-52-01`, `PORT-52-02`, `PORT-52-03`: Portability and fresh-clone startup path verified.
+- `UI-53-01`, `UI-53-02`, `UI-53-03`, `A11Y-53-01`: UI harmony and accessibility parity delivered.
+- `PERF-54-01`, `PERF-54-02`, `SEC-54-01`, `SEC-54-02`: Performance and security hardening delivered with targeted checks.
 
 ## Grounding Anchors (Current Implementation)
 
@@ -78,4 +84,4 @@ Deterministic, verifiable LoRA inference on Apple Silicon so every operator acti
 | Keep plain-language command vocabulary aligned across UI controls and command deck | Reduces operator ambiguity and improves assistive consistency | Active |
 
 ---
-*Last updated: 2026-03-04 after v1.1.18 milestone initialization (system stabilization).*
+*Last updated: 2026-03-05 after phase 54 completion and milestone reconciliation.*

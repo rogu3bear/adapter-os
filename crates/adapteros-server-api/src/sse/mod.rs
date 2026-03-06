@@ -93,7 +93,8 @@ mod types;
 
 pub use event_manager::{ReplayResult, SseEventManager, DEFAULT_BUFFER_CAPACITY, DEFAULT_RETRY_MS};
 pub use lifecycle_events::{
-    AdapterLifecycleEvent, AdapterVersionEvent, SystemHealthEvent, TrainingLifecycleEvent,
+    AdapterLifecycleEvent, AdapterVersionEvent, MemoryEvictionEvent, SystemHealthEvent,
+    TrainingLifecycleEvent,
 };
 pub use ring_buffer::{BufferStats, SseRingBuffer};
 pub use types::{EventGapRecoveryHint, SseErrorEvent, SseEvent, SseStreamType};

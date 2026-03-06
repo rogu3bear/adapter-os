@@ -1,0 +1,4 @@
+/* System font stack — no custom @font-face declarations needed.
+ * macOS: SF Pro Text/Display via -apple-system
+ * Fallback: system-ui, Helvetica Neue, sans-serif
+ * See base.css --font-sans and --font-display tokens. */

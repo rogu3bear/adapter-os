@@ -339,8 +339,14 @@ fn compile_metal_shaders() {
 
             if !metal_check.status.success() {
                 eprintln!("\n❌ ERROR: Metal compiler not found");
-                eprintln!("Install Xcode Command Line Tools: xcode-select --install");
-                eprintln!("Or install Metal Toolchain: ./scripts/install-metal-toolchain.sh");
+                eprintln!(
+                    "Full Xcode with an active developer directory is the default supported setup:"
+                );
+                eprintln!("  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer");
+                eprintln!("If you use a standalone Metal toolchain, set:");
+                eprintln!("  export METAL_TOOLCHAIN_BIN=/path/to/Metal.xctoolchain/usr/bin");
+                eprintln!("Or install Metal Toolchain guidance via:");
+                eprintln!("  ./scripts/install-metal-toolchain.sh");
                 std::process::exit(1);
             }
             // Use xcrun wrapper - will be handled specially below
@@ -422,7 +428,11 @@ fn compile_metal_shaders() {
                 eprintln!("\nOr install manually:");
                 eprintln!("  xcodebuild -downloadComponent MetalToolchain");
                 eprintln!("\nOr set METAL_TOOLCHAIN_BIN to the toolchain usr/bin directory.");
-                eprintln!("\nFor more information, see: docs/METAL_TOOLCHAIN_SETUP.md");
+                eprintln!(
+                    "\nIf xcode-select is pointing at Command Line Tools, switch to full Xcode:"
+                );
+                eprintln!("  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer");
+                eprintln!("\nFor more information, see: QUICKSTART.md");
             }
             std::process::exit(1);
         }

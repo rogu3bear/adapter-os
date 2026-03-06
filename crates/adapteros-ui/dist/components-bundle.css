@@ -28,7 +28,7 @@
   cursor: pointer;
   outline: none;
   border: 1px solid transparent;
-  transition: all 200ms var(--ease-default, ease);
+  transition: all var(--duration-normal) var(--ease-default, ease);
   box-shadow:
     0 1px 2px hsl(222 47% 11% / 0.06),
     0 2px 8px hsl(222 47% 11% / 0.08);
@@ -41,7 +41,7 @@
 
 .btn:active:not(:disabled) {
   transform: translateY(1px);
-  transition: transform 100ms ease;
+  transition: transform var(--duration-fast) ease;
 }
 
 .btn:disabled {
@@ -152,7 +152,7 @@
   display: inline;
   text-decoration: none;
   transition-property: color, text-decoration;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 /* Default - Primary color with underline on hover */
@@ -191,7 +191,7 @@
   text-decoration: none;
   color: inherit;
   transition-property: background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 /* Default - Accent hover (dashboard quick actions) */
@@ -307,7 +307,7 @@
   color: var(--color-card-foreground);
   border-radius: calc(var(--radius) + 0.125rem);
   border: 1px solid var(--surface-border-muted, var(--color-border));
-  box-shadow: var(--surface-shadow-sm, 0 1px 2px hsl(222 47% 11% / 0.06));
+  box-shadow: none;
 }
 
 .card-header {
@@ -373,7 +373,7 @@
   font-size: 0.875rem;
   line-height: var(--line-height-compact, 1.4);
   transition-property: border-color, box-shadow, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .input::placeholder {
@@ -425,7 +425,7 @@
   font-size: 0.875rem;
   line-height: var(--line-height-compact, 1.4);
   transition-property: border-color, box-shadow, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .select:focus {
@@ -477,7 +477,7 @@
   border-radius: 9999px;
   border: 2px solid transparent;
   transition-property: color, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .toggle:focus-visible {
@@ -507,7 +507,7 @@
   background-color: var(--color-background);
   box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
   transition-property: transform;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .toggle-thumb-off {
@@ -685,7 +685,7 @@
   top: 1rem;
   border-radius: 0.125rem;
   opacity: 0.7;
-  transition: opacity 150ms;
+  transition: opacity var(--duration-normal);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -871,7 +871,7 @@
     var(--color-card) 96%,
     var(--color-background)
   );
-  box-shadow: var(--surface-shadow-sm, 0 1px 2px hsl(222 47% 11% / 0.06));
+  box-shadow: none;
 }
 
 .table-header {
@@ -914,7 +914,7 @@
 .table-row {
   border-bottom: 1px solid var(--color-border);
   transition-property: background-color, box-shadow;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .table-row:hover {
@@ -973,7 +973,7 @@
   font-size: 0.75rem;
   font-weight: 600;
   transition-property: color, background-color, border-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .badge-default {
@@ -1256,8 +1256,8 @@
 /* ===== Card Interactive Variant ===== */
 .card-interactive {
   transition:
-    border-color 200ms ease,
-    box-shadow 200ms ease;
+    border-color var(--duration-normal) var(--ease-default),
+    box-shadow var(--duration-normal) var(--ease-default);
   cursor: pointer;
 }
 
@@ -3578,33 +3578,33 @@
 .transition-colors {
   transition-property:
     color, background-color, border-color, text-decoration-color, fill, stroke;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
+  transition-timing-function: var(--ease-default);
+  transition-duration: var(--duration-normal);
 }
 
 .transition-all {
   transition-property: all;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
+  transition-timing-function: var(--ease-default);
+  transition-duration: var(--duration-normal);
 }
 
 .transition-opacity {
   transition-property: opacity;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
+  transition-timing-function: var(--ease-default);
+  transition-duration: var(--duration-normal);
 }
 
 .transition-transform {
   transition-property: transform;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
+  transition-timing-function: var(--ease-default);
+  transition-duration: var(--duration-normal);
 }
 
 .duration-200 {
-  transition-duration: 200ms;
+  transition-duration: var(--duration-normal);
 }
 .duration-300 {
-  transition-duration: 300ms;
+  transition-duration: var(--duration-slow);
 }
 
 /* ===== Cursor Utilities ===== */
@@ -4217,6 +4217,10 @@
   background-color: hsl(210 40% 96.1% / 0.05);
 }
 
+.shell-main > * {
+  animation: page-enter var(--duration-slow) var(--ease-default) both;
+}
+
 .logic-rail {
   border-top: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
   border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 20%, var(--color-border));
@@ -4359,7 +4363,7 @@
   font-weight: 600;
   padding: 0.24rem 0.5rem;
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: all var(--duration-fast) var(--ease-default);
 }
 
 .logic-link-btn:hover {
@@ -4600,7 +4604,7 @@
   text-decoration: none;
   font-size: 0.6875rem;
   padding: 0.19rem 0.48rem;
-  transition: all 120ms ease;
+  transition: all var(--duration-fast) var(--ease-default);
 }
 
 .logic-action-pill:hover {
@@ -4712,13 +4716,12 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  border-right: 1px solid var(--color-border);
-  background: var(--glass-bg-1, var(--color-background));
-  backdrop-filter: blur(var(--glass-blur-1, 9.6px));
-  -webkit-backdrop-filter: blur(var(--glass-blur-1, 9.6px));
+  background: var(--glass-bg-2, var(--color-background));
+  backdrop-filter: blur(var(--glass-blur-2, 12px));
+  -webkit-backdrop-filter: blur(var(--glass-blur-2, 12px));
   flex-shrink: 0;
   overflow: hidden;
-  transition: width 200ms ease;
+  transition: width var(--duration-normal) var(--ease-default);
   z-index: 10;
 }
 
@@ -4754,7 +4757,7 @@
   background: transparent;
   color: var(--color-muted-foreground);
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default), color var(--duration-normal) var(--ease-default);
 }
 
 .sidebar-toggle:hover {
@@ -4765,7 +4768,7 @@
 .sidebar-toggle:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
 
 .sidebar-toggle-icon {
-  transition: transform 200ms ease;
+  transition: transform var(--duration-normal) var(--ease-default);
 }
 
 .sidebar-toggle-icon--flipped {
@@ -4803,7 +4806,7 @@
   font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default), color var(--duration-normal) var(--ease-default);
   text-decoration: none;
   text-align: left;
   line-height: 1.25;
@@ -4843,7 +4846,7 @@
   color: var(--color-muted-foreground);
   font-size: 0.8125rem;
   text-decoration: none;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default), color var(--duration-normal) var(--ease-default);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -4899,7 +4902,7 @@
 .sidebar-chevron {
   flex-shrink: 0;
   margin-left: auto;
-  transition: transform 200ms ease;
+  transition: transform var(--duration-normal) var(--ease-default);
   color: var(--color-muted-foreground);
 }
 
@@ -4927,7 +4930,7 @@
   font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default), color var(--duration-normal) var(--ease-default);
 }
 
 .sidebar-profile-toggle:hover {
@@ -4997,14 +5000,14 @@
   min-width: 0;
   box-sizing: border-box;
   padding-inline-end: var(--layout-panel-padding);
-  transition: width 200ms ease, flex-basis 200ms ease, flex 200ms ease;
+  transition: width var(--duration-normal) var(--ease-default), flex-basis var(--duration-normal) var(--ease-default), flex var(--duration-normal) var(--ease-default);
 }
 
 /* SplitPanel detail column - transition container */
 .split-panel-detail {
   min-width: 0;
   box-sizing: border-box;
-  transition: width 200ms ease, flex-basis 200ms ease, opacity 200ms ease;
+  transition: width var(--duration-normal) var(--ease-default), flex-basis var(--duration-normal) var(--ease-default), opacity var(--duration-normal) var(--ease-default);
 }
 
 /* SplitPanel detail column - collapsed by default, always in DOM for transitions */
@@ -5182,7 +5185,7 @@
   color: var(--color-muted-foreground);
   text-decoration: none;
   transition-property: color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .page-header-breadcrumb-link:hover {
@@ -5266,7 +5269,7 @@
   background: color-mix(in srgb, var(--color-background) 84%, var(--color-accent));
   color: var(--color-foreground);
   cursor: pointer;
-  transition: border-color 120ms ease, background-color 120ms ease;
+  transition: border-color var(--duration-fast) var(--ease-default), background-color var(--duration-fast) var(--ease-default);
 }
 
 .page-scaffold-overflow-trigger:hover {
@@ -5496,7 +5499,7 @@
   box-shadow: inset 0 1px 0 var(--os-bevel-hi), inset 0 -1px 0 var(--os-bevel-lo);
   color: var(--color-muted-foreground);
   transition-property: color, background-color, border-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
   cursor: pointer;
   overflow: hidden;
 }
@@ -5589,7 +5592,7 @@
   border-radius: calc(var(--radius) - 0.125rem);
   cursor: pointer;
   transition-property: background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .search-result:hover {
@@ -5662,7 +5665,7 @@
     border: 1px solid var(--action-primary-fab-border);
     backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
     -webkit-backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
-    transition: all 200ms ease;
+    transition: all var(--duration-normal) var(--ease-default);
   }
 
   .mobile-chat-fab:hover {
@@ -5811,7 +5814,7 @@
   background: color-mix(in srgb, var(--color-background) 76%, var(--color-accent));
   color: var(--color-muted-foreground);
   padding: 0.25rem 0.55rem;
-  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default), color var(--duration-normal) var(--ease-default), border-color var(--duration-normal) var(--ease-default);
 }
 
 .topbar-density-toggle:hover {
@@ -5869,7 +5872,7 @@
   font-size: 0.6875rem;
   text-decoration: none;
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: all var(--duration-fast) var(--ease-default);
 }
 
 .fingerprint-badge__copy:hover,
@@ -6042,7 +6045,7 @@
     border: none;
     color: var(--color-foreground);
     cursor: pointer;
-    transition: background-color 200ms ease;
+    transition: background-color var(--duration-normal) var(--ease-default);
   }
 
   .topbar-hamburger:hover {
@@ -6192,11 +6195,10 @@
   bottom: 0;
   width: min(80vw, 320px);
   background: var(--color-background);
-  border-right: 1px solid var(--color-border);
   box-shadow: var(--glass-shadow-lg);
   z-index: 101;
   transform: translateX(-100%);
-  transition: transform 300ms ease;
+  transition: transform var(--duration-slow) var(--ease-default);
   display: flex;
   flex-direction: column;
 }
@@ -6252,7 +6254,7 @@
   border-radius: 6px;
   text-decoration: none;
   color: var(--color-foreground);
-  transition: background-color 200ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default);
 }
 
 .mobile-menu-link:hover {
@@ -6349,7 +6351,7 @@
     0 10px 15px -3px rgb(0 0 0 / 0.1),
     0 4px 6px -4px rgb(0 0 0 / 0.1);
   animation: toast-slide-in 200ms ease-out forwards;
-  transition: transform 200ms ease, opacity 200ms ease, margin 200ms ease;
+  transition: transform var(--duration-normal) var(--ease-default), opacity var(--duration-normal) var(--ease-default), margin var(--duration-normal) var(--ease-default);
   pointer-events: auto;
   background-color: var(--color-card);
 }
@@ -6420,7 +6422,7 @@
   color: var(--color-muted-foreground);
   cursor: pointer;
   transition-property: color, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .toast-expand:hover {
@@ -6431,7 +6433,7 @@
 .toast-expand-icon {
   width: 1rem;
   height: 1rem;
-  transition: transform 150ms ease;
+  transition: transform var(--duration-normal) var(--ease-default);
 }
 
 .toast-expand-icon-open {
@@ -6488,7 +6490,7 @@
   color: var(--color-muted-foreground);
   cursor: pointer;
   transition-property: color, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .toast-close:hover {
@@ -6510,7 +6512,7 @@
   border: none;
   cursor: pointer;
   transition-property: background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .toast-action-primary {
@@ -6556,7 +6558,7 @@
 
 .toast-progress-bar {
   height: 100%;
-  transition: width 100ms linear;
+  transition: width var(--duration-fast) linear;
 }
 
 .toast-progress-bar-info    { background-color: var(--color-status-info); }
@@ -6605,7 +6607,7 @@
   color: var(--color-muted-foreground);
   cursor: pointer;
   transition-property: color, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .status-center-trigger:hover {
@@ -6651,7 +6653,7 @@
   z-index: 9998;
   background-color: rgb(0 0 0 / 0.2);
   backdrop-filter: blur(calc(var(--glass-blur) * 0.17));
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--duration-normal) ease-out;
   opacity: 0;
   pointer-events: none;
 }
@@ -6670,7 +6672,7 @@
   box-shadow: -10px 0 30px rgb(0 0 0 / 0.1);
   display: flex;
   flex-direction: column;
-  transition: transform 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform var(--duration-slow) var(--ease-default);
   transform: translateX(100%);
 }
 
@@ -6702,7 +6704,7 @@
   color: var(--color-muted-foreground);
   cursor: pointer;
   transition-property: color, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .status-center-close:hover {
@@ -6817,7 +6819,7 @@
   margin-left: auto;
   opacity: 0;
   transition-property: opacity;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .status-item:hover .status-item-actions {
@@ -6836,7 +6838,7 @@
   color: var(--color-muted-foreground);
   cursor: pointer;
   transition-property: color, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .status-item-action:hover {
@@ -6854,7 +6856,7 @@
   padding: 0.25rem 0.5rem;
   border-radius: calc(var(--radius) - 0.125rem);
   transition-property: color, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .status-center-footer-action:hover {
@@ -6920,7 +6922,7 @@
 .status-progress-fill {
   height: 100%;
   border-radius: 9999px;
-  transition: width 300ms ease-out;
+  transition: width var(--duration-slow) ease-out;
 }
 
 .status-progress-fill-info {
@@ -6955,7 +6957,7 @@
   background-color: var(--color-muted);
   cursor: pointer;
   transition-property: background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .system-status-widget:hover {
@@ -7033,13 +7035,13 @@
 .status-center-backdrop-visible {
   opacity: 1;
   pointer-events: auto;
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--duration-normal) ease-out;
 }
 
 .status-center-backdrop-hidden {
   opacity: 0;
   pointer-events: none;
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--duration-normal) ease-out;
 }
 
 /* Status Center Notification Items */
@@ -7048,7 +7050,7 @@
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--color-border);
-  transition: background-color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default);
 }
 
 .status-notification-item:last-child {
@@ -7441,7 +7443,7 @@
   user-select: none;
   text-align: left;
   transition-property: background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .status-section-header:hover {
@@ -7453,7 +7455,7 @@
   height: 1rem;
   flex-shrink: 0;
   color: var(--color-muted-foreground);
-  transition: transform 200ms ease;
+  transition: transform var(--duration-normal) var(--ease-default);
 }
 
 .status-section-chevron-expanded {
@@ -7706,7 +7708,7 @@
   gap: 0.75rem;
   padding: 0.5rem;
   border-radius: var(--radius);
-  transition: background-color 150ms ease;
+  transition: background-color var(--duration-normal) var(--ease-default);
 }
 
 .progress-stage-icon {
@@ -7871,7 +7873,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  transition: background-color 150ms;
+  transition: background-color var(--duration-normal);
   border-radius: calc(var(--radius) - 0.125rem);
 }
 
@@ -7905,7 +7907,7 @@
   border-radius: calc(var(--radius) - 0.125rem);
   padding: 1.25rem;
   text-align: left;
-  transition: background-color 150ms;
+  transition: background-color var(--duration-normal);
 }
 
 .wizard-knowledge-action:hover {
@@ -8018,10 +8020,10 @@
   color: hsl(0, 0%, 10%);
   border: none;
   cursor: pointer;
-  /* State-change transitions only (200-300ms per spec) */
+  /* State-change transitions only */
   transition-property: background-color, transform, box-shadow, opacity;
-  transition-duration: 200ms;
-  transition-timing-function: ease;
+  transition-duration: var(--duration-normal);
+  transition-timing-function: var(--ease-default);
 }
 
 .adapter-chip:focus-visible {
@@ -8383,35 +8385,16 @@
   min-width: 0;
 }
 
-.chat-header-target {
-  flex: 1 1 14rem;
-  min-width: min(100%, 12rem);
-  max-width: 24rem;
-}
-
-.chat-header-base-model {
-  flex: 1 1 18rem;
-  min-width: min(100%, 14rem);
-  max-width: min(100%, 28rem);
-  display: inline-flex;
-  align-items: flex-start;
-  min-width: 0;
-}
-
-.chat-header-base-model-label {
-  display: block;
-  min-width: 0;
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  overflow-wrap: normal;
-  word-break: keep-all;
-  line-height: 1.3;
-}
+/* chat-header-target and chat-header-base-model removed (CUT-1, CUT-2) */
 
 .chat-header-mode-toggle {
   flex-shrink: 0;
+}
+
+.chat-header-mode-toggle button:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+  border-radius: 9999px;
 }
 
 .chat-header-status {
@@ -8479,6 +8462,11 @@
   background: color-mix(in srgb, var(--color-muted) 30%, transparent);
 }
 
+.chat-drawer-rail-buttons button:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
 .chat-drawer-panel-shell {
   min-height: 0;
 }
@@ -8515,28 +8503,12 @@
   display: none;
 }
 
-@media (max-width: 1440px) {
-  .chat-header-controls {
-    justify-content: flex-start;
-  }
-
-  .chat-header-target,
-  .chat-header-base-model {
-    flex-basis: 100%;
-    max-width: 100%;
-  }
+.chat-lane-toggle button:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
 }
 
 @media (max-width: 1024px) {
-  .chat-header-controls {
-    justify-content: flex-start;
-  }
-
-  .chat-header-target,
-  .chat-header-base-model {
-    flex-basis: 100%;
-    min-width: 0;
-  }
 
   .chat-session-layout {
     display: block;
@@ -8940,7 +8912,7 @@
   border-radius: var(--radius);
   padding: 2rem;
   text-align: center;
-  transition: all 200ms ease;
+  transition: all var(--duration-normal) var(--ease-default);
   cursor: pointer;
   background-color: var(--color-background);
 }
@@ -9058,7 +9030,7 @@
   height: 100%;
   background-color: var(--color-primary);
   border-radius: 4px;
-  transition: width 200ms ease;
+  transition: width var(--duration-normal) var(--ease-default);
 }
 
 .upload-progress-text {
@@ -9210,7 +9182,7 @@
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--color-border);
   cursor: pointer;
-  transition: background-color 150ms;
+  transition: background-color var(--duration-normal);
 }
 
 .data-list-item:hover {
@@ -9381,7 +9353,7 @@
   gap: 0.125rem;
   padding: 0.5rem 0.75rem;
   cursor: pointer;
-  transition: background-color 100ms ease;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .combobox-option:hover {
@@ -9424,13 +9396,13 @@
 .error-history-backdrop-visible {
   opacity: 1;
   pointer-events: auto;
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--duration-normal) ease-out;
 }
 
 .error-history-backdrop-hidden {
   opacity: 0;
   pointer-events: none;
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--duration-normal) ease-out;
 }
 
 .error-history-panel {
@@ -9445,7 +9417,7 @@
   display: flex;
   flex-direction: column;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
-  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform var(--duration-normal) var(--ease-default);
 }
 
 .error-history-panel-open {
@@ -9493,7 +9465,7 @@
   color: var(--color-muted-foreground);
   cursor: pointer;
   transition-property: color, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .error-history-clear-btn:hover,
@@ -9550,7 +9522,7 @@
   border-radius: var(--radius);
   border: 1px solid var(--color-border);
   background-color: var(--color-background);
-  transition: background-color 150ms;
+  transition: background-color var(--duration-normal);
 }
 
 .error-history-item:hover {
@@ -9730,7 +9702,7 @@
   width: clamp(15rem, 24vw, 22rem);
   min-width: 15rem;
   max-width: 22rem;
-  transition: width 180ms ease;
+  transition: width var(--duration-normal) ease;
 }
 
 .chat-session-row {
@@ -9756,6 +9728,16 @@
 
 .chat-session-row--active:hover {
   background-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.chat-session-row:active:not(.chat-session-row--active) {
+  background-color: color-mix(in srgb, var(--color-muted) 80%, var(--color-foreground));
+}
+
+.chat-session-row:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: -2px;
+  border-radius: var(--radius);
 }
 
 .chat-session-row-checkbox {
@@ -10675,7 +10657,7 @@ a:hover .slo-metric .slo-metric-value {
   color: var(--color-muted-foreground);
   position: relative;
   z-index: 1;
-  transition: all 180ms ease;
+  transition: all var(--duration-normal) ease;
 }
 
 .stage-dot--done {
@@ -10857,8 +10839,8 @@ a:hover .slo-metric .slo-metric-value {
     border-radius: var(--radius, 12px);
     border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
     overflow: hidden;
-    transition: opacity 200ms var(--ease-default, ease),
-                transform 200ms var(--ease-default, ease);
+    transition: opacity var(--duration-normal) var(--ease-default, ease),
+                transform var(--duration-normal) var(--ease-default, ease);
     animation: hud-enter var(--hud-enter-slow) var(--hud-ease-out) both;
 }
 
@@ -10928,7 +10910,7 @@ a:hover .slo-metric .slo-metric-value {
     color: var(--color-muted-foreground, oklch(0.55 0.02 250));
     margin-top: var(--space-1, 0.25rem);
     opacity: 0;
-    transition: opacity 150ms;
+    transition: opacity var(--duration-normal);
 }
 
 .hud-msg:hover .hud-msg-meta { opacity: 1; }
@@ -10958,7 +10940,7 @@ a:hover .slo-metric .slo-metric-value {
     color: var(--color-muted-foreground, oklch(0.55 0.02 250));
     text-decoration: none;
     cursor: pointer;
-    transition: color 150ms, background 150ms, border-color 150ms;
+    transition: color var(--duration-normal), background var(--duration-normal), border-color var(--duration-normal);
     animation: hud-enter var(--hud-enter-fast) var(--hud-ease-out) both;
 }
 
@@ -11026,7 +11008,7 @@ a:hover .slo-metric .slo-metric-value {
     align-items: center;
     justify-content: center;
     font-size: 0.75rem;
-    transition: background 150ms;
+    transition: background var(--duration-normal);
 }
 
 .hud-input-btn--send {
@@ -11158,7 +11140,7 @@ a:hover .slo-metric .slo-metric-value {
     text-decoration: none;
     padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
     border-radius: var(--radius, 12px);
-    transition: color 150ms, background 150ms;
+    transition: color var(--duration-normal), background var(--duration-normal);
 }
 
 .hud-action-link:hover {
@@ -11190,7 +11172,7 @@ a:hover .slo-metric .slo-metric-value {
     text-align: left;
     cursor: pointer;
     color: var(--color-foreground, oklch(0.2 0.02 250));
-    transition: background 100ms;
+    transition: background var(--duration-fast);
     text-decoration: none;
 }
 
@@ -11233,7 +11215,7 @@ a:hover .slo-metric .slo-metric-value {
 .progress-rail-fill {
     height: 100%;
     background: var(--action-primary-bg, oklch(0.55 0.15 250));
-    transition: width 300ms ease-out;
+    transition: width var(--duration-slow) ease-out;
     border-radius: 0 1.5px 1.5px 0;
 }
 
@@ -11272,7 +11254,7 @@ a:hover .slo-metric .slo-metric-value {
     color: var(--color-muted-foreground, oklch(0.55 0.02 250));
     letter-spacing: var(--tracking-tight, -0.025em);
     cursor: pointer;
-    transition: color 150ms;
+    transition: color var(--duration-normal);
     background: none;
     border: none;
     padding: 0.75rem 0.5rem;
@@ -11298,7 +11280,7 @@ a:hover .slo-metric .slo-metric-value {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 300ms;
+    transition: background var(--duration-slow);
 }
 
 .hud-system-dot::after {
@@ -11306,7 +11288,7 @@ a:hover .slo-metric .slo-metric-value {
     width: 0.625rem;
     height: 0.625rem;
     border-radius: 50%;
-    transition: background 300ms, box-shadow 300ms;
+    transition: background var(--duration-slow), box-shadow var(--duration-slow);
 }
 
 .hud-system-dot--ready::after {
@@ -11333,7 +11315,7 @@ a:hover .slo-metric .slo-metric-value {
     color: var(--color-muted-foreground, oklch(0.55 0.02 250));
     text-decoration: none;
     cursor: pointer;
-    transition: color 150ms;
+    transition: color var(--duration-normal);
     background: none;
     border: none;
     padding: 0;
@@ -11389,7 +11371,7 @@ a:hover .slo-metric .slo-metric-value {
     align-items: center;
     justify-content: center;
     color: var(--color-muted-foreground, oklch(0.55 0.02 250));
-    transition: color 150ms, background 150ms;
+    transition: color var(--duration-normal), background var(--duration-normal);
 }
 
 .slide-panel-close:hover {
@@ -11401,7 +11383,7 @@ a:hover .slo-metric .slo-metric-value {
 .hud-desktop:has(.slide-panel) .hud-card {
     opacity: 0.3;
     pointer-events: none;
-    transition: opacity 250ms var(--ease-default, ease);
+    transition: opacity var(--duration-slow) var(--ease-default, ease);
 }
 
 .slide-panel-backdrop {

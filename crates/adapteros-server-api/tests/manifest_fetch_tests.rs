@@ -54,6 +54,7 @@ async fn fetch_manifest_by_hash_returns_yaml_and_hash() {
             datasets_root: "var/datasets".into(),
             documents_root: "var/documents".into(),
             synthesis_model_path: None,
+            training_worker_bin: None,
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,

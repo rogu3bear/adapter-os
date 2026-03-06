@@ -95,6 +95,16 @@ main() {
         fi
     done
 
+    if ! aos_prune_scratch_targets_if_needed; then
+        warn "Scratch target root issue detected under $(aos_repo_root)"
+        warn "Scratch target roots are non-canonical caches; thresholds: warn=${WARN_GB}GB prune=${PRUNE_GB}GB max-age=${MAX_AGE_HOURS}h auto-prune=${AUTO_PRUNE}"
+        if ! aos_is_truthy "$AUTO_PRUNE"; then
+            warn "Run: find '$(aos_repo_root)' -maxdepth 1 -type d -name 'target-*' -print"
+        fi
+        echo ""
+        exit_code=1
+    fi
+
     return $exit_code
 }
 

@@ -1295,12 +1295,6 @@ pub(super) fn ChatConversationPanel(
                     .unwrap_or_else(|| "Auto".to_string()),
             },
         );
-    let base_model_badge = Signal::derive(move || {
-        format!(
-            "Base model: {}",
-            base_model_label.try_get().unwrap_or_default()
-        )
-    });
     let context_model_label = Signal::derive(move || {
         let model = base_model_label
             .try_get()
@@ -2495,18 +2489,6 @@ pub(super) fn ChatConversationPanel(
                     </span>
                 </div>
                 <div class="chat-header-controls">
-                    // Target selector for choosing model, stack, or policy pack
-                    <div class="chat-header-target">
-                        <ChatTargetSelector inline=true/>
-                    </div>
-                    <Badge variant=BadgeVariant::Outline class="chat-header-base-model">
-                        <span
-                            class="chat-header-base-model-label"
-                            title=move || base_model_badge.try_get().unwrap_or_default()
-                        >
-                            {move || base_model_badge.try_get().unwrap_or_default()}
-                        </span>
-                    </Badge>
                     <div class="chat-header-mode-toggle flex items-center rounded-full border border-border bg-muted/30 p-0.5 text-xs">
                         {
                             let action = chat_action.clone();

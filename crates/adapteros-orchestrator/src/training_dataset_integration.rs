@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, warn};
@@ -280,23 +281,29 @@ impl TrainingDatasetManager {
         }
 
         let storage_path = PathBuf::from(&version.storage_path);
+        let (examples, framing_policy, dataset_hash_b3) = if storage_path.is_dir() {
+            let (examples, framing_policy) = self
+                .load_examples_from_dataset_rows(&version.dataset_id, Some(dataset_version_id))
+                .await?;
+            (examples, framing_policy, version.hash_b3.clone())
+        } else {
+            let actual_hash = self.compute_file_hash(&storage_path).await?;
+            if actual_hash != version.hash_b3 {
+                return Err(AosError::Validation(format!(
+                    "Dataset version {} hash mismatch: expected {}, got {}",
+                    dataset_version_id, version.hash_b3, actual_hash
+                )));
+            }
 
-        // Verify file integrity with recorded hash
-        let actual_hash = self.compute_file_hash(&storage_path).await?;
-        if actual_hash != version.hash_b3 {
-            return Err(AosError::Validation(format!(
-                "Dataset version {} hash mismatch: expected {}, got {}",
-                dataset_version_id, version.hash_b3, actual_hash
-            )));
-        }
-
-        let (examples, framing_policy) = self
-            .load_examples_from_jsonl(&storage_path, &version.dataset_id)
-            .await?;
+            let (examples, framing_policy) = self
+                .load_examples_from_jsonl(&storage_path, &version.dataset_id)
+                .await?;
+            (examples, framing_policy, actual_hash)
+        };
 
         Ok(LoadedDatasetExamples {
             examples,
-            dataset_hash_b3: actual_hash,
+            dataset_hash_b3,
             dataset_id: version.dataset_id,
             framing_policy,
         })
@@ -482,21 +489,26 @@ impl TrainingDatasetManager {
             )));
         }
 
-        // Load examples from JSONL file
         let storage_path = PathBuf::from(&dataset.storage_path);
+        let (examples, framing_policy, dataset_hash_b3) = if storage_path.is_dir() {
+            let (examples, framing_policy) = self
+                .load_examples_from_dataset_rows(dataset_id, None)
+                .await?;
+            (examples, framing_policy, dataset.hash_b3.clone())
+        } else {
+            let actual_hash = self.compute_file_hash(&storage_path).await?;
+            if actual_hash != dataset.hash_b3 {
+                return Err(AosError::Validation(format!(
+                    "Dataset {} hash mismatch: expected {}, got {}",
+                    dataset_id, dataset.hash_b3, actual_hash
+                )));
+            }
 
-        // Verify file integrity with BLAKE3 hash
-        let actual_hash = self.compute_file_hash(&storage_path).await?;
-        if actual_hash != dataset.hash_b3 {
-            return Err(AosError::Validation(format!(
-                "Dataset {} hash mismatch: expected {}, got {}",
-                dataset_id, dataset.hash_b3, actual_hash
-            )));
-        }
-
-        let (examples, framing_policy) = self
-            .load_examples_from_jsonl(&storage_path, dataset_id)
-            .await?;
+            let (examples, framing_policy) = self
+                .load_examples_from_jsonl(&storage_path, dataset_id)
+                .await?;
+            (examples, framing_policy, actual_hash)
+        };
 
         info!(
             "Loaded {} training examples from dataset {} (hash verified)",
@@ -506,10 +518,60 @@ impl TrainingDatasetManager {
 
         Ok(LoadedDatasetExamples {
             examples,
-            dataset_hash_b3: actual_hash,
+            dataset_hash_b3,
             dataset_id: dataset_id.to_string(),
             framing_policy,
         })
+    }
+
+    async fn load_examples_from_dataset_rows(
+        &self,
+        dataset_id: &str,
+        dataset_version_id: Option<&str>,
+    ) -> Result<(Vec<WorkerTrainingExample>, TrainingFramingPolicy)> {
+        let rows = self
+            .db
+            .list_training_dataset_rows(dataset_id, dataset_version_id, 1_000_000, 0)
+            .await?;
+        if rows.is_empty() {
+            return Err(AosError::Validation(format!(
+                "Dataset {} contains no canonical training rows",
+                dataset_version_id.unwrap_or(dataset_id)
+            )));
+        }
+
+        let temp_name = format!(
+            "dataset-rows-{}-{}.jsonl",
+            dataset_version_id.unwrap_or(dataset_id),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let temp_path = self.storage_root.join(temp_name);
+        let mut file = File::create(&temp_path).await?;
+
+        for row in rows {
+            let mut obj = serde_json::json!({
+                "prompt": row.prompt,
+                "response": row.response,
+            });
+            if let Some(metadata_json) = row.metadata_json {
+                let metadata = serde_json::from_str::<Value>(&metadata_json)
+                    .unwrap_or_else(|_| serde_json::json!({ "raw_metadata_json": metadata_json }));
+                if let Some(map) = obj.as_object_mut() {
+                    map.insert("metadata".to_string(), metadata);
+                }
+            }
+            let line = serde_json::to_string(&obj)?;
+            file.write_all(line.as_bytes()).await?;
+            file.write_all(b"\n").await?;
+        }
+        file.flush().await?;
+
+        let loaded = self.load_examples_from_jsonl(&temp_path, dataset_id).await;
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        loaded
     }
 
     /// Save raw text rows to JSONL format
@@ -888,14 +950,21 @@ mod tests {
     }
 
     fn fixture_tokenizer_path() -> PathBuf {
-        let raw = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
-            .join("..")
-            .join("var")
-            .join("models")
-            .join("Qwen2.5-1.5B-Instruct-4bit")
-            .join("tokenizer.json");
-        std::fs::canonicalize(raw).expect("canonical fixture tokenizer path")
+            .join("..");
+        let candidates = [
+            root.join("var/models/Qwen3.5-9B-MLX-4bit/tokenizer.json"),
+            root.join("var/models/Qwen3.5-4B-MLX-4bit/tokenizer.json"),
+            root.join("var/models/Qwen3.5-9B/tokenizer.json"),
+            root.join("tests/fixtures/models/tiny-test/tokenizer.json"),
+        ];
+        for raw in candidates {
+            if let Ok(path) = std::fs::canonicalize(&raw) {
+                return path;
+            }
+        }
+        panic!("canonical fixture tokenizer path");
     }
 
     /// Minimal in-memory DB for dataset validation gates (no global migrations)
@@ -1284,5 +1353,157 @@ mod tests {
             }
             other => panic!("expected validation error, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn load_dataset_version_examples_accepts_directory_backed_versions_with_rows() {
+        let temp_dir = new_test_tempdir();
+        let dataset_dir = temp_dir.path().join("repo-seeded-dataset");
+        tokio::fs::create_dir_all(&dataset_dir).await.unwrap();
+
+        let db = minimal_dataset_db().await;
+        let manager = TrainingDatasetManager::new(
+            ProtectedDb::new(db.clone()),
+            temp_dir.path().to_path_buf(),
+            Some(fixture_tokenizer_path()),
+        );
+
+        sqlx::query(
+            "CREATE TABLE training_dataset_versions (
+                id TEXT PRIMARY KEY,
+                dataset_id TEXT NOT NULL,
+                tenant_id TEXT,
+                version_number INTEGER NOT NULL,
+                version_label TEXT,
+                storage_path TEXT NOT NULL,
+                hash_b3 TEXT NOT NULL,
+                manifest_path TEXT,
+                manifest_json TEXT,
+                validation_status TEXT NOT NULL DEFAULT 'pending',
+                validation_errors_json TEXT,
+                pii_status TEXT NOT NULL DEFAULT 'unknown',
+                toxicity_status TEXT NOT NULL DEFAULT 'unknown',
+                leak_status TEXT NOT NULL DEFAULT 'unknown',
+                anomaly_status TEXT NOT NULL DEFAULT 'unknown',
+                overall_safety_status TEXT NOT NULL DEFAULT 'unknown',
+                trust_state TEXT NOT NULL DEFAULT 'unknown',
+                overall_trust_status TEXT NOT NULL DEFAULT 'unknown',
+                sensitivity TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                created_by TEXT,
+                locked_at TEXT,
+                soft_deleted_at TEXT,
+                identity_config TEXT
+            )",
+        )
+        .execute(db.pool_result().unwrap())
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE training_dataset_rows (
+                id TEXT PRIMARY KEY,
+                dataset_id TEXT NOT NULL,
+                dataset_version_id TEXT,
+                session_id TEXT,
+                prompt TEXT NOT NULL,
+                response TEXT NOT NULL,
+                weight REAL NOT NULL DEFAULT 1.0,
+                split TEXT NOT NULL DEFAULT 'train',
+                sample_role TEXT NOT NULL DEFAULT 'positive',
+                content_hash_b3 TEXT NOT NULL,
+                source_type TEXT,
+                source_file TEXT,
+                source_line INTEGER,
+                tenant_id TEXT,
+                metadata_json TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                created_by TEXT
+            )",
+        )
+        .execute(db.pool_result().unwrap())
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO training_datasets (
+                id, name, description, file_count, total_size_bytes, format, hash_b3, dataset_hash_b3,
+                storage_path, status, validation_status, validation_errors, metadata_json, created_by,
+                workspace_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind("ds-dir")
+        .bind("Directory Dataset")
+        .bind(None::<String>)
+        .bind(1)
+        .bind(0_i64)
+        .bind("jsonl")
+        .bind("manifest-hash")
+        .bind("manifest-hash")
+        .bind(dataset_dir.to_string_lossy().to_string())
+        .bind("ready")
+        .bind("valid")
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .execute(db.pool_result().unwrap())
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO training_dataset_versions (
+                id, dataset_id, tenant_id, version_number, version_label, storage_path, hash_b3,
+                manifest_path, manifest_json, validation_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind("ver-dir")
+        .bind("ds-dir")
+        .bind("default")
+        .bind(1_i64)
+        .bind("1.0.0")
+        .bind(dataset_dir.to_string_lossy().to_string())
+        .bind("manifest-hash")
+        .bind(
+            dataset_dir
+                .join("manifest.json")
+                .to_string_lossy()
+                .to_string(),
+        )
+        .bind("{\"entries\":[]}")
+        .bind("valid")
+        .execute(db.pool_result().unwrap())
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO training_dataset_rows (
+                id, dataset_id, dataset_version_id, prompt, response, weight, split, sample_role,
+                content_hash_b3, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind("row-dir")
+        .bind("ds-dir")
+        .bind("ver-dir")
+        .bind("Mega")
+        .bind("Adapter")
+        .bind(1.0_f64)
+        .bind("train")
+        .bind("positive")
+        .bind("row-hash")
+        .bind("{\"source\":\"repo_seed\"}")
+        .execute(db.pool_result().unwrap())
+        .await
+        .unwrap();
+
+        let loaded = manager
+            .load_dataset_version_examples("ver-dir")
+            .await
+            .expect("directory-backed version should load from canonical rows");
+
+        assert_eq!(loaded.dataset_id, "ds-dir");
+        assert_eq!(loaded.dataset_hash_b3, "manifest-hash");
+        assert_eq!(loaded.framing_policy, TrainingFramingPolicy::Supervised);
+        assert_eq!(loaded.examples.len(), 1);
     }
 }

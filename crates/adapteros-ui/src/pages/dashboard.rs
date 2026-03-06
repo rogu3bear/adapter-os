@@ -69,13 +69,6 @@ pub fn Dashboard() -> impl IntoView {
                 >
                     "Refresh"
                 </Button>
-                <ButtonLink
-                    href="/system"
-                    variant=ButtonVariant::Outline
-                    size=ButtonSize::Sm
-                >
-                    "View System"
-                </ButtonLink>
             </PageScaffoldActions>
 
             {move || {
@@ -246,17 +239,6 @@ fn JourneyFlowSection() -> impl IntoView {
             <p class="text-sm text-muted-foreground mb-4">
                 "Use AdapterOS as a chat that can build adapters and produce proof."
             </p>
-            <p class="text-xs text-muted-foreground mb-4">
-                "Pick one action to start. You can switch between these at any time."
-            </p>
-            <details class="mb-4 rounded border border-border/50 bg-muted/20 px-3 py-2">
-                <summary class="cursor-pointer text-xs font-medium text-muted-foreground">
-                    "Advanced workflow"
-                </summary>
-                <p class="text-xs text-muted-foreground mt-2">
-                "Recommended default: resolve a version in Versions, run checkout or promote, then feed-dataset for the next revision."
-                </p>
-            </details>
             <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                 <JourneyStep
                     step="Action 1"
@@ -264,7 +246,6 @@ fn JourneyFlowSection() -> impl IntoView {
                     body="Open chat, ask a question, and iterate quickly."
                     href="/chat"
                     cta="Start Chat"
-                    start_here=true
                 />
                 <JourneyStep
                     step="Action 2"
@@ -281,13 +262,6 @@ fn JourneyFlowSection() -> impl IntoView {
                     cta="View Evidence"
                 />
             </div>
-            <p class="mt-4 text-xs text-muted-foreground">
-                "Current Configuration Fingerprint remains pinned in the top bar across every step."
-            </p>
-            <p class="mt-1 text-xs text-muted-foreground">
-                <a href="/audit" class="hover:text-foreground transition-colors">"Track every event"</a>
-                " in Event Viewer."
-            </p>
         </Card>
     }
 }
@@ -299,20 +273,12 @@ fn JourneyStep(
     body: &'static str,
     href: &'static str,
     cta: &'static str,
-    #[prop(optional)] start_here: bool,
 ) -> impl IntoView {
     let cta_aria = format!("{step}: {title}. {cta}");
 
     view! {
         <div class="rounded-lg border border-border/60 bg-card/60 p-3 space-y-2">
-            <div class="flex items-center gap-2">
-                <p class="text-[11px] uppercase tracking-wide text-muted-foreground">{step}</p>
-                <Show when=move || start_here>
-                    <span class="rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                        "Start here"
-                    </span>
-                </Show>
-            </div>
+            <p class="text-[11px] uppercase tracking-wide text-muted-foreground">{step}</p>
             <p class="text-sm font-semibold">{title}</p>
             <p class="text-xs text-muted-foreground">{body}</p>
             <ButtonLink

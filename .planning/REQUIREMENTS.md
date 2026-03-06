@@ -9,19 +9,46 @@ Milestone focus: stabilize runtime — fix training worker spawn, clean stale st
 
 ### Worker Lifecycle
 
-- [ ] **WRK-01**: Training worker spawns successfully when backend starts (binary resolution fixed)
-- [ ] **WRK-02**: Training worker reports healthy in service status after boot
+- [x] **WRK-01**: Training worker spawns successfully when backend starts (binary resolution fixed)
+- [x] **WRK-02**: Training worker reports healthy in service status after boot
 
 ### Runtime Hygiene
 
-- [ ] **RTH-01**: Stale SecD socket is cleaned up on boot when no backing process exists
-- [ ] **RTH-02**: Training worker degraded marker is cleared when worker successfully starts
-- [ ] **RTH-03**: Backend restart counter reflects actual crash count, not dev-rebuild kickstarts
+- [x] **RTH-01**: Stale SecD socket is cleaned up on boot when no backing process exists
+- [x] **RTH-02**: Training worker degraded marker is cleared when worker successfully starts
+- [x] **RTH-03**: Backend restart counter reflects actual crash count, not dev-rebuild kickstarts
+
+### Adapter Inference Activation
+
+- [x] **INF-51-01**: Adapter hot-swap during inference completes without crash or hang
+- [x] **INF-51-02**: Inference output with adapter loaded differs measurably from base model output
+- [x] **TRN-51-01**: Training pipeline produces an adapter that loads and influences inference
+- [x] **TRN-51-02**: Round-trip: train adapter → load adapter → infer with adapter produces coherent output
 
 ### Tree Commit
 
-- [ ] **GIT-01**: All modified files committed in logical, atomic commits
-- [ ] **GIT-02**: Working tree is clean after commit series
+- [x] **GIT-01**: All modified files committed in logical, atomic commits
+- [x] **GIT-02**: Working tree is clean after commit series
+
+### Portability
+
+- [x] **PORT-52-01**: Runtime paths are relocatable with project-root marker and layered model discovery.
+- [x] **PORT-52-02**: Bootstrap script provisions required dependencies idempotently.
+- [x] **PORT-52-03**: Fresh-clone startup succeeds with zero-touch defaults and preflight checks.
+
+### UI Harmony
+
+- [x] **UI-53-01**: Core chat/dashboard/secondary surfaces are stripped of dead or redundant controls.
+- [x] **UI-53-02**: Typography, spacing, and transition tokens are consistent with the Liquid Glass system.
+- [x] **UI-53-03**: Core operator workflows remain minimal-click with clear state transitions.
+- [x] **A11Y-53-01**: Focus-visible and assistive parity are preserved across interactive controls.
+
+### Performance and Security Hardening
+
+- [x] **PERF-54-01**: UMA memory ceiling and benchmark tooling are configurable and reproducible.
+- [x] **PERF-54-02**: Adapter eviction notifications and transparent reload behavior are operator-visible and functional.
+- [x] **SEC-54-01**: Per-tier rate limiting and secret redaction controls are enforced.
+- [x] **SEC-54-02**: Security audit trail includes structured auth/rate/input events and hardened model permissions.
 
 ## v1.1.17 Requirements (Completed)
 
@@ -92,13 +119,28 @@ Milestone focus: stabilize runtime — fix training worker spawn, clean stale st
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WRK-01 | Phase 49 | Pending |
-| WRK-02 | Phase 49 | Pending |
-| RTH-01 | Phase 50 | Pending |
-| RTH-02 | Phase 50 | Pending |
-| RTH-03 | Phase 50 | Pending |
-| GIT-01 | Phase 48 | Pending |
-| GIT-02 | Phase 48 | Pending |
+| WRK-01 | Phase 49 | Complete |
+| WRK-02 | Phase 49 | Complete |
+| RTH-01 | Phase 50 | Complete |
+| RTH-02 | Phase 50 | Complete |
+| RTH-03 | Phase 50 | Complete |
+| INF-51-01 | Phase 51 | Complete |
+| INF-51-02 | Phase 51 | Complete |
+| TRN-51-01 | Phase 51 | Complete |
+| TRN-51-02 | Phase 51 | Complete |
+| GIT-01 | Phase 48 | Complete |
+| GIT-02 | Phase 48 | Complete |
+| PORT-52-01 | Phase 52 | Complete |
+| PORT-52-02 | Phase 52 | Complete |
+| PORT-52-03 | Phase 52 | Complete |
+| UI-53-01 | Phase 53 | Complete |
+| UI-53-02 | Phase 53 | Complete |
+| UI-53-03 | Phase 53 | Complete |
+| A11Y-53-01 | Phase 53 | Complete |
+| PERF-54-01 | Phase 54 | Complete |
+| PERF-54-02 | Phase 54 | Complete |
+| SEC-54-01 | Phase 54 | Complete |
+| SEC-54-02 | Phase 54 | Complete |
 | REL-47-01 | Phase 47 | Complete |
 | API-47-01 | Phase 47 | Complete |
 | SEC-47-01 | Phase 47 | Complete |
@@ -114,10 +156,10 @@ Milestone focus: stabilize runtime — fix training worker spawn, clean stale st
 | DOC-41-01 | Phase 45 | Complete |
 
 **Coverage:**
-- v1.1.18 requirements: 7 total
-- Mapped to phases: 7
+- v1.1.18 requirements: 22 total
+- Mapped to phases: 22
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-04*
-*Last updated: 2026-03-04 after v1.1.18 milestone initialization*
+*Last updated: 2026-03-05 after phase 54 completion and traceability reconciliation*

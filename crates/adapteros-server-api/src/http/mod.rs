@@ -274,10 +274,8 @@ async fn inference_handler<K: FusedKernels + StrictnessControl + Send + Sync + '
     State(state): State<Arc<ApiState<K>>>,
     Json(request): Json<InferenceRequest>,
 ) -> Result<Json<InferenceResponse>, ApiError> {
-    // Forward request to worker
-    let mut worker = state.worker.lock().await;
-    let response = worker
-        .infer(request)
+    // Forward request to worker through central UDS client helper
+    let response = crate::uds_client::infer_with_worker_mutex(&state.worker, request)
         .await
         .map_err(|e| ApiError::WorkerError(e.to_string()))?;
 

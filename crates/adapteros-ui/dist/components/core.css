@@ -23,7 +23,7 @@
   cursor: pointer;
   outline: none;
   border: 1px solid transparent;
-  transition: all 200ms var(--ease-default, ease);
+  transition: all var(--duration-normal) var(--ease-default, ease);
   box-shadow:
     0 1px 2px hsl(222 47% 11% / 0.06),
     0 2px 8px hsl(222 47% 11% / 0.08);
@@ -36,7 +36,7 @@
 
 .btn:active:not(:disabled) {
   transform: translateY(1px);
-  transition: transform 100ms ease;
+  transition: transform var(--duration-fast) ease;
 }
 
 .btn:disabled {
@@ -147,7 +147,7 @@
   display: inline;
   text-decoration: none;
   transition-property: color, text-decoration;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 /* Default - Primary color with underline on hover */
@@ -186,7 +186,7 @@
   text-decoration: none;
   color: inherit;
   transition-property: background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 /* Default - Accent hover (dashboard quick actions) */
@@ -302,7 +302,7 @@
   color: var(--color-card-foreground);
   border-radius: calc(var(--radius) + 0.125rem);
   border: 1px solid var(--surface-border-muted, var(--color-border));
-  box-shadow: var(--surface-shadow-sm, 0 1px 2px hsl(222 47% 11% / 0.06));
+  box-shadow: none;
 }
 
 .card-header {
@@ -368,7 +368,7 @@
   font-size: 0.875rem;
   line-height: var(--line-height-compact, 1.4);
   transition-property: border-color, box-shadow, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .input::placeholder {
@@ -420,7 +420,7 @@
   font-size: 0.875rem;
   line-height: var(--line-height-compact, 1.4);
   transition-property: border-color, box-shadow, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .select:focus {
@@ -472,7 +472,7 @@
   border-radius: 9999px;
   border: 2px solid transparent;
   transition-property: color, background-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .toggle:focus-visible {
@@ -502,7 +502,7 @@
   background-color: var(--color-background);
   box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
   transition-property: transform;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .toggle-thumb-off {
@@ -680,7 +680,7 @@
   top: 1rem;
   border-radius: 0.125rem;
   opacity: 0.7;
-  transition: opacity 150ms;
+  transition: opacity var(--duration-normal);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -866,7 +866,7 @@
     var(--color-card) 96%,
     var(--color-background)
   );
-  box-shadow: var(--surface-shadow-sm, 0 1px 2px hsl(222 47% 11% / 0.06));
+  box-shadow: none;
 }
 
 .table-header {
@@ -909,7 +909,7 @@
 .table-row {
   border-bottom: 1px solid var(--color-border);
   transition-property: background-color, box-shadow;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .table-row:hover {
@@ -968,7 +968,7 @@
   font-size: 0.75rem;
   font-weight: 600;
   transition-property: color, background-color, border-color;
-  transition-duration: 150ms;
+  transition-duration: var(--duration-normal);
 }
 
 .badge-default {
@@ -1251,8 +1251,8 @@
 /* ===== Card Interactive Variant ===== */
 .card-interactive {
   transition:
-    border-color 200ms ease,
-    box-shadow 200ms ease;
+    border-color var(--duration-normal) var(--ease-default),
+    box-shadow var(--duration-normal) var(--ease-default);
   cursor: pointer;
 }
 

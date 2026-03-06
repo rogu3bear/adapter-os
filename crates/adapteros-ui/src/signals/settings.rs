@@ -13,9 +13,9 @@ const SETTINGS_KEY: &str = "adapteros_settings";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
+    #[default]
     Light,
     Dark,
-    #[default]
     System,
 }
 
@@ -218,7 +218,7 @@ fn default_glass_enabled() -> bool {
 impl Default for UserSettings {
     fn default() -> Self {
         Self {
-            theme: Theme::System,
+            theme: Theme::Light,
             compact_mode: false,
             density: Density::Comfortable,
             show_timestamps: true,
@@ -399,7 +399,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{DefaultPage, Density, UserSettings};
+    use super::{DefaultPage, Density, Theme, UserSettings};
+
+    #[test]
+    fn user_settings_default_theme_is_light() {
+        assert_eq!(UserSettings::default().theme, Theme::Light);
+    }
 
     #[test]
     fn user_settings_default_page_is_chat() {

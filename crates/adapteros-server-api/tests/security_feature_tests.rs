@@ -446,7 +446,7 @@ mod rate_limiting_tests {
         let db = init_test_db().await;
 
         // First request should succeed
-        let result = check_rate_limit(&db, "tenant-rate-1")
+        let result = check_rate_limit(&db, "tenant-rate-1", None)
             .await
             .expect("Failed to check rate limit");
         assert!(result.allowed, "First request should be allowed");
@@ -465,7 +465,7 @@ mod rate_limiting_tests {
 
         // Make requests up to limit
         for i in 1..=3 {
-            let result = check_rate_limit(&db, tenant_id)
+            let result = check_rate_limit(&db, tenant_id, None)
                 .await
                 .expect("Failed to check rate limit");
             assert!(result.allowed, "Request {} should be allowed", i);
@@ -473,7 +473,7 @@ mod rate_limiting_tests {
         }
 
         // Exceed limit
-        let result = check_rate_limit(&db, tenant_id)
+        let result = check_rate_limit(&db, tenant_id, None)
             .await
             .expect("Failed to check rate limit");
         assert!(!result.allowed, "Request should be denied after limit");
@@ -492,7 +492,7 @@ mod rate_limiting_tests {
 
         // Make some requests
         for _ in 0..3 {
-            check_rate_limit(&db, tenant_id)
+            check_rate_limit(&db, tenant_id, None)
                 .await
                 .expect("Failed to check rate limit");
         }
@@ -503,7 +503,7 @@ mod rate_limiting_tests {
             .expect("Failed to reset rate limit");
 
         // Next request should start from 1
-        let result = check_rate_limit(&db, tenant_id)
+        let result = check_rate_limit(&db, tenant_id, None)
             .await
             .expect("Failed to check rate limit after reset");
         assert!(result.allowed);
@@ -522,11 +522,15 @@ mod rate_limiting_tests {
             .expect("Failed to set limit for tenant-b");
 
         // Tenant A uses its quota
-        check_rate_limit(&db, "tenant-a").await.expect("Failed");
-        check_rate_limit(&db, "tenant-a").await.expect("Failed");
+        check_rate_limit(&db, "tenant-a", None)
+            .await
+            .expect("Failed");
+        check_rate_limit(&db, "tenant-a", None)
+            .await
+            .expect("Failed");
 
         // Tenant B should still have quota
-        let result = check_rate_limit(&db, "tenant-b")
+        let result = check_rate_limit(&db, "tenant-b", None)
             .await
             .expect("Failed to check rate limit for tenant-b");
         assert!(result.allowed, "Tenant B should have independent quota");

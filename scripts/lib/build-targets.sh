@@ -169,6 +169,17 @@ aos_incremental_dirs_for_target_dir() {
     find "$target_dir" -type d -name incremental -prune 2>/dev/null | sort -u
 }
 
+# List repo-root scratch target directories (target-*) that should not persist
+# as canonical build caches.
+aos_scratch_target_dirs() {
+    local repo_root
+    repo_root="$(aos_repo_root)"
+    if [ ! -d "$repo_root" ]; then
+        return 0
+    fi
+    find "$repo_root" -maxdepth 1 -mindepth 1 -type d -name 'target-*' -prune 2>/dev/null | sort -u
+}
+
 # Cross-platform mtime fetch.
 aos_stat_mtime() {
     local path="$1"
@@ -250,4 +261,71 @@ aos_prune_incremental_if_needed() {
     local target_dir
     target_dir="$(aos_target_dir_for_flow "$flow")"
     aos_prune_incremental_for_target_dir "$target_dir" "$flow"
+}
+
+# Evaluate and optionally prune a repo-root scratch target directory.
+# Returns 0 if healthy, 1 if warning/prune condition triggered.
+aos_prune_scratch_target_dir_if_needed() {
+    local target_dir="$1"
+    local label="${2:-scratch-target}"
+
+    if [ ! -d "$target_dir" ]; then
+        return 0
+    fi
+
+    local warn_gb="${AOS_INCREMENTAL_WARN_GB:-6}"
+    local prune_gb="${AOS_INCREMENTAL_PRUNE_GB:-10}"
+    local max_age_hours="${AOS_INCREMENTAL_MAX_AGE_HOURS:-72}"
+    local auto_prune="${AOS_AUTO_PRUNE_INCREMENTAL:-1}"
+
+    [[ "$warn_gb" =~ ^[0-9]+$ ]] || warn_gb=6
+    [[ "$prune_gb" =~ ^[0-9]+$ ]] || prune_gb=10
+    [[ "$max_age_hours" =~ ^[0-9]+$ ]] || max_age_hours=72
+
+    local total_kb size_gb dir_mtime now age_hours warn_trigger
+    total_kb=$(du -sk "$target_dir" 2>/dev/null | awk '{print $1}')
+    total_kb=${total_kb:-0}
+    size_gb=$((total_kb / 1024 / 1024))
+
+    dir_mtime=$(aos_stat_mtime "$target_dir")
+    dir_mtime=${dir_mtime:-0}
+    now=$(date +%s)
+    if [ "$dir_mtime" -gt 0 ]; then
+        age_hours=$(((now - dir_mtime) / 3600))
+    else
+        age_hours=0
+    fi
+
+    warn_trigger=0
+    if [ "$size_gb" -ge "$warn_gb" ] || [ "$age_hours" -ge "$max_age_hours" ]; then
+        warn_trigger=1
+        echo "WARNING: scratch target root (${label}) size=${size_gb}GB age=${age_hours}h path=${target_dir}"
+    fi
+
+    if aos_is_truthy "$auto_prune" && { [ "$size_gb" -ge "$prune_gb" ] || [ "$age_hours" -ge "$max_age_hours" ]; }; then
+        rm -rf "$target_dir"
+        echo "Pruned scratch target root for ${label}: ${target_dir}"
+        return 1
+    fi
+
+    return "$warn_trigger"
+}
+
+# Evaluate and optionally prune all repo-root scratch target directories.
+aos_prune_scratch_targets_if_needed() {
+    local repo_root
+    repo_root="$(aos_repo_root)"
+
+    local exit_code=0
+    local dir
+    while IFS= read -r dir; do
+        [ -n "$dir" ] || continue
+        local label
+        label="$(basename "$dir")"
+        if ! aos_prune_scratch_target_dir_if_needed "$dir" "$label"; then
+            exit_code=1
+        fi
+    done < <(aos_scratch_target_dirs)
+
+    return "$exit_code"
 }

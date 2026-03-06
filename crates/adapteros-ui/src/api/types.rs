@@ -2693,6 +2693,14 @@ pub enum SystemHealthTransitionEvent {
         worker_id: String,
         previous_status: String,
     },
+    /// Adapter evicted from memory.
+    AdapterEvicted {
+        adapter_id: String,
+        adapter_name: String,
+        reason: String,
+        #[serde(default)]
+        freed_mb: u32,
+    },
 }
 
 /// WASM-friendly timeline event for the version history timeline UI.

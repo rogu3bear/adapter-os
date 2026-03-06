@@ -4,8 +4,8 @@
 
 use crate::api::{AuditLogEntry, AuditLogsResponse};
 use crate::components::{
-    Badge, BadgeVariant, Card, ErrorDisplay, SkeletonTable, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    Badge, BadgeVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay, SkeletonTable, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::LoadingState;
 use crate::utils::{format_datetime, status_display_label};
@@ -41,9 +41,11 @@ pub fn TimelineTab(
                     LoadingState::Loaded(data) => {
                         if data.logs.is_empty() {
                             view! {
-                                <div class="text-center py-12">
-                                    <p class="text-muted-foreground">"No audit events found"</p>
-                                </div>
+                                <EmptyState
+                                    variant=EmptyStateVariant::Empty
+                                    title="No audit events found"
+                                    description="Audit events appear as actions are performed in the system."
+                                />
                             }
                             .into_any()
                         } else {

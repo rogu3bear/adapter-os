@@ -65,7 +65,7 @@ pub struct DatabaseConfig {
     pub kv_tantivy_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
     #[serde(default = "default_true")]
     pub require_pf_deny: bool,
@@ -129,6 +129,42 @@ pub struct SecurityConfig {
     pub ci_attestation_public_keys: Option<Vec<String>>,
 }
 
+impl std::fmt::Debug for SecurityConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SecurityConfig")
+            .field("require_pf_deny", &self.require_pf_deny)
+            .field("mtls_required", &self.mtls_required)
+            .field("jwt_secret", &"[REDACTED]")
+            .field("jwt_ttl_hours", &self.jwt_ttl_hours)
+            .field("key_provider_mode", &self.key_provider_mode)
+            .field("key_file_path", &self.key_file_path)
+            .field("jwt_issuer", &self.jwt_issuer)
+            .field("jwt_audience", &self.jwt_audience)
+            .field("dev_login_enabled", &self.dev_login_enabled)
+            .field("require_mfa", &self.require_mfa)
+            .field("token_ttl_seconds", &self.token_ttl_seconds)
+            .field("access_token_ttl_seconds", &self.access_token_ttl_seconds)
+            .field("session_ttl_seconds", &self.session_ttl_seconds)
+            .field("jwt_mode", &self.jwt_mode)
+            .field(
+                "jwt_additional_ed25519_public_keys",
+                &self.jwt_additional_ed25519_public_keys,
+            )
+            .field("jwt_additional_hmac_secrets", &"[REDACTED]")
+            .field("cookie_same_site", &self.cookie_same_site)
+            .field("cookie_domain", &self.cookie_domain)
+            .field("cookie_secure", &self.cookie_secure)
+            .field("clock_skew_seconds", &self.clock_skew_seconds)
+            .field("dev_bypass", &self.dev_bypass)
+            .field("allow_registration", &self.allow_registration)
+            .field(
+                "ci_attestation_public_keys",
+                &self.ci_attestation_public_keys,
+            )
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuthConfig {
     /// JWT algorithm to use in development (hs256/hmac)
@@ -163,6 +199,9 @@ pub struct PathsConfig {
     /// Path to synthesis model for training data generation
     #[serde(default)]
     pub synthesis_model_path: Option<String>,
+    /// Path to training worker binary. If unset, resolves from sibling directory or target/.
+    #[serde(default)]
+    pub training_worker_bin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,6 +209,18 @@ pub struct RateLimitsConfig {
     pub requests_per_minute: u32,
     pub burst_size: u32,
     pub inference_per_minute: u32,
+    /// Per-tier RPM override for health routes (None = unlimited, health probes bypass middleware)
+    #[serde(default)]
+    pub health_rpm: Option<u32>,
+    /// Per-tier RPM override for public routes (/v1/auth/, /v1/status, /metrics)
+    #[serde(default)]
+    pub public_rpm: Option<u32>,
+    /// Per-tier RPM override for internal routes (/v1/workers/*)
+    #[serde(default)]
+    pub internal_rpm: Option<u32>,
+    /// Per-tier RPM override for protected routes (everything else, full middleware chain)
+    #[serde(default)]
+    pub protected_rpm: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -697,6 +748,8 @@ pub struct LoaderOptions {
     pub env_prefix: String,
     /// Fail if manifest_path is provided but file is missing or unreadable.
     /// When true, explicitly provided config paths are treated as required.
+    /// Boot paths should use `false` for portability — allows fresh clones
+    /// to start with compiled-in defaults and environment variables only.
     pub require_manifest: bool,
     /// Fail on empty/whitespace environment variable overrides in production mode.
     /// When true, empty AOS_* env vars cause an error instead of being silently skipped.
@@ -1133,4 +1186,62 @@ pub fn default_max_cpu_time_secs() -> u64 {
 
 pub fn default_max_consecutive_failures() -> u32 {
     3
+}
+
+// ============================================================================
+// UMA Memory Configuration
+// ============================================================================
+
+/// Configurable UMA (Unified Memory Architecture) memory budget for Apple Silicon.
+///
+/// Controls how much of the system's unified memory the inference pipeline may use.
+/// On Apple Silicon, CPU and GPU share the same physical memory pool, so a ceiling
+/// prevents OOM when multiple adapters are loaded simultaneously.
+///
+/// # Example (cp.toml)
+///
+/// ```toml
+/// [uma_memory]
+/// ceiling_pct = 75
+/// headroom_pct = 15
+/// eviction_notifications = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UmaMemoryConfig {
+    /// Maximum percentage of total UMA to use (default: 75).
+    /// The pressure manager treats `total_uma_bytes * (ceiling_pct / 100)` as
+    /// `max_system_ram` when constructing `MemoryLimits`.
+    #[serde(default = "default_uma_ceiling_pct")]
+    pub ceiling_pct: u8,
+
+    /// Headroom percentage within the ceiling that triggers eviction (default: 15).
+    /// When used memory exceeds `ceiling - headroom`, the pressure manager
+    /// begins evicting low-priority adapters.
+    #[serde(default = "default_uma_headroom_pct")]
+    pub headroom_pct: u8,
+
+    /// Whether to emit SSE eviction notification events to connected clients
+    /// (default: true).
+    #[serde(default = "default_true")]
+    pub eviction_notifications: bool,
+}
+
+impl Default for UmaMemoryConfig {
+    fn default() -> Self {
+        Self {
+            ceiling_pct: default_uma_ceiling_pct(),
+            headroom_pct: default_uma_headroom_pct(),
+            eviction_notifications: true,
+        }
+    }
+}
+
+/// Default UMA ceiling: 75% of total unified memory.
+pub fn default_uma_ceiling_pct() -> u8 {
+    75
+}
+
+/// Default UMA headroom: 15% within the ceiling triggers eviction.
+pub fn default_uma_headroom_pct() -> u8 {
+    15
 }

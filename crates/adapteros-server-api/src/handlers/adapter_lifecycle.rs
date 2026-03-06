@@ -7,7 +7,7 @@ use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
-use crate::sse::{AdapterLifecycleEvent, SseStreamType};
+use crate::sse::{AdapterLifecycleEvent, MemoryEvictionEvent, SseStreamType};
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::users::Role;
@@ -615,6 +615,14 @@ pub async fn unload_adapter(
             },
         )
         .await;
+
+    let _ = state.memory_eviction_tx.send(MemoryEvictionEvent {
+        tenant_id: adapter.tenant_id.clone(),
+        adapter_id: adapter_id.clone(),
+        adapter_name: adapter.name.clone(),
+        reason: "user_request".to_string(),
+        freed_mb: 0,
+    });
 
     Ok(StatusCode::OK)
 }

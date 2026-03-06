@@ -161,6 +161,18 @@ fn token_signature_invalid(msg: impl Into<String>) -> (StatusCode, Json<ErrorRes
     )
 }
 
+fn log_auth_failure(client_ip: &str, endpoint: &str, auth_mode: &str, reason: &str) {
+    tracing::warn!(
+        target: "security.auth",
+        event = "auth_failure",
+        source_ip = %client_ip,
+        endpoint = %endpoint,
+        auth_mode = %auth_mode,
+        reason = %reason,
+        "authentication failed"
+    );
+}
+
 fn tenant_header_missing() -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::BAD_REQUEST,
@@ -663,6 +675,8 @@ async fn validate_access_token_with_session(
     state: &AppState,
     token: &str,
     client_ip: &str,
+    endpoint: &str,
+    auth_mode: &str,
 ) -> Result<Claims, (StatusCode, Json<ErrorResponse>)> {
     let mut claims = if state.use_ed25519 {
         validate_access_token_ed25519(token, &state.ed25519_public_keys, &state.ed25519_public_key)
@@ -671,17 +685,20 @@ async fn validate_access_token_with_session(
         validate_token(token, &state.hmac_keys, state.jwt_secret.as_slice())
     }
     .map_err(|e| {
-        tracing::warn!(client_ip = %client_ip, error = %e, "Auth token signature is invalid");
+        log_auth_failure(client_ip, endpoint, auth_mode, "token_signature_invalid");
+        tracing::warn!(source_ip = %client_ip, endpoint = %endpoint, error = %e, "Auth token signature is invalid");
         token_signature_invalid(e.to_string())
     })?;
 
     if claims.iss != crate::auth::JWT_ISSUER {
-        tracing::warn!(client_ip = %client_ip, iss = %claims.iss, "Invalid token issuer");
+        log_auth_failure(client_ip, endpoint, auth_mode, "invalid_issuer");
+        tracing::warn!(source_ip = %client_ip, endpoint = %endpoint, iss = %claims.iss, "Invalid token issuer");
         return Err(unauthenticated("invalid issuer"));
     }
 
     if claims.tenant_id.is_empty() {
-        tracing::warn!(client_ip = %client_ip, "Token missing tenant_id");
+        log_auth_failure(client_ip, endpoint, auth_mode, "missing_tenant");
+        tracing::warn!(source_ip = %client_ip, endpoint = %endpoint, "Token missing tenant_id");
         return Err(unauthenticated("missing tenant"));
     }
 
@@ -699,17 +716,25 @@ async fn validate_access_token_with_session(
         if let Ok(baseline_dt) = chrono::DateTime::parse_from_rfc3339(&baseline) {
             if claims.iat < baseline_dt.timestamp() {
                 tracing::warn!(
-                    client_ip = %client_ip,
+                    source_ip = %client_ip,
+                    endpoint = %endpoint,
                     tenant_id = %claims.tenant_id,
                     token_iat = claims.iat,
                     baseline = %baseline,
                     "Token issued before tenant baseline"
                 );
+                log_auth_failure(
+                    client_ip,
+                    endpoint,
+                    auth_mode,
+                    "tenant_token_baseline_violation",
+                );
                 return Err(token_revoked("token issued before tenant baseline"));
             }
         } else {
             tracing::warn!(
-                client_ip = %client_ip,
+                source_ip = %client_ip,
+                endpoint = %endpoint,
                 tenant_id = %claims.tenant_id,
                 baseline = %baseline,
                 "Unable to parse tenant token baseline"
@@ -732,12 +757,14 @@ async fn validate_access_token_with_session(
                 // Use the longer session expiry (expires_at) for session validation
                 let expiry = session.expires_at;
                 if now >= expiry {
-                    tracing::warn!(client_ip = %client_ip, session_id = %session_id, "Session expired");
+                    log_auth_failure(client_ip, endpoint, auth_mode, "session_expired");
+                    tracing::warn!(source_ip = %client_ip, endpoint = %endpoint, session_id = %session_id, "Session expired");
                     return Err(session_expired("session no longer valid"));
                 }
 
                 if session.locked {
-                    tracing::warn!(client_ip = %client_ip, session_id = %session_id, "Session locked");
+                    log_auth_failure(client_ip, endpoint, auth_mode, "session_locked");
+                    tracing::warn!(source_ip = %client_ip, endpoint = %endpoint, session_id = %session_id, "Session locked");
                     return Err(session_expired("session locked"));
                 }
 
@@ -745,8 +772,10 @@ async fn validate_access_token_with_session(
                     (claims.device_id.as_ref(), session.device_id.as_ref())
                 {
                     if token_device != session_device {
+                        log_auth_failure(client_ip, endpoint, auth_mode, "session_device_mismatch");
                         tracing::warn!(
-                            client_ip = %client_ip,
+                            source_ip = %client_ip,
+                            endpoint = %endpoint,
                             session_id = %session_id,
                             token_device = %token_device,
                             session_device = %session_device,
@@ -761,7 +790,8 @@ async fn validate_access_token_with_session(
                 }
             }
             Ok(None) => {
-                tracing::warn!(client_ip = %client_ip, session_id = %session_id, "Session not found in KV");
+                log_auth_failure(client_ip, endpoint, auth_mode, "session_not_found");
+                tracing::warn!(source_ip = %client_ip, endpoint = %endpoint, session_id = %session_id, "Session not found in KV");
                 return Err(session_expired("session not found"));
             }
             Err(e) => {
@@ -780,7 +810,8 @@ async fn validate_access_token_with_session(
                 let session_exp_ts = session.expires_at;
 
                 if session.locked != 0 || session_exp_ts <= now_ts {
-                    tracing::warn!(client_ip = %client_ip, session_id = %session_id, "Session expired or locked (SQL)");
+                    log_auth_failure(client_ip, endpoint, auth_mode, "session_expired_or_locked");
+                    tracing::warn!(source_ip = %client_ip, endpoint = %endpoint, session_id = %session_id, "Session expired or locked (SQL)");
                     return Err(session_expired("session no longer valid"));
                 }
 
@@ -788,8 +819,10 @@ async fn validate_access_token_with_session(
                     (claims.device_id.as_ref(), session.device_id.as_ref())
                 {
                     if token_device != session_device {
+                        log_auth_failure(client_ip, endpoint, auth_mode, "session_device_mismatch");
                         tracing::warn!(
-                            client_ip = %client_ip,
+                            source_ip = %client_ip,
+                            endpoint = %endpoint,
                             session_id = %session_id,
                             token_device = %token_device,
                             session_device = %session_device,
@@ -804,7 +837,8 @@ async fn validate_access_token_with_session(
                 }
             }
             Ok(None) => {
-                tracing::warn!(client_ip = %client_ip, session_id = %session_id, "Session not found in SQL");
+                log_auth_failure(client_ip, endpoint, auth_mode, "session_not_found");
+                tracing::warn!(source_ip = %client_ip, endpoint = %endpoint, session_id = %session_id, "Session not found in SQL");
                 return Err(session_expired("session not found"));
             }
             Err(e) => {
@@ -903,10 +937,10 @@ pub async fn auth_middleware(
 
     // Extract client IP address from headers for audit logging
     let client_ip = extract_client_ip(req.headers()).unwrap_or_else(|| "unknown".to_string());
+    let path = req.uri().path().to_string();
     req.extensions_mut().insert(ClientIp(client_ip.clone()));
     req.extensions_mut().insert(AuthMode::Unauthenticated);
 
-    let path = req.uri().path().to_string();
     let auth_header = req
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -996,7 +1030,20 @@ pub async fn auth_middleware(
                     JwtSource::Cookie => AuthMode::Cookie,
                     _ => AuthMode::BearerToken,
                 };
-                match validate_access_token_with_session(&state, token, &client_ip).await {
+                let auth_mode_label = match source {
+                    JwtSource::Cookie => "cookie",
+                    JwtSource::Bearer => "bearer_token",
+                    JwtSource::Query => "query_token",
+                };
+                match validate_access_token_with_session(
+                    &state,
+                    token,
+                    &client_ip,
+                    &path,
+                    auth_mode_label,
+                )
+                .await
+                {
                     Ok(mut claims) => {
                         #[cfg(debug_assertions)]
                         tracing::debug!(
@@ -1009,7 +1056,13 @@ pub async fn auth_middleware(
 
                         match is_token_revoked(&state.db, &claims.jti).await {
                             Ok(true) => {
-                                tracing::warn!(client_ip = %client_ip, jti = %claims.jti, user_id = %claims.sub, "Revoked session token used");
+                                log_auth_failure(
+                                    &client_ip,
+                                    &path,
+                                    auth_mode_label,
+                                    "token_revoked",
+                                );
+                                tracing::warn!(source_ip = %client_ip, endpoint = %path, jti = %claims.jti, user_id = %claims.sub, "Revoked session token used");
                                 return Err(token_revoked("this token has been revoked"));
                             }
                             Ok(false) => { /* Token not revoked, continue */ }
@@ -1063,7 +1116,20 @@ pub async fn auth_middleware(
                     JwtSource::Cookie => AuthMode::Cookie,
                     _ => AuthMode::BearerToken,
                 };
-                match validate_access_token_with_session(&state, token, &client_ip).await {
+                let auth_mode_label = match source {
+                    JwtSource::Cookie => "cookie",
+                    JwtSource::Bearer => "bearer_token",
+                    JwtSource::Query => "query_token",
+                };
+                match validate_access_token_with_session(
+                    &state,
+                    token,
+                    &client_ip,
+                    &path,
+                    auth_mode_label,
+                )
+                .await
+                {
                     Ok(mut claims) => {
                         #[cfg(debug_assertions)]
                         tracing::debug!(
@@ -1076,7 +1142,13 @@ pub async fn auth_middleware(
 
                         match is_token_revoked(&state.db, &claims.jti).await {
                             Ok(true) => {
-                                tracing::warn!(client_ip = %client_ip, jti = %claims.jti, user_id = %claims.sub, "Revoked token used");
+                                log_auth_failure(
+                                    &client_ip,
+                                    &path,
+                                    auth_mode_label,
+                                    "token_revoked",
+                                );
+                                tracing::warn!(source_ip = %client_ip, endpoint = %path, jti = %claims.jti, user_id = %claims.sub, "Revoked token used");
                                 return Err(token_revoked("this token has been revoked"));
                             }
                             Ok(false) => { /* Token not revoked, continue */ }
@@ -1125,7 +1197,8 @@ pub async fn auth_middleware(
         }
     }
 
-    tracing::warn!(client_ip = %client_ip, path = %path, "Auth token is missing from the request");
+    log_auth_failure(&client_ip, &path, "unauthenticated", "token_missing");
+    tracing::warn!(source_ip = %client_ip, endpoint = %path, "Auth token is missing from the request");
     Err(token_missing())
 }
 
@@ -1159,10 +1232,9 @@ pub async fn dual_auth_middleware(
 
     // Extract client IP address from headers for audit logging
     let client_ip = extract_client_ip(req.headers()).unwrap_or_else(|| "unknown".to_string());
+    let path = req.uri().path().to_string();
     req.extensions_mut().insert(ClientIp(client_ip.clone()));
     req.extensions_mut().insert(AuthMode::Unauthenticated);
-
-    let path = req.uri().path().to_string();
     let auth_header = req
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -1252,7 +1324,20 @@ pub async fn dual_auth_middleware(
                     JwtSource::Cookie => AuthMode::Cookie,
                     _ => AuthMode::BearerToken,
                 };
-                match validate_access_token_with_session(&state, token, &client_ip).await {
+                let auth_mode_label = match source {
+                    JwtSource::Cookie => "cookie",
+                    JwtSource::Bearer => "bearer_token",
+                    JwtSource::Query => "query_token",
+                };
+                match validate_access_token_with_session(
+                    &state,
+                    token,
+                    &client_ip,
+                    &path,
+                    auth_mode_label,
+                )
+                .await
+                {
                     Ok(mut claims) => {
                         #[cfg(debug_assertions)]
                         tracing::debug!(
@@ -1265,7 +1350,13 @@ pub async fn dual_auth_middleware(
 
                         match is_token_revoked(&state.db, &claims.jti).await {
                             Ok(true) => {
-                                tracing::warn!(client_ip = %client_ip, jti = %claims.jti, user_id = %claims.sub, "Revoked session token used (dual auth)");
+                                log_auth_failure(
+                                    &client_ip,
+                                    &path,
+                                    auth_mode_label,
+                                    "token_revoked",
+                                );
+                                tracing::warn!(source_ip = %client_ip, endpoint = %path, jti = %claims.jti, user_id = %claims.sub, "Revoked session token used (dual auth)");
                                 return Err(token_revoked("this token has been revoked"));
                             }
                             Ok(false) => { /* Token not revoked, continue */ }
@@ -1321,7 +1412,20 @@ pub async fn dual_auth_middleware(
                     JwtSource::Cookie => AuthMode::Cookie,
                     _ => AuthMode::BearerToken,
                 };
-                match validate_access_token_with_session(&state, token, &client_ip).await {
+                let auth_mode_label = match source {
+                    JwtSource::Cookie => "cookie",
+                    JwtSource::Bearer => "bearer_token",
+                    JwtSource::Query => "query_token",
+                };
+                match validate_access_token_with_session(
+                    &state,
+                    token,
+                    &client_ip,
+                    &path,
+                    auth_mode_label,
+                )
+                .await
+                {
                     Ok(mut claims) => {
                         #[cfg(debug_assertions)]
                         tracing::debug!(
@@ -1334,7 +1438,13 @@ pub async fn dual_auth_middleware(
 
                         match is_token_revoked(&state.db, &claims.jti).await {
                             Ok(true) => {
-                                tracing::warn!(client_ip = %client_ip, jti = %claims.jti, user_id = %claims.sub, "Revoked token used (dual auth)");
+                                log_auth_failure(
+                                    &client_ip,
+                                    &path,
+                                    auth_mode_label,
+                                    "token_revoked",
+                                );
+                                tracing::warn!(source_ip = %client_ip, endpoint = %path, jti = %claims.jti, user_id = %claims.sub, "Revoked token used (dual auth)");
                                 return Err(token_revoked("this token has been revoked"));
                             }
                             Ok(false) => { /* Token not revoked, continue */ }
@@ -1385,7 +1495,8 @@ pub async fn dual_auth_middleware(
         }
     }
 
-    tracing::warn!(client_ip = %client_ip, path = %path, "Auth token is missing from the request");
+    log_auth_failure(&client_ip, &path, "unauthenticated", "token_missing");
+    tracing::warn!(source_ip = %client_ip, endpoint = %path, "Auth token is missing from the request");
     Err(token_missing())
 }
 
@@ -1428,6 +1539,7 @@ pub async fn optional_auth_middleware(
 
     // Extract client IP address from headers for audit logging
     let client_ip = extract_client_ip(req.headers()).unwrap_or_else(|| "unknown".to_string());
+    let path = req.uri().path().to_string();
     req.extensions_mut().insert(ClientIp(client_ip.clone()));
     req.extensions_mut().insert(AuthMode::Unauthenticated);
 
@@ -1514,7 +1626,20 @@ pub async fn optional_auth_middleware(
                     JwtSource::Cookie => AuthMode::Cookie,
                     _ => AuthMode::BearerToken,
                 };
-                match validate_access_token_with_session(&state, token, &client_ip).await {
+                let auth_mode_label = match source {
+                    JwtSource::Cookie => "cookie",
+                    JwtSource::Bearer => "bearer_token",
+                    JwtSource::Query => "query_token",
+                };
+                match validate_access_token_with_session(
+                    &state,
+                    token,
+                    &client_ip,
+                    &path,
+                    auth_mode_label,
+                )
+                .await
+                {
                     Ok(mut claims) => {
                         let should_skip_auth = match is_token_revoked(&state.db, &claims.jti).await
                         {
@@ -1570,7 +1695,20 @@ pub async fn optional_auth_middleware(
                     JwtSource::Cookie => AuthMode::Cookie,
                     _ => AuthMode::BearerToken,
                 };
-                match validate_access_token_with_session(&state, token, &client_ip).await {
+                let auth_mode_label = match source {
+                    JwtSource::Cookie => "cookie",
+                    JwtSource::Bearer => "bearer_token",
+                    JwtSource::Query => "query_token",
+                };
+                match validate_access_token_with_session(
+                    &state,
+                    token,
+                    &client_ip,
+                    &path,
+                    auth_mode_label,
+                )
+                .await
+                {
                     Ok(mut claims) => {
                         let should_skip_auth = match is_token_revoked(&state.db, &claims.jti).await
                         {

@@ -57,7 +57,10 @@ pub const PINNED_BOOST: f32 = 0.3;
 //
 
 /// Dev-only fixture path for the default local Qwen3.5-27B model.
-pub const DEV_MODEL_PATH: &str = "/var/models/Qwen3.5-27B";
+///
+/// This MUST be relative (no leading `/`) so `rebase_var_path` resolves it
+/// under the project root's `var/` directory.
+pub const DEV_MODEL_PATH: &str = "var/models/Qwen3.5-27B";
 
 /// Dev-only fixture path for the default local manifest.
 pub const DEV_MANIFEST_PATH: &str = "manifests/qwen7b-4bit-mlx-base-only.yaml";
@@ -233,3 +236,65 @@ pub const DEFAULT_LOG_LEVEL: &str = "info";
 
 /// Default path for the KV (redb) database.
 pub const DEFAULT_KV_PATH: &str = "var/aos-kv.redb";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Guard test: no path constant should start with `/var/` (the system directory).
+    ///
+    /// Relative `var/` paths are correct and handled by `rebase_var_path`.
+    /// URL-like values (sqlite://, http://) are excluded from the check.
+    #[test]
+    fn test_no_absolute_var_paths_in_defaults() {
+        let path_constants: &[(&str, &str)] = &[
+            ("DEV_MODEL_PATH", DEV_MODEL_PATH),
+            ("DEV_MANIFEST_PATH", DEV_MANIFEST_PATH),
+            ("DEFAULT_MODEL_CACHE_ROOT", DEFAULT_MODEL_CACHE_ROOT),
+            ("DEFAULT_EMBEDDING_MODEL_PATH", DEFAULT_EMBEDDING_MODEL_PATH),
+            (
+                "DEFAULT_QWEN_INT4_MANIFEST_DIR",
+                DEFAULT_QWEN_INT4_MANIFEST_DIR,
+            ),
+            ("DEFAULT_TELEMETRY_DIR", DEFAULT_TELEMETRY_DIR),
+            (
+                "DEFAULT_TRAINING_REPORTS_SUBDIR",
+                DEFAULT_TRAINING_REPORTS_SUBDIR,
+            ),
+            ("DEFAULT_INDEX_ROOT", DEFAULT_INDEX_ROOT),
+            ("DEFAULT_MANIFEST_CACHE_DIR", DEFAULT_MANIFEST_CACHE_DIR),
+            ("DEFAULT_ADAPTERS_ROOT", DEFAULT_ADAPTERS_ROOT),
+            (
+                "DEFAULT_WORKER_SOCKET_PROD_ROOT",
+                DEFAULT_WORKER_SOCKET_PROD_ROOT,
+            ),
+            ("DEFAULT_WORKER_SOCKET_DEV", DEFAULT_WORKER_SOCKET_DEV),
+            ("DEFAULT_CP_WORKER_SOCKET", DEFAULT_CP_WORKER_SOCKET),
+            ("DEFAULT_STATUS_PATH", DEFAULT_STATUS_PATH),
+            (
+                "DEFAULT_SUPERVISOR_SIGNING_KEY_PATH",
+                DEFAULT_SUPERVISOR_SIGNING_KEY_PATH,
+            ),
+            ("DEFAULT_DB_PATH", DEFAULT_DB_PATH),
+            ("DEFAULT_KV_PATH", DEFAULT_KV_PATH),
+        ];
+
+        for (name, value) in path_constants {
+            // Skip URL-like values (sqlite://, http://, etc.)
+            let lower = value.to_lowercase();
+            if lower.starts_with("sqlite://")
+                || lower.starts_with("http://")
+                || lower.starts_with("https://")
+                || lower.starts_with("file://")
+            {
+                continue;
+            }
+
+            assert!(
+                !value.starts_with("/var/"),
+                "{name} = \"{value}\" starts with /var/ (system directory). \
+                 Use relative \"var/...\" instead so rebase_var_path resolves it correctly."
+            );
+        }
+    }
+}

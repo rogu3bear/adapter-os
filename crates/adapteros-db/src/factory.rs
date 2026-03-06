@@ -158,7 +158,18 @@ impl DbFactory {
         use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
         use std::str::FromStr;
 
-        let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", database_url))?
+        let normalized_database_url = if matches!(
+            database_url,
+            ":memory:" | "sqlite://:memory:" | "sqlite::memory:"
+        ) {
+            "sqlite::memory:".to_string()
+        } else if database_url.starts_with("sqlite:") {
+            database_url.to_string()
+        } else {
+            format!("sqlite://{}", database_url)
+        };
+
+        let options = SqliteConnectOptions::from_str(&normalized_database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
@@ -203,7 +214,7 @@ impl DbFactory {
         }
 
         info!(
-            database_url = %database_url,
+            database_url = %normalized_database_url,
             pool_size = pool_size,
             statement_cache_capacity = STATEMENT_CACHE_CAPACITY,
             "SQL connection pool initialized"
@@ -293,6 +304,19 @@ mod tests {
         let db = DbFactory::create_in_memory().await.unwrap();
         assert_eq!(db.storage_mode(), StorageMode::SqlOnly);
         assert!(!db.has_kv_backend());
+    }
+
+    #[tokio::test]
+    async fn test_factory_accepts_prefixed_sqlite_url() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_url = format!("sqlite://{}", tmp.path().join("cp.sqlite3").display());
+
+        let db = DbFactory::create(&db_url, 2, StorageBackend::Sql, None, None)
+            .await
+            .expect("factory should accept canonical sqlite URLs");
+
+        assert_eq!(db.storage_mode(), StorageMode::SqlOnly);
+        assert!(db.pool_result().is_ok());
     }
 
     #[tokio::test]

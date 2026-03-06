@@ -121,6 +121,7 @@ fi
 - **Flow-partitioned targets**: Resolves target roots for `ui`, `server`, `worker`, and `test`.
 - **Dual-mode binary resolution**: Prefers flow target binaries, then falls back to legacy `target/{debug,release}`.
 - **Incremental guardrails**: Warns/prunes oversized or stale incremental cache directories.
+- **Scratch target guardrails**: Reports and optionally prunes repo-root `target-*` scratch directories using the same size/age thresholds.
 - **Sccache policy helpers**: Standardized script-level behavior for `AOS_BUILD_USE_SCCACHE`.
 
 ### Usage
@@ -143,7 +144,7 @@ aos_run_build_command cargo build -p adapteros-server
 
 ### Environment Variables
 
-- `AOS_BUILD_TARGET_ROOT` (default: `var/target`)
+- `AOS_BUILD_TARGET_ROOT` (default: `target`)
 - `AOS_UI_TARGET_DIR`
 - `AOS_SERVER_TARGET_DIR`
 - `AOS_WORKER_TARGET_DIR`
@@ -153,6 +154,8 @@ aos_run_build_command cargo build -p adapteros-server
 - `AOS_INCREMENTAL_PRUNE_GB` (default: `10`)
 - `AOS_INCREMENTAL_MAX_AGE_HOURS` (default: `72`)
 - `AOS_AUTO_PRUNE_INCREMENTAL` (default: `1`)
+
+Repo-root `target-*` directories are treated as scratch roots, not canonical caches. `scripts/check_cache_staleness.sh` now reports them before scripted builds and prunes them automatically when they exceed the size threshold or become stale.
 
 ## freeze-guard.sh
 

@@ -1219,23 +1219,39 @@ pub fn use_training_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
 
 /// Subscribe to system health transition events via SSE.
 ///
-/// Connects to `/v1/stream/telemetry` and dispatches incoming
+/// Connects to `/v1/stream/alerts` and dispatches incoming
 /// [`SystemHealthTransitionEvent`] to the refetch system.
 ///
 /// Returns `(sse_state, reconnect_fn)`.
 pub fn use_health_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
     use crate::api::types::SystemHealthTransitionEvent;
+    use crate::signals::notifications::try_use_notifications;
     use crate::signals::refetch::use_refetch;
 
     let refetch = use_refetch();
+    let notifications = try_use_notifications();
 
-    use_sse("/v1/stream/telemetry", move |event: SseEvent| {
+    use_sse("/v1/stream/alerts", move |event: SseEvent| {
         let data = event.data.trim();
         if data.is_empty() || data == "[DONE]" {
             return;
         }
 
         if let Ok(parsed) = serde_json::from_str::<SystemHealthTransitionEvent>(data) {
+            if let (
+                SystemHealthTransitionEvent::AdapterEvicted {
+                    adapter_name,
+                    reason,
+                    ..
+                },
+                Some(notifications),
+            ) = (&parsed, notifications.as_ref())
+            {
+                notifications.warning(
+                    "Adapter unloaded",
+                    &format!("{adapter_name} was unloaded ({reason})."),
+                );
+            }
             refetch.dispatch_health_event(&parsed);
         }
     })

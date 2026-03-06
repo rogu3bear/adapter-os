@@ -3,6 +3,8 @@
 //! This module handles Phase 10a of the boot sequence: building the AppState
 //! with all its dependencies including services, monitoring, and subsystems.
 
+#[cfg(unix)]
+use adapteros_core::resolve_var_dir;
 use adapteros_core::AosError;
 use adapteros_db::Db;
 use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
@@ -37,6 +39,36 @@ use crate::shutdown::ShutdownCoordinator;
 
 const DEFAULT_MANIFEST_HASH: &str =
     "07578bfa5014183755ff8fb1ae2d91cf3544a28903bf5c483f38292d6a0fadf7";
+
+#[cfg(unix)]
+fn set_posix_mode(path: &std::path::Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let perms = std::fs::Permissions::from_mode(mode);
+    std::fs::set_permissions(path, perms)
+}
+
+#[cfg(unix)]
+fn harden_model_weight_permissions(models_root: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(models_root)?;
+    set_posix_mode(models_root, 0o700)?;
+
+    fn walk(path: &std::path::Path) -> std::io::Result<()> {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let child_path = entry.path();
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                set_posix_mode(&child_path, 0o700)?;
+                walk(&child_path)?;
+            } else if file_type.is_file() {
+                set_posix_mode(&child_path, 0o600)?;
+            }
+        }
+        Ok(())
+    }
+
+    walk(models_root)
+}
 
 #[cfg(feature = "embeddings")]
 fn init_embedding_model_and_status(state: AppState) -> AppState {
@@ -251,6 +283,23 @@ pub async fn build_app_state(
         path = %training_storage_root.display(),
         "Training service initialized with DB-backed storage root"
     );
+
+    #[cfg(unix)]
+    {
+        let models_root = resolve_var_dir().join("models");
+        if let Err(error) = harden_model_weight_permissions(&models_root) {
+            warn!(
+                error = %error,
+                path = %models_root.display(),
+                "Failed to harden model weight file permissions"
+            );
+        } else {
+            info!(
+                path = %models_root.display(),
+                "Hardened model weight file permissions (dirs=0700, files=0600)"
+            );
+        }
+    }
 
     let federation_daemon_for_state = federation_daemon.clone();
 

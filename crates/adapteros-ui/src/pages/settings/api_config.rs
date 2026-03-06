@@ -1,7 +1,7 @@
 //! API Configuration section component
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, Card, Input, Spinner};
+use crate::components::{Button, ButtonVariant, Card, Input, SkeletonCard, Spinner};
 use crate::components::{IconCheck, IconX};
 use crate::hooks::{use_health, LoadingState};
 use crate::signals::{update_setting, use_auth, use_settings, AuthState};
@@ -218,10 +218,7 @@ pub fn ApiConfigSection() -> impl IntoView {
                                 <p class="text-sm text-destructive">"Authentication check timed out."</p>
                             }.into_any(),
                             AuthState::Unknown | AuthState::Loading => view! {
-                                <div class="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <Spinner/>
-                                    "Checking authentication..."
-                                </div>
+                                <SkeletonCard has_header=true />
                             }.into_any(),
                         }
                     }}

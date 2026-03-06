@@ -15,10 +15,11 @@ use crate::api::{
 use crate::components::layout::nav_group_label_for_route;
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    Checkbox, CopyableId, Dialog, DiffResults, ErrorDisplay, Link, PageBreadcrumbItem,
-    PageScaffold, PageScaffoldActions, PageScaffoldInspector, PageScaffoldStatus, Select,
-    SkeletonDetailSection, Spinner, SplitPanel, SplitRatio, StatusVariant, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow, TokenDecisionsPaged, TraceViewerWithData,
+    Checkbox, CopyableId, Dialog, DiffResults, EmptyState, EmptyStateVariant, ErrorDisplay, Link,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, PageScaffoldInspector,
+    PageScaffoldStatus, Select, SkeletonDetailSection, Spinner, SplitPanel, SplitRatio,
+    StatusVariant, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    TokenDecisionsPaged, TraceViewerWithData,
 };
 use crate::components::{ButtonSize, Input};
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
@@ -193,17 +194,11 @@ pub fn FlightRecorder() -> impl IntoView {
                             render=move |response: ListDiagRunsResponse| {
                                 if response.runs.is_empty() {
                                     view! {
-                                        <div class="mx-auto w-full max-w-[56ch] rounded-lg border border-border/70 bg-muted/20 px-4 py-3">
-                                            <p class="text-sm font-medium text-foreground">
-                                                "No execution records yet"
-                                            </p>
-                                            <p class="mt-2 text-sm text-muted-foreground">
-                                                "Execution records appear after you chat or run jobs."
-                                            </p>
-                                            <p class="mt-1 text-sm text-muted-foreground">
-                                                "They include replay + verification."
-                                            </p>
-                                        </div>
+                                        <EmptyState
+                                            variant=EmptyStateVariant::Empty
+                                            title="No execution records yet"
+                                            description="Execution records appear after you chat or run jobs. They include replay and verification."
+                                        />
                                     }.into_any()
                                 } else {
                                     view! {

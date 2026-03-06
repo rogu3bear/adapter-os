@@ -341,8 +341,11 @@ impl ModelConfig {
     pub fn validate(&self) -> Result<()> {
         // Validate path exists (skip for dev placeholder path in debug)
         let dev_placeholder: PathBuf = DEV_MODEL_PATH.into();
+        let dev_placeholder_rebased = adapteros_core::rebase_var_path(DEV_MODEL_PATH);
         if !self.path.exists() {
-            if cfg!(debug_assertions) && self.path == dev_placeholder {
+            if cfg!(debug_assertions)
+                && (self.path == dev_placeholder || self.path == dev_placeholder_rebased)
+            {
                 tracing::warn!(
                     path = %self.path.display(),
                     "Dev fixture model path missing; allowed in debug builds"

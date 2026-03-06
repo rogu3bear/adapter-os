@@ -11,7 +11,8 @@ use crate::components::{
     ConfirmationSeverity, CopyableId, DocumentUploadDialog, EmptyState, EmptyStateVariant,
     ErrorDisplay, IconExternalLink, InlineProgress, LoadingDisplay, PageBreadcrumbItem,
     PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction, ProgressStage, ProgressStages,
-    RefreshButton, Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    RefreshButton, Select, SkeletonTable, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_conditional_polling, use_delete_dialog, use_system_status,
@@ -672,9 +673,7 @@ pub fn Documents() -> impl IntoView {
             {move || {
                 match documents.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <LoadingDisplay message="Loading documents..."/>
-                        }.into_any()
+                        view! { <SkeletonTable rows=5 columns=7 /> }.into_any()
                     }
                     LoadingState::Loaded(data) => {
                         let total_pages = data.pages;

@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 UI_DIR="$ROOT_DIR/crates/adapteros-ui"
 RUST_TOOLCHAIN_FILE="$ROOT_DIR/rust-toolchain.toml"
 PNPM_REQUIRED=""
+HAS_UI_PACKAGE_JSON=0
 
 cd "$ROOT_DIR"
 export LC_ALL=C
@@ -24,6 +25,7 @@ if [ -n "${RUSTUP_TOOLCHAIN:-}" ]; then
 fi
 
 if [ -f "$ROOT_DIR/crates/adapteros-ui/package.json" ]; then
+    HAS_UI_PACKAGE_JSON=1
     PNPM_REQUIRED="$(sed -n 's/.*"packageManager": "pnpm@\\([^"]*\\)".*/\\1/p' "$ROOT_DIR/crates/adapteros-ui/package.json")"
 fi
 
@@ -41,7 +43,13 @@ if ! command -v rustup > /dev/null 2>&1; then
     exit 1
 fi
 
-if ! rustup target list --installed "${RUSTUP_ARGS[@]}" | grep -q "^wasm32-unknown-unknown$"; then
+if [ "${#RUSTUP_ARGS[@]}" -gt 0 ]; then
+    RUSTUP_INSTALLED_TARGETS="$(rustup target list --installed "${RUSTUP_ARGS[@]}")"
+else
+    RUSTUP_INSTALLED_TARGETS="$(rustup target list --installed)"
+fi
+
+if ! printf "%s\n" "$RUSTUP_INSTALLED_TARGETS" | grep -q "^wasm32-unknown-unknown$"; then
     echo "ERROR: wasm32-unknown-unknown target not installed"
     echo "Run: rustup target add wasm32-unknown-unknown"
     exit 1
@@ -53,31 +61,33 @@ if ! command -v trunk > /dev/null 2>&1; then
     exit 1
 fi
 
-if ! command -v pnpm > /dev/null 2>&1; then
-    echo "ERROR: pnpm not found"
-    echo "Install pnpm 9+ and retry."
-    exit 1
-fi
-
-if [ -n "$PNPM_REQUIRED" ]; then
-    PNPM_VERSION="$(pnpm --version)"
-    if [ "$PNPM_VERSION" != "$PNPM_REQUIRED" ]; then
-        echo "ERROR: pnpm version mismatch (required $PNPM_REQUIRED, found $PNPM_VERSION)."
+if [ "$HAS_UI_PACKAGE_JSON" -eq 1 ]; then
+    if ! command -v pnpm > /dev/null 2>&1; then
+        echo "ERROR: pnpm not found"
+        echo "Install pnpm 9+ and retry."
         exit 1
     fi
-fi
 
-if [ ! -f "$UI_DIR/pnpm-lock.yaml" ]; then
-    echo "ERROR: Missing pnpm lockfile at $UI_DIR/pnpm-lock.yaml"
-    exit 1
-fi
+    if [ -n "$PNPM_REQUIRED" ]; then
+        PNPM_VERSION="$(pnpm --version)"
+        if [ "$PNPM_VERSION" != "$PNPM_REQUIRED" ]; then
+            echo "ERROR: pnpm version mismatch (required $PNPM_REQUIRED, found $PNPM_VERSION)."
+            exit 1
+        fi
+    fi
 
-pnpm --dir "$UI_DIR" install --frozen-lockfile
+    if [ ! -f "$UI_DIR/pnpm-lock.yaml" ]; then
+        echo "ERROR: Missing pnpm lockfile at $UI_DIR/pnpm-lock.yaml"
+        exit 1
+    fi
+
+    pnpm --dir "$UI_DIR" install --frozen-lockfile
+fi
 
 cargo build --locked --target wasm32-unknown-unknown -p adapteros-ui
 
 cd "$UI_DIR"
-trunk build --release
+env NO_COLOR=true trunk build --release
 
 OUTPUT_DIR="$ROOT_DIR/crates/adapteros-server/static"
 if [ ! -d "$OUTPUT_DIR" ]; then

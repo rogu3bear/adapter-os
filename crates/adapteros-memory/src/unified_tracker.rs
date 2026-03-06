@@ -58,6 +58,30 @@ impl MemoryLimits {
         }
     }
 
+    /// Create memory limits from UMA configuration.
+    ///
+    /// Applies `ceiling_pct` to `total_uma_bytes` to compute the effective
+    /// system RAM budget, and converts `headroom_pct` from a u8 percentage
+    /// to the f32 fraction expected by pressure detection.
+    ///
+    /// # Arguments
+    ///
+    /// * `total_uma_bytes` - Total unified memory reported by the system
+    ///   (e.g., from `sysctl hw.memsize`).
+    /// * `ceiling_pct` - Maximum percentage of UMA to use (e.g., 75).
+    /// * `headroom_pct` - Headroom percentage within the ceiling (e.g., 15).
+    pub fn from_uma_config(total_uma_bytes: u64, ceiling_pct: u8, headroom_pct: u8) -> Self {
+        let effective_max = (total_uma_bytes as f64 * (ceiling_pct as f64 / 100.0)) as u64;
+        // On Apple Silicon unified memory, VRAM and system RAM share the same pool.
+        // Set both limits to the effective ceiling so pressure detection works for
+        // both Metal/CoreML (tracked as VRAM) and MLX (tracked as system RAM).
+        Self {
+            max_vram: effective_max,
+            max_system_ram: effective_max,
+            headroom_pct: headroom_pct as f32 / 100.0,
+        }
+    }
+
     /// Calculate headroom in bytes for VRAM
     pub fn vram_headroom_bytes(&self) -> u64 {
         (self.max_vram as f32 * self.headroom_pct) as u64
