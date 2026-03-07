@@ -765,7 +765,7 @@ jobs:
           cargo tree > sbom.txt || echo "cargo tree fallback used"
           echo "Software Bill of Materials generated" >> sbom.txt
       - name: Upload SBOM
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: sbom
           path: sbom.txt
@@ -790,7 +790,7 @@ jobs:
             echo "✅ All dependency licenses are acceptable"
           fi
       - name: Upload license report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: license-report
           path: licenses.json
