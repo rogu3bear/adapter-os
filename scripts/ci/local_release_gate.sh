@@ -154,6 +154,7 @@ run_governance_preflight() {
 if is_prod_mode; then
   export LOCAL_REQUIRED_CLIPPY_SCOPE="all-targets"
   export LOCAL_REQUIRED_PROFILE="prod"
+  export AOS_REQUIRE_RELEASE_BINARIES=1
   export ROUTE_COVERAGE_STRICT_OPENAPI_ONLY=1
   export ROUTE_COVERAGE_STRICT_PARAM_MISMATCH=1
   export SMOKE_INFERENCE_STRICT=1

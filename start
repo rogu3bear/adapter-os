@@ -1342,6 +1342,47 @@ require_binary_or_cargo() {
     return 1
 }
 
+print_full_xcode_guidance() {
+    echo "  Install Xcode.app, then select it:"
+    echo "    sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    echo "  If the Metal Toolchain component is still missing, run:"
+    echo "    xcodebuild -downloadComponent MetalToolchain"
+    echo ""
+}
+
+prod_build_deps_required() {
+    case "${LOCAL_RELEASE_MODE:-}:${LOCAL_REQUIRED_PROFILE:-}:${AOS_REQUIRE_PROD_BUILD_DEPS:-0}:${AOS_REQUIRE_RELEASE_BINARIES:-0}" in
+        prod:*|*:prod:*|*:*:1:*|*:*:*:1) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+check_prod_build_dependencies() {
+    local failed=0
+
+    if ! command -v cmake >/dev/null 2>&1; then
+        fg_error "Missing production build dependency: cmake"
+        echo "  Install it directly:"
+        echo "    brew install cmake"
+        echo ""
+        failed=1
+    fi
+
+    if [[ "$(uname)" == "Darwin" ]]; then
+        if ! command -v xcodebuild >/dev/null 2>&1; then
+            fg_error "Full Xcode is required for production macOS builds"
+            print_full_xcode_guidance
+            failed=1
+        elif ! xcrun --find metal >/dev/null 2>&1; then
+            fg_error "Metal compiler not found in the active developer directory."
+            print_full_xcode_guidance
+            failed=1
+        fi
+    fi
+
+    return "$failed"
+}
+
 check_start_dependencies() {
     local mode="${1:-up}"
     local failed=0
@@ -1351,6 +1392,12 @@ check_start_dependencies() {
         echo "  ./start relies on lsof for deterministic port and process checks."
         echo ""
         failed=1
+    fi
+
+    if prod_build_deps_required; then
+        if ! check_prod_build_dependencies; then
+            failed=1
+        fi
     fi
 
     case "$mode" in
