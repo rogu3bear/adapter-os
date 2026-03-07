@@ -1210,7 +1210,7 @@ start_backend() {
 
     # Run preflight checks unless bypassed
     if [ -z "${AOS_SKIP_PREFLIGHT:-}" ]; then
-        if ! run_preflight_checks; then
+        if ! run_preflight_checks --skip-model; then
             error_msg "Preflight checks failed. Set AOS_SKIP_PREFLIGHT=1 to bypass."
             return 1
         fi

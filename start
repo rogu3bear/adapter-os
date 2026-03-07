@@ -1647,11 +1647,6 @@ start_backend() {
     fi
     print_step "success" "Preflight checks passed"
 
-    # Fail fast if no model is available
-    if ! check_model_available; then
-        return 1
-    fi
-
     # Start
     start_backend_animated
 
@@ -1751,9 +1746,11 @@ start_all() {
     print_step "success" "Preflight checks passed"
     echo ""
 
-    # Fail fast if no model is available
-    if ! check_model_available; then
-        return 1
+    # Only require a model when the worker is part of this startup flow.
+    if [ "${SKIP_WORKER:-0}" != "1" ]; then
+        if ! check_model_available; then
+            return 1
+        fi
     fi
 
     # Start services
