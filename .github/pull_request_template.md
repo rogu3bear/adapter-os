@@ -2,6 +2,11 @@
 
 Describe what this PR changes and why.
 
+## Linked Work
+
+- [ ] Linked issue / blocker: `#`
+- [ ] This branch is based on `origin/main` (or the divergence is explicitly documented below)
+
 ## Changes
 
 - [ ] Feature / Fix 1
@@ -26,12 +31,33 @@ Describe what this PR changes and why.
 - [ ] If generated artifacts changed, documented generator command and validation check
 - [ ] No unauthorized tracked files under local-only tooling/runtime paths
 
+### GitHub Hygiene
+- [ ] Labels applied
+- [ ] Assignee and review request set
+- [ ] Expected failing checks documented below (or `none`)
+- [ ] Rollback plan documented below
+
 ### Database Optimizations (Required when changing DB performance)
 - [ ] If this PR includes a DB optimization (indexes, query rewrites, PRAGMA tuning, ANALYZE jobs):
   - [ ] Added/updated an entry in [`optimizations/db/registry.toml`](optimizations/db/registry.toml:1)
   - [ ] Declared `touches` + resolved conflicts/dependencies before implementation
   - [ ] Documented `canary` + `rollback` procedure and provided rollback script(s) when applicable
   - [ ] Attached impact assessment (baseline EXPLAIN + expected/observed p95 deltas)
+
+## Verification
+
+List the exact commands you ran:
+
+```bash
+```
+
+## Expected Failing Checks
+
+State `none` or list the exact check names with justification.
+
+## Rollback Plan
+
+State the revert path if this lands and regresses.
 
 ## Notes
 
