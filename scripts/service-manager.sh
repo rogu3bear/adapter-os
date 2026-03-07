@@ -1002,6 +1002,13 @@ get_active_dev_flags() {
 # Ensure dev binaries are built at most once per script invocation.
 DEV_BINARIES_ENSURED=0
 
+release_binaries_required() {
+    case "${AOS_REQUIRE_RELEASE_BINARIES:-0}" in
+        1|true|yes|on) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 build_debug_binary_if_missing() {
     local binary_label="$1"
     local binary_path="$2"
@@ -1091,6 +1098,16 @@ select_server_binary() {
     local debug_bin="$PROJECT_ROOT/target/debug/aos-server"
     local release_bin="$PROJECT_ROOT/target/release/aos-server"
 
+    if release_binaries_required; then
+        if [ -f "$release_bin" ]; then
+            echo "$release_bin"
+            return 0
+        fi
+        error_msg "Release-only mode requires the backend release binary: $release_bin"
+        error_msg "Build with: cargo build -p adapteros-server --release"
+        return 1
+    fi
+
     if is_dev_mode; then
         local active_flags
         active_flags=$(get_active_dev_flags)
@@ -1132,6 +1149,16 @@ select_server_binary() {
 select_worker_binary() {
     local debug_bin="$PROJECT_ROOT/target/debug/aos-worker"
     local release_bin="$PROJECT_ROOT/target/release/aos-worker"
+
+    if release_binaries_required; then
+        if [ -f "$release_bin" ]; then
+            echo "$release_bin"
+            return 0
+        fi
+        error_msg "Release-only mode requires the worker release binary: $release_bin"
+        error_msg "Build with: cargo build -p adapteros-lora-worker --release"
+        return 1
+    fi
 
     if is_dev_mode; then
         if [ -f "$debug_bin" ]; then
