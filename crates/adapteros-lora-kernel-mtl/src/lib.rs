@@ -40,25 +40,32 @@ use std::sync::Arc;
 
 // Research/experimental modules (not production-ready, see RESEARCH.md)
 pub mod ane_acceleration;
+#[cfg(target_os = "macos")]
 pub mod metal3x;
 pub mod vision_kernels;
 
 // Production modules
 pub mod debug;
 pub mod error;
+#[cfg(target_os = "macos")]
 pub mod fused_mlp;
+#[cfg(target_os = "macos")]
 pub mod fused_qkv;
 pub mod gpu_memory_pool;
 pub mod keys;
+#[cfg(target_os = "macos")]
 pub mod kv_cache;
 pub mod kv_quota;
+#[cfg(target_os = "macos")]
 pub mod layout_validator;
 pub mod manifest;
 pub mod memory_integration;
 pub mod noise_tracker;
 pub mod purgeable;
 pub mod recovery;
+#[cfg(target_os = "macos")]
 pub mod ring_buffer;
+#[cfg(target_os = "macos")]
 pub mod rms_norm;
 pub mod vram;
 
@@ -78,10 +85,15 @@ pub use coreml_backend::{
 
 pub use debug::{KernelDebugger, KernelParams};
 pub use error::KernelError;
+#[cfg(target_os = "macos")]
 pub use fused_mlp::{FusedMlpKernel, LoraConfig};
+#[cfg(target_os = "macos")]
 pub use fused_qkv::{FlashAttentionKernel, FusedQkvKernel, GqaConfig};
-pub use kv_cache::{CachedFlashAttention, KVCache, KVCacheConfig, KvResidency, LayerKVCache};
+pub use gpu_memory_pool::KvResidency;
+#[cfg(target_os = "macos")]
+pub use kv_cache::{CachedFlashAttention, KVCache, KVCacheConfig, LayerKVCache};
 pub use kv_quota::{COLD_DEMOTION_IDLE_TIME, HOT_PROMOTION_THRESHOLD, HOT_RECENCY_WINDOW};
+#[cfg(target_os = "macos")]
 pub use layout_validator::LayoutValidator;
 pub use manifest::{verify_embedded_manifest, KernelManifest};
 pub use noise_tracker::{NoiseTracker, NoiseTrackingConfig};
@@ -89,7 +101,9 @@ pub use purgeable::{PurgeableBuffer, PurgeableResult, PurgeableState};
 #[cfg(target_os = "macos")]
 pub use recovery::RecoveryResult;
 pub use recovery::RecoveryWrapper;
+#[cfg(target_os = "macos")]
 pub use ring_buffer::{ActiveAdapter, RingBuffer};
+#[cfg(target_os = "macos")]
 pub use rms_norm::{RmsNormConfig, RmsNormKernel};
 pub use vision_kernels::{
     MetalImageTensor, MetalImageTensorOwned, MetalVisionActivation, MetalVisionArchitecture,
@@ -106,6 +120,7 @@ pub use memory_integration::{
     GpuMemoryTelemetryEvent, TelemetrySink,
 };
 
+#[cfg(target_os = "macos")]
 /// Embedding dimensions for Metal inference
 #[derive(Debug, Clone)]
 pub struct EmbeddingDimensions {
@@ -113,6 +128,7 @@ pub struct EmbeddingDimensions {
     pub hidden_size: usize,
 }
 
+#[cfg(target_os = "macos")]
 /// Transformer layer weights
 #[derive(Debug)]
 pub struct TransformerWeights {
@@ -126,6 +142,7 @@ pub struct TransformerWeights {
     pub v_weight: Buffer,
 }
 
+#[cfg(target_os = "macos")]
 /// Language modeling head weights for vocabulary projection
 #[derive(Debug)]
 pub struct LmHeadWeights {
@@ -145,6 +162,7 @@ pub struct VocabProjectionConfig {
     pub use_bias: u32,
 }
 
+#[cfg(target_os = "macos")]
 /// GPU-resident adapter weights for hot-swappable LoRA adapters
 #[derive(Debug)]
 pub struct AdapterWeights {
@@ -169,6 +187,7 @@ pub struct AdapterWeights {
     pub hash_b3: B3Hash,
 }
 
+#[cfg(target_os = "macos")]
 impl AdapterWeights {
     /// Calculate scaling factor: alpha / rank
     pub fn scaling_factor(&self) -> f32 {
@@ -250,6 +269,7 @@ fn resolve_metal_rank_alpha(
     (rank, alpha)
 }
 
+#[cfg(target_os = "macos")]
 /// Intermediate buffers for transformer computation
 #[derive(Debug)]
 pub struct IntermediateBuffers {
@@ -284,6 +304,7 @@ pub struct EmbeddingConfig {
 }
 
 /// Metal kernel implementation
+#[cfg(target_os = "macos")]
 pub struct MetalKernels {
     device: Arc<Device>,
     _queue: CommandQueue,
@@ -321,6 +342,7 @@ pub struct MetalKernels {
     gqa_config_override: Option<GqaConfig>,
 }
 
+#[cfg(target_os = "macos")]
 // Safety: Metal objects are thread-safe
 // SAFETY: MetalKernels is safe to Send across thread boundaries because:
 // 1. All Metal resources (Device, CommandQueue, etc.) are thread-safe according to Metal documentation
@@ -329,6 +351,7 @@ pub struct MetalKernels {
 // 4. Metal command buffers are designed for concurrent execution across threads
 unsafe impl Send for MetalKernels {}
 
+#[cfg(target_os = "macos")]
 // SAFETY: MetalKernels is safe to Sync across thread boundaries because:
 // 1. Metal Device and CommandQueue are thread-safe and can be shared across threads
 // 2. All mutable state is protected by Arc<Mutex<>> ensuring exclusive access
@@ -336,6 +359,7 @@ unsafe impl Send for MetalKernels {}
 // 4. Metal synchronization primitives handle concurrent GPU access properly
 unsafe impl Sync for MetalKernels {}
 
+#[cfg(target_os = "macos")]
 impl MetalKernels {
     /// Create a new Metal kernel executor with manifest verification
     ///
@@ -1467,6 +1491,7 @@ impl MetalKernels {
     }
 }
 
+#[cfg(target_os = "macos")]
 impl FusedKernels for MetalKernels {
     /// Load plan and initialize Metal kernels
     ///
@@ -1890,6 +1915,7 @@ impl FusedKernels for MetalKernels {
     }
 }
 
+#[cfg(target_os = "macos")]
 impl MetalKernels {
     /// Load adapter with optional metadata overrides.
     ///
