@@ -672,7 +672,7 @@ impl MetalKernels {
         ];
 
         // Find embedding tensor
-        let tensor = embedding_names
+        let tensor: safetensors::tensor::TensorView<'_> = embedding_names
             .iter()
             .find_map(|name| tensors.tensor(name).ok())
             .ok_or_else(|| {
@@ -803,7 +803,7 @@ impl MetalKernels {
         ];
 
         // Find embedding tensor
-        let tensor = embedding_names
+        let tensor: safetensors::tensor::TensorView<'_> = embedding_names
             .iter()
             .find_map(|name| tensors.tensor(name).ok())
             .ok_or_else(|| {
@@ -858,7 +858,7 @@ impl MetalKernels {
         ];
 
         // Find LM head tensor
-        let tensor = lm_head_names
+        let tensor: safetensors::tensor::TensorView<'_> = lm_head_names
             .iter()
             .find_map(|name| tensors.tensor(name).ok())
             .ok_or_else(|| {
@@ -1795,7 +1795,7 @@ impl FusedKernels for MetalKernels {
     fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
         self.gpu_fingerprints
             .iter()
-            .map(|(&id, fp)| (id as u32, fp.clone()))
+            .map(|(id, fp): (&u16, &GpuBufferFingerprint)| (*id as u32, fp.clone()))
             .collect()
     }
 
@@ -1913,8 +1913,12 @@ impl MetalKernels {
             .is_some();
 
         let mut selected_modules = requested_modules.clone();
-        let (mut lora_a_buffers, mut lora_b_buffers, mut total_vram_bytes, mut inferred_rank) =
-            self.collect_adapter_buffers(&tensors, &tensor_names, &selected_modules)?;
+        let (mut lora_a_buffers, mut lora_b_buffers, mut total_vram_bytes, mut inferred_rank): (
+            Vec<Buffer>,
+            Vec<Buffer>,
+            u64,
+            Option<usize>,
+        ) = self.collect_adapter_buffers(&tensors, &tensor_names, &selected_modules)?;
 
         if lora_a_buffers.is_empty() && lora_b_buffers.is_empty() && has_metadata_targets {
             let fallback_modules = default_metal_target_modules();

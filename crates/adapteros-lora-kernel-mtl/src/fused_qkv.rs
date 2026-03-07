@@ -246,11 +246,12 @@ impl FusedQkvKernel {
         }
 
         let input_bytes = input.length() as usize;
-        for (buffer_name, buffer) in [
+        let output_buffers: [(&str, &Buffer); 3] = [
             ("q_output", q_output),
             ("k_output", k_output),
             ("v_output", v_output),
-        ] {
+        ];
+        for (buffer_name, buffer) in output_buffers {
             let available = buffer.length() as usize;
             if input_bytes > available {
                 return Err(KernelError::BufferTooSmall {

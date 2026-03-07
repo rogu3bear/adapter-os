@@ -115,7 +115,7 @@ impl VisionKernelBundle {
         _input: MetalImageTensor<'_>,
         _config: MetalVisionKernelConfig,
     ) -> Result<MetalImageTensorOwned> {
-        Err(AosError::Unsupported(
+        Err(AosError::Kernel(
             "Metal vision kernels require macOS".to_string(),
         ))
     }
