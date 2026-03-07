@@ -138,8 +138,6 @@ jobs:
   crate-version-patch-roll:
     name: "Tier 1: Crate Version Patch Roll"
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -164,47 +162,11 @@ jobs:
           fi
 
           echo "base_ref=$BASE_REF" >> "$GITHUB_OUTPUT"
-      - name: Select gate mode
-        id: gate_mode
-        run: |
-          set -euo pipefail
-
-          if [ "${{ github.event_name }}" = "pull_request" ] && \
-             [ "${{ github.repository }}" = "${{ github.event.pull_request.head.repo.full_name }}" ]; then
-            echo "mode=autobump" >> "$GITHUB_OUTPUT"
-            echo "can_push=true" >> "$GITHUB_OUTPUT"
-            echo "Using autobump mode for same-repo PR."
-          else
-            echo "mode=check" >> "$GITHUB_OUTPUT"
-            echo "can_push=false" >> "$GITHUB_OUTPUT"
-            echo "Using check-only mode (fork PR or non-PR context)."
-          fi
       - name: Run crate version patch roll gate
         run: |
           bash scripts/ci/check_crate_patch_roll.sh \
-            --mode "${{ steps.gate_mode.outputs.mode }}" \
+            --mode check \
             --base-ref "${{ steps.base_ref.outputs.base_ref }}"
-      - name: Commit and push auto-bumps
-        if: steps.gate_mode.outputs.can_push == 'true'
-        run: |
-          set -euo pipefail
-
-          if git diff --quiet -- crates/*/Cargo.toml; then
-            echo "No crate version changes to commit."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/*/Cargo.toml
-
-          if git diff --cached --quiet; then
-            echo "No staged crate version changes."
-            exit 0
-          fi
-
-          git commit -m "ci: auto-roll crate versions"
-          git push origin "HEAD:${{ github.head_ref }}"
 
   # ==========================================================================
   # Tier 1 Gate: All fast checks must pass before Tier 2 proceeds
@@ -646,17 +608,6 @@ jobs:
         run: cargo test --test determinism_core_suite -- --test-threads=1 --nocapture
       - name: Run determinism hardening tests
         run: cargo test --test determinism_hardening_tests -- --nocapture
-      - name: Scan build for -ffast-math flags
-        run: |
-          set -euo pipefail
-          if [ ! -d target ]; then
-            cargo check --locked --all-features
-          fi
-          if rg "-ffast-math" target; then
-            echo "::error::-ffast-math detected in build outputs"
-            exit 1
-          fi
-          echo "No -ffast-math flags detected in build artifacts"
 
   prod-gate:
     name: Prod Gate

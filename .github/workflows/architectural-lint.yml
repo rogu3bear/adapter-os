@@ -107,29 +107,67 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            const marker = '<!-- adapteros-architectural-lint -->';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
             let lintOutput = '';
             if (process.env.LINT_OUTPUT_FILE && fs.existsSync(process.env.LINT_OUTPUT_FILE)) {
               lintOutput = fs.readFileSync(process.env.LINT_OUTPUT_FILE, 'utf-8');
             }
 
-            let body = '## 🔍 Architectural Lint Results\n\n';
-
-            if (lintOutput.includes('No architectural violations')) {
-              body += '✅ **No architectural violations found.**\n\n';
-            } else if (lintOutput.includes('architectural lint skipped')) {
-              body += 'ℹ️ **No handler changes in this PR; architectural lint skipped.**\n\n';
-            } else {
-              body += '❌ **Architectural violations detected:**\n\n';
-              body += '```\n' + lintOutput + '\n```\n';
-              body += '\n**Fix:** Review violations and follow AGENTS.md patterns.\n';
+            async function getExistingComment() {
+              const { data: comments } = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+              });
+              return comments.find((comment) => comment.body && comment.body.includes(marker));
             }
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+            async function clearComment() {
+              const existing = await getExistingComment();
+              if (existing) {
+                await github.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                });
+              }
+            }
+
+            async function upsertComment(body) {
+              const existing = await getExistingComment();
+              const payload = `${marker}\n${body}`;
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                  body: payload,
+                });
+                return;
+              }
+
+              await github.rest.issues.createComment({
+                issue_number,
+                owner,
+                repo,
+                body: payload,
+              });
+            }
+
+            if (!lintOutput || lintOutput.includes('No architectural violations') || lintOutput.includes('architectural lint skipped')) {
+              await clearComment();
+              return;
+            }
+
+            let body = '## 🔍 Architectural Lint Results\n\n';
+            body += '❌ **Architectural violations detected:**\n\n';
+            body += '```\n' + lintOutput + '\n```\n';
+            body += '\n**Fix:** Review violations and follow AGENTS.md patterns.\n';
+            await upsertComment(body);
 
       - name: Fail on violations
         if: steps.lint.outputs.violations != '0'
