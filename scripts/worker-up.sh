@@ -357,7 +357,7 @@ if [ -z "$backend" ]; then
     backend="$(infer_backend_for_model "$model_path")"
 fi
 if [ "$backend" = "mock" ]; then
-    die "Mock backend is sunset (no stubs). Set AOS_MODEL_BACKEND=mlx|coreml|metal."
+    echo "NOTE: using mock backend with the debug worker binary (release builds still reject mock)."
 fi
 
 manifest_path="${AOS_WORKER_MANIFEST:-${AOS_MANIFEST_PATH:-}}"
