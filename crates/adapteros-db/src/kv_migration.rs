@@ -24,6 +24,7 @@ use crate::runtime_sessions::RuntimeSession;
 use crate::runtime_sessions_kv::RuntimeSessionKvRepository;
 use crate::stacks_kv::{stack_record_to_kv, StackKvOps, StackKvRepository};
 use crate::tenants::Tenant;
+use crate::training_jobs::TrainingMetricRow;
 use crate::tenants_kv::TenantKvRepository;
 use crate::training_jobs_kv::{TrainingJobKv, TrainingJobKvRepository, TrainingMetricKv};
 use crate::traits;
@@ -34,6 +35,7 @@ use blake3::Hasher;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use sqlx::Row;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -624,11 +626,11 @@ impl Db {
                 }
             }
 
-            let metrics = match sqlx::query!(
+            let metrics = match sqlx::query_as::<_, TrainingMetricRow>(
                 r#"SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
              FROM repository_training_metrics WHERE training_job_id = ?"#,
-                job_id
             )
+            .bind(&job_id)
             .fetch_all(self.pool_result()?)
             .await
             {
@@ -651,13 +653,13 @@ impl Db {
             for m in metrics {
                 let metric_job_id = m.training_job_id.clone();
                 let metric = TrainingMetricKv {
-                    id: m.id.clone().unwrap_or_default(),
+                    id: m.id,
                     training_job_id: metric_job_id,
-                    step: m.step.unwrap_or(0),
+                    step: m.step,
                     epoch: m.epoch,
-                    metric_name: m.metric_name.clone(),
+                    metric_name: m.metric_name,
                     metric_value: m.metric_value,
-                    metric_timestamp: m.metric_timestamp.map(|d| d.to_string()),
+                    metric_timestamp: m.metric_timestamp,
                 };
                 let _ = repo.put_metric(&metric).await;
             }
@@ -2450,7 +2452,7 @@ impl Db {
         );
         let mut stats = MigrationStats::default();
 
-        let rows = sqlx::query!(
+        let rows = sqlx::query(
             r#"SELECT id, tenant_id, policy_pack_id, scope, enabled,
                    created_at, created_by, updated_at, updated_by
             FROM tenant_policy_bindings"#
@@ -2462,17 +2464,17 @@ impl Db {
         stats.total = rows.len();
 
         for row in rows {
-            let id = row.id.clone().unwrap_or_default();
+            let id: String = row.get("id");
             let kv_binding = crate::tenant_policy_bindings_kv::TenantPolicyBindingKv {
-                id: row.id.unwrap_or_default(),
-                tenant_id: row.tenant_id,
-                policy_pack_id: row.policy_pack_id,
-                scope: row.scope,
-                enabled: row.enabled != 0,
-                created_at: row.created_at,
-                created_by: row.created_by,
-                updated_at: row.updated_at,
-                updated_by: row.updated_by,
+                id: id.clone(),
+                tenant_id: row.get("tenant_id"),
+                policy_pack_id: row.get("policy_pack_id"),
+                scope: row.get("scope"),
+                enabled: row.get::<i64, _>("enabled") != 0,
+                created_at: row.get("created_at"),
+                created_by: row.get("created_by"),
+                updated_at: row.get("updated_at"),
+                updated_by: row.get("updated_by"),
             };
 
             match repo.put_binding(kv_binding).await {

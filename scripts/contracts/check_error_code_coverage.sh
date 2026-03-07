@@ -35,12 +35,11 @@ echo "Found $count canonical error codes in error_codes.rs"
 # The UI's user_message_for_code() match uses quoted string literals.
 # Each canonical error code should appear as "CODE" in at least one arm.
 # Codes handled by the catch-all (_ =>) are considered unmapped.
-ui_content=$(cat "$UI_ERROR")
 ui_unmapped=""
 ui_count=0
 
 while IFS= read -r code; do
-  if ! echo "$ui_content" | rg -q "\"$code\""; then
+  if ! rg -Fq "\"$code\"" "$UI_ERROR"; then
     ui_unmapped="${ui_unmapped}  - ${code}
 "
     ui_count=$((ui_count + 1))
@@ -61,13 +60,12 @@ VARIANTS=$(
     | sort -u
 )
 
-cli_content=$(cat "$CLI_ERROR")
 cli_unmapped=""
 cli_count=0
 
 while IFS= read -r variant; do
   [[ -z "$variant" ]] && continue
-  if ! echo "$cli_content" | rg -q "AosError::${variant}"; then
+  if ! rg -Fq "AosError::${variant}" "$CLI_ERROR"; then
     cli_unmapped="${cli_unmapped}  - AosError::${variant}
 "
     cli_count=$((cli_count + 1))

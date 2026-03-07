@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 TMP_DIR="$ROOT_DIR/var/tmp/startup-negative"
 mkdir -p "$TMP_DIR"
+TEST_DB_URL="sqlite://var/startup-negative.sqlite3"
 
 fail() {
   echo "FAIL: $1"
@@ -23,7 +24,7 @@ trap cleanup EXIT
 
 # Negative case 1: malformed server port is rejected by config preflight.
 set +e
-AOS_SERVER_PORT="not-a-port" bash scripts/check-config.sh --no-dotenv >/dev/null 2>&1
+AOS_DATABASE_URL="$TEST_DB_URL" AOS_SERVER_PORT="not-a-port" bash scripts/check-config.sh --no-dotenv >/dev/null 2>&1
 invalid_port_rc=$?
 set -e
 if [[ "$invalid_port_rc" -eq 0 ]]; then
@@ -49,7 +50,7 @@ if [[ "$preflight_rc" -eq 0 ]]; then
 fi
 
 set +e
-AOS_SERVER_PORT="$TEST_PORT" bash scripts/check-config.sh --no-dotenv >/dev/null 2>&1
+AOS_DATABASE_URL="$TEST_DB_URL" AOS_SERVER_PORT="$TEST_PORT" bash scripts/check-config.sh --no-dotenv >/dev/null 2>&1
 check_config_rc=$?
 set -e
 if [[ "$check_config_rc" -eq 0 ]]; then
@@ -57,7 +58,7 @@ if [[ "$check_config_rc" -eq 0 ]]; then
 fi
 
 set +e
-AOS_SERVER_PORT="$TEST_PORT" bash scripts/check-config.sh --no-dotenv --allow-in-use >/dev/null 2>&1
+AOS_DATABASE_URL="$TEST_DB_URL" AOS_SERVER_PORT="$TEST_PORT" bash scripts/check-config.sh --no-dotenv --allow-in-use >/dev/null 2>&1
 allow_in_use_rc=$?
 set -e
 if [[ "$allow_in_use_rc" -ne 0 ]]; then

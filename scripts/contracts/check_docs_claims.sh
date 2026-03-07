@@ -9,6 +9,18 @@ fail() {
   exit 1
 }
 
+search_quiet() {
+  local pattern="$1"
+  local file="$2"
+
+  if command -v rg >/dev/null 2>&1; then
+    rg -q -- "$pattern" "$file"
+    return
+  fi
+
+  grep -Eq -- "$pattern" "$file"
+}
+
 require_file() {
   local path="$1"
   [[ -f "$path" ]] || fail "Missing required doc: $path"
@@ -18,7 +30,7 @@ require_match() {
   local pattern="$1"
   local file="$2"
   local msg="$3"
-  rg -q -- "$pattern" "$file" || fail "$msg ($file)"
+  search_quiet "$pattern" "$file" || fail "$msg ($file)"
 }
 
 require_file "docs/CANONICAL_SOURCES.md"

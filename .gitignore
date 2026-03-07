@@ -246,6 +246,7 @@ test-config-precedence/
 *_COMPLETE*.md
 *_SUMMARY*.md
 *_REPORT*.md
+!docs/RECTIFICATION_GAP_REPORT.md
 
 # DVC (Data Version Control)
 .dvc/

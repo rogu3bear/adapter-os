@@ -84,10 +84,57 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            const marker = '<!-- adapteros-duplication-scan -->';
             const mdPath = '${{ steps.locate.outputs.md }}';
             const jsonPath = '${{ steps.locate.outputs.json }}';
             const baselinePath = process.env.JSCPD_BASELINE || 'configs/jscpd.baseline.json';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
 
+            async function getExistingComment() {
+              const { data: comments } = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+              });
+              return comments.find((comment) => comment.body && comment.body.includes(marker));
+            }
+
+            async function clearComment() {
+              const existing = await getExistingComment();
+              if (existing) {
+                await github.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                });
+              }
+            }
+
+            async function upsertComment(body) {
+              const existing = await getExistingComment();
+              const payload = `${marker}\n${body}`;
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                  body: payload,
+                });
+                return;
+              }
+
+              await github.rest.issues.createComment({
+                issue_number,
+                owner,
+                repo,
+                body: payload,
+              });
+            }
+
+            let shouldComment = false;
             let body = '## 🔍 Duplication Scan Results\n\n';
 
             if (fs.existsSync(jsonPath)) {
@@ -97,6 +144,7 @@ jobs:
               const duplicatedLines = Number(total.duplicatedLines || 0);
               const percentage = Number(total.percentage || 0);
               const sources = Number(total.sources || 0);
+              const regressions = [];
 
               body += `- **Clones:** ${clones.toLocaleString()}\n`;
               body += `- **Duplicated lines:** ${duplicatedLines.toLocaleString()}\n`;
@@ -109,12 +157,25 @@ jobs:
                   const bTotal = (baseline.statistics && baseline.statistics.total) || baseline || {};
                   const bClones = Number(bTotal.clones || 0);
                   const bDupLines = Number(bTotal.duplicatedLines || 0);
-                  body += `Baseline (\\`${baselinePath}\\`): clones=${bClones.toLocaleString()}, duplicatedLines=${bDupLines.toLocaleString()}\n\n`;
+                  body += 'Baseline (`' + baselinePath + '`): clones=' + bClones.toLocaleString() + ', duplicatedLines=' + bDupLines.toLocaleString() + '\n\n';
+                  if (clones > bClones) {
+                    regressions.push(`clones ${clones.toLocaleString()} > baseline ${bClones.toLocaleString()}`);
+                  }
+                  if (duplicatedLines > bDupLines) {
+                    regressions.push(`duplicated lines ${duplicatedLines.toLocaleString()} > baseline ${bDupLines.toLocaleString()}`);
+                  }
                 } catch (_) {
-                  body += `Baseline (\\`${baselinePath}\\`): unreadable\n\n`;
+                  body += 'Baseline (`' + baselinePath + '`): unreadable\n\n';
+                  shouldComment = true;
                 }
               } else {
-                body += `Baseline (\\`${baselinePath}\\`): missing\n\n`;
+                body += 'Baseline (`' + baselinePath + '`): missing\n\n';
+                shouldComment = true;
+              }
+
+              if (regressions.length > 0) {
+                shouldComment = true;
+                body += `**Regression:** ${regressions.join(', ')}\n\n`;
               }
 
               if (fs.existsSync(mdPath)) {
@@ -122,15 +183,16 @@ jobs:
                 body += '<details><summary>View Details</summary>\n\n' + md + '\n</details>';
               }
             } else {
+              shouldComment = true;
               body += '⚠️ Report not found';
             }
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+            if (!shouldComment) {
+              await clearComment();
+              return;
+            }
+
+            await upsertComment(body);
 
       - name: Enforce baseline / strict mode
         if: always()
@@ -153,9 +215,9 @@ jobs:
           node - <<'NODE' "$json" "$baseline" "${ENFORCE}"
           const fs = require('fs');
 
-          const reportPath = process.argv[1];
-          const baselinePath = process.argv[2];
-          const enforce = String(process.argv[3] || '').toLowerCase() === 'true';
+          const reportPath = process.argv[2];
+          const baselinePath = process.argv[3];
+          const enforce = String(process.argv[4] || '').toLowerCase() === 'true';
 
           const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
           const total = report.statistics?.total || {};

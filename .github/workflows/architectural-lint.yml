@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check MoE/LoRA naming conventions
         run: bash scripts/check_moe_lora_naming.sh
@@ -46,45 +48,126 @@ jobs:
       - name: Build lint tool
         run: cargo build -p adapteros-lint --release
 
+      - name: Determine lint scope
+        id: scope
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch --no-tags origin "${{ github.base_ref }}" --depth=1
+          base_sha="$(git merge-base "origin/${{ github.base_ref }}" HEAD)"
+          changed_handlers="$(git diff --name-only "$base_sha"...HEAD | grep -E '^(crates/adapteros-server-api/src/handlers/.*\.rs|crates/adapteros-server-api/src/security/.*\.rs|crates/adapteros-server-api/src/middleware_security\.rs|crates/adapteros-server/src/boot/background_tasks\.rs)$' || true)"
+
+          if [[ -z "$changed_handlers" ]]; then
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '%s\n' "$changed_handlers" > architectural-lint-files.txt
+          echo "mode=changed" >> "$GITHUB_OUTPUT"
+
       - name: Run architectural lint
         id: lint
+        shell: bash
         run: |
-          ./target/release/adapteros-lint check-all || true
-          violations=$(./target/release/adapteros-lint check-all 2>&1 | grep -c "Found.*violation" || echo "0")
-          echo "violations=$violations" >> $GITHUB_OUTPUT
+          output_file="$RUNNER_TEMP/architectural-lint-output.txt"
+          : > "$output_file"
+          violations=0
+
+          case "${{ steps.scope.outputs.mode }}" in
+            skip)
+              printf 'No handler changes in this PR; architectural lint skipped.\n' > "$output_file"
+              ;;
+            changed)
+              while IFS= read -r file; do
+                [[ -n "$file" ]] || continue
+                if ! ./target/release/adapteros-lint check "$file" >> "$output_file" 2>&1; then
+                  violations=1
+                fi
+              done < architectural-lint-files.txt
+              ;;
+            *)
+              if ! ./target/release/adapteros-lint check-all > "$output_file" 2>&1; then
+                violations=1
+              fi
+              ;;
+          esac
+
+          echo "violations=$violations" >> "$GITHUB_OUTPUT"
+          echo "output_file=$output_file" >> "$GITHUB_OUTPUT"
 
       - name: Comment on PR
         if: github.event_name == 'pull_request' && always()
         uses: actions/github-script@v7
+        env:
+          LINT_OUTPUT_FILE: ${{ steps.lint.outputs.output_file }}
         with:
           script: |
-            const { execSync } = require('child_process');
+            const fs = require('fs');
+            const marker = '<!-- adapteros-architectural-lint -->';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
             let lintOutput = '';
-            try {
-              lintOutput = execSync('./target/release/adapteros-lint check-all', { 
-                encoding: 'utf-8',
-                stdio: ['inherit', 'pipe', 'pipe']
+            if (process.env.LINT_OUTPUT_FILE && fs.existsSync(process.env.LINT_OUTPUT_FILE)) {
+              lintOutput = fs.readFileSync(process.env.LINT_OUTPUT_FILE, 'utf-8');
+            }
+
+            async function getExistingComment() {
+              const { data: comments } = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
               });
-            } catch (e) {
-              lintOutput = e.stdout || e.message;
+              return comments.find((comment) => comment.body && comment.body.includes(marker));
+            }
+
+            async function clearComment() {
+              const existing = await getExistingComment();
+              if (existing) {
+                await github.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                });
+              }
+            }
+
+            async function upsertComment(body) {
+              const existing = await getExistingComment();
+              const payload = `${marker}\n${body}`;
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                  body: payload,
+                });
+                return;
+              }
+
+              await github.rest.issues.createComment({
+                issue_number,
+                owner,
+                repo,
+                body: payload,
+              });
+            }
+
+            if (!lintOutput || lintOutput.includes('No architectural violations') || lintOutput.includes('architectural lint skipped')) {
+              await clearComment();
+              return;
             }
 
             let body = '## 🔍 Architectural Lint Results\n\n';
-
-            if (lintOutput.includes('No architectural violations')) {
-              body += '✅ **No architectural violations found.**\n\n';
-            } else {
-              body += '❌ **Architectural violations detected:**\n\n';
-              body += '```\n' + lintOutput + '\n```\n';
-              body += '\n**Fix:** Review violations and follow AGENTS.md patterns.\n';
-            }
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+            body += '❌ **Architectural violations detected:**\n\n';
+            body += '```\n' + lintOutput + '\n```\n';
+            body += '\n**Fix:** Review violations and follow AGENTS.md patterns.\n';
+            await upsertComment(body);
 
       - name: Fail on violations
         if: steps.lint.outputs.violations != '0'

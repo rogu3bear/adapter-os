@@ -9,18 +9,39 @@ fail() {
   exit 1
 }
 
+search_quiet() {
+  local mode="$1"
+  local pattern="$2"
+  local file="$3"
+
+  if command -v rg >/dev/null 2>&1; then
+    if [[ "$mode" == "fixed" ]]; then
+      rg -n -F --quiet -- "$pattern" "$file"
+    else
+      rg -n --quiet -- "$pattern" "$file"
+    fi
+    return
+  fi
+
+  if [[ "$mode" == "fixed" ]]; then
+    grep -Fq -- "$pattern" "$file"
+  else
+    grep -Eq -- "$pattern" "$file"
+  fi
+}
+
 require_match() {
   local pattern="$1"
   local file="$2"
   local message="$3"
-  rg -n --quiet -- "$pattern" "$file" || fail "$message ($file)"
+  search_quiet regex "$pattern" "$file" || fail "$message ($file)"
 }
 
 require_no_match() {
   local pattern="$1"
   local file="$2"
   local message="$3"
-  if rg -n --quiet -- "$pattern" "$file"; then
+  if search_quiet regex "$pattern" "$file"; then
     fail "$message ($file)"
   fi
 }
@@ -47,12 +68,12 @@ require_match 'Runtime data: `var/` only' .cursor/rules/adapteros.mdc \
 
 # Generated output directories must remain ignored.
 for pattern in "**/target/" "output/" "reports/" "/test-results" "**/test-results/" "**/var/"; do
-  rg -n -F --quiet "$pattern" .gitignore \
+  search_quiet fixed "$pattern" .gitignore \
     || fail ".gitignore missing required generated-artifact ignore pattern: $pattern"
 done
 
 for policy_pattern in ".playwright-cli/" ".playwright-mcp/" ".worker_logs/" ".integrator/" ".harmony/" ".codex/" ".claude/" ".agents/"; do
-  rg -n -F --quiet "$policy_pattern" .gitignore \
+  search_quiet fixed "$policy_pattern" .gitignore \
     || fail ".gitignore missing required tooling-state ignore pattern: $policy_pattern"
 done
 
@@ -77,10 +98,15 @@ require_match 'docs/governance/REPO_GOVERNANCE\.md' CONTRIBUTING.md \
 
 # Golden baseline storage should not drift into var/golden_runs in production code.
 golden_split_hits="$(
-  rg -n --no-heading -S 'var/golden_runs' crates scripts tests \
-    --glob '!scripts/contracts/check_repo_layout_contract.sh' \
-    --glob '!**/*_test.rs' \
-    || true
+  if command -v rg >/dev/null 2>&1; then
+    rg -n --no-heading -S 'var/golden_runs' crates scripts tests \
+      --glob '!scripts/contracts/check_repo_layout_contract.sh' \
+      --glob '!**/*_test.rs' \
+      || true
+  else
+    grep -REn --exclude='check_repo_layout_contract.sh' --exclude='*_test.rs' \
+      'var/golden_runs' crates scripts tests || true
+  fi
 )"
 if [[ -n "$golden_split_hits" ]]; then
   echo "$golden_split_hits" >&2
@@ -142,11 +168,17 @@ require_match 'deploy/supervisor\.yaml' docs/legacy/etc/README.md \
 
 # Keep deprecated paths from reappearing outside this contract.
 legacy_ref_hits="$(
-  rg -n --no-heading -S 'scripts/generate-sdks\.sh|codegen/python\.json|skills/codebase-investigation' \
-    crates scripts tests docs .github \
-    --glob '!scripts/contracts/check_repo_layout_contract.sh' \
-    --glob '!docs/legacy/**' \
-    || true
+  if command -v rg >/dev/null 2>&1; then
+    rg -n --no-heading -S 'scripts/generate-sdks\.sh|codegen/python\.json|skills/codebase-investigation' \
+      crates scripts tests docs .github \
+      --glob '!scripts/contracts/check_repo_layout_contract.sh' \
+      --glob '!docs/legacy/**' \
+      || true
+  else
+    grep -REn --exclude='check_repo_layout_contract.sh' --exclude-dir='legacy' \
+      'scripts/generate-sdks\.sh|codegen/python\.json|skills/codebase-investigation' \
+      crates scripts tests docs .github || true
+  fi
 )"
 if [[ -n "$legacy_ref_hits" ]]; then
   echo "$legacy_ref_hits" >&2
@@ -179,7 +211,11 @@ fi
 # Adapter verifier should not reference retired mplora crate prefixes.
 if [[ -d "xtask/src/verify_adapters" ]]; then
   verify_mplora_hits="$(
-    rg -n --no-heading -S 'mplora-' xtask/src/verify_adapters || true
+    if command -v rg >/dev/null 2>&1; then
+      rg -n --no-heading -S 'mplora-' xtask/src/verify_adapters || true
+    else
+      grep -REn 'mplora-' xtask/src/verify_adapters || true
+    fi
   )"
   if [[ -n "$verify_mplora_hits" ]]; then
     echo "$verify_mplora_hits" >&2

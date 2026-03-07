@@ -298,6 +298,7 @@ impl DynamicMemoryPool {
 
         // Ring buffer: take from front (oldest), return to back
         if let Some(buffer) = self.available_buffers.pop() {
+            let buffer: Buffer = buffer;
             self.stats.reuse_count += 1;
             self.allocated_buffers.push(buffer.clone());
             self.update_hit_rate();
@@ -323,7 +324,7 @@ impl DynamicMemoryPool {
         if let Some(pos) = self
             .allocated_buffers
             .iter()
-            .position(|b| b.as_ptr() == buffer.as_ptr())
+            .position(|b: &Buffer| b.as_ptr() == buffer.as_ptr())
         {
             self.allocated_buffers.remove(pos);
             // Ring buffer: return to back for FIFO reuse

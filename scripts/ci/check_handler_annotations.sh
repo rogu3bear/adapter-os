@@ -75,11 +75,12 @@ echo "  Found $REGISTERED_COUNT unique handler references in routes.rs"
 
 # Check 4: Verify routes.rs compiles (handlers exist)
 echo "Verifying routes.rs compiles..."
-if cargo check -p adapteros-server-api --lib 2>/dev/null; then
+if SQLX_OFFLINE=1 SQLX_OFFLINE_DIR="$ROOT/crates/adapteros-db/.sqlx" \
+    cargo check -p adapteros-server-api --lib 2>/dev/null; then
     echo "  OK: routes.rs compiles successfully"
 else
     echo "  ERROR: routes.rs has compilation errors"
-    echo "  Run: cargo check -p adapteros-server-api"
+    echo "  Run: SQLX_OFFLINE=1 SQLX_OFFLINE_DIR=crates/adapteros-db/.sqlx cargo check -p adapteros-server-api"
     ERRORS=$((ERRORS + 1))
 fi
 

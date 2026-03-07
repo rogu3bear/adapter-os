@@ -60,24 +60,24 @@ else
       fi
     done
   done < <(
-    find . -type f \\( \\
-      -name "Cargo.toml" -o \\
-      -name "build.rs" -o \\
-      -name "*.mk" -o \\
-      -name "*.cmake" -o \\
-      -name "CMakeLists.txt" -o \\
-      -path "./.cargo/config" -o \\
-      -path "./.cargo/config.toml" -o \\
-      -path "./scripts/*.sh" -o \\
-      -path "./scripts/**/*.sh" -o \\
-      -path "./metal/*.metal" -o \\
-      -path "./metal/**/*.metal" \\
-    \\) \\
-    -not -path "./docs/*" \\
-    -not -path "./target/*" \\
-    -not -path "./node_modules/*" \\
-    -not -path "./sbom/*" \\
-    -not -path "./vendor/*" \\
+    find . -type f \( \
+      -name "Cargo.toml" -o \
+      -name "build.rs" -o \
+      -name "*.mk" -o \
+      -name "*.cmake" -o \
+      -name "CMakeLists.txt" -o \
+      -path "./.cargo/config" -o \
+      -path "./.cargo/config.toml" -o \
+      -path "./scripts/*.sh" -o \
+      -path "./scripts/**/*.sh" -o \
+      -path "./metal/*.metal" -o \
+      -path "./metal/**/*.metal" \
+    \) \
+    -not -path "./docs/*" \
+    -not -path "./target/*" \
+    -not -path "./node_modules/*" \
+    -not -path "./sbom/*" \
+    -not -path "./vendor/*" \
     -print0
   )
 
