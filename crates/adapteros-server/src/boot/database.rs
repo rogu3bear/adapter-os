@@ -391,11 +391,16 @@ pub async fn initialize_database(
                 datasets_root: String::new(),
                 documents_root: String::new(),
                 synthesis_model_path: None,
+                training_worker_bin: None,
             },
             rate_limits: adapteros_server_api::config::RateLimitsConfig {
                 requests_per_minute: 0,
                 burst_size: 0,
                 inference_per_minute: 0,
+                health_rpm: None,
+                public_rpm: None,
+                internal_rpm: None,
+                protected_rpm: None,
             },
             metrics: adapteros_server_api::config::MetricsConfig {
                 enabled: false,

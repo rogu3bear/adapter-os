@@ -6,6 +6,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, warn};
 
@@ -19,6 +20,9 @@ pub const RATE_LIMIT_VIOLATION_METRIC: &str = "rate_limit_violation_total";
 pub fn rate_limit_violation_count() -> u64 {
     RATE_LIMIT_VIOLATION_COUNTER.load(Ordering::Relaxed)
 }
+
+const DEFAULT_BUCKET_SCOPE: &str = "default";
+const BUCKET_SCOPE_DELIMITER: &str = "::scope::";
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RateLimitBucket {
@@ -44,14 +48,43 @@ pub struct RateLimitResult {
 /// or allowed=false if rate limit exceeded.
 ///
 /// Rate limits are read from EffectiveConfig if available, with safe defaults.
-pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResult> {
+/// An optional `tier_rpm_override` allows per-tier rate limits to take precedence
+/// over the global `requests_per_minute`.
+pub async fn check_rate_limit(
+    db: &Db,
+    tenant_id: &str,
+    tier_rpm_override: Option<u32>,
+) -> Result<RateLimitResult> {
+    check_rate_limit_scoped(db, tenant_id, tier_rpm_override, None).await
+}
+
+fn scoped_bucket_tenant_id<'a>(tenant_id: &'a str, bucket_scope: Option<&str>) -> Cow<'a, str> {
+    match bucket_scope.filter(|scope| !scope.is_empty() && *scope != DEFAULT_BUCKET_SCOPE) {
+        Some(scope) => Cow::Owned(format!("{tenant_id}{BUCKET_SCOPE_DELIMITER}{scope}")),
+        None => Cow::Borrowed(tenant_id),
+    }
+}
+
+pub(crate) async fn check_rate_limit_scoped(
+    db: &Db,
+    tenant_id: &str,
+    tier_rpm_override: Option<u32>,
+    bucket_scope: Option<&str>,
+) -> Result<RateLimitResult> {
     let now = Utc::now();
     let window_size = 60; // 60 seconds (1 minute)
+    let scope_label = bucket_scope
+        .filter(|scope| !scope.is_empty())
+        .unwrap_or(DEFAULT_BUCKET_SCOPE);
+    let bucket_tenant_id = scoped_bucket_tenant_id(tenant_id, bucket_scope);
 
-    // Read rate limit from config, with safe default
-    let default_max = try_effective_config()
-        .map(|cfg| cfg.rate_limits.requests_per_minute as i64)
-        .unwrap_or(100); // Safe default: 100 rpm (not 1000)
+    // Read rate limit from config, with safe default.
+    // Per-tier override takes precedence over global default.
+    let default_max = tier_rpm_override.map(|rpm| rpm as i64).unwrap_or_else(|| {
+        try_effective_config()
+            .map(|cfg| cfg.rate_limits.requests_per_minute as i64)
+            .unwrap_or(100) // Safe default: 100 rpm (not 1000)
+    });
 
     // Get or create bucket
     let bucket = sqlx::query_as::<_, RateLimitBucket>(
@@ -59,7 +92,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
          FROM rate_limit_buckets
          WHERE tenant_id = ?"
     )
-    .bind(tenant_id)
+    .bind(bucket_tenant_id.as_ref())
     .fetch_optional(db.pool_result()?)
     .await?;
 
@@ -84,12 +117,13 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
             .bind(bucket.requests_count)
             .bind(&bucket.window_start)
             .bind(&bucket.last_updated)
-            .bind(tenant_id)
+            .bind(bucket_tenant_id.as_ref())
             .execute(db.pool_result()?)
             .await?;
 
             debug!(
                 tenant_id = %tenant_id,
+                bucket_scope = %scope_label,
                 count = %bucket.requests_count,
                 limit = %bucket.max_requests,
                 "Rate limit window reset"
@@ -114,7 +148,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
         )
         .bind(bucket.requests_count)
         .bind(&bucket.last_updated)
-        .bind(tenant_id)
+        .bind(bucket_tenant_id.as_ref())
         .execute(db.pool_result()?)
         .await?;
 
@@ -125,6 +159,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
             warn!(
                 target: "security.rate_limit",
                 tenant_id = %tenant_id,
+                bucket_scope = %scope_label,
                 count = %bucket.requests_count,
                 limit = %bucket.max_requests,
                 window_seconds = %bucket.window_size_seconds,
@@ -149,7 +184,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
              (tenant_id, requests_count, window_start, window_size_seconds, max_requests, last_updated)
              VALUES (?, 1, ?, ?, ?, ?)"
         )
-        .bind(tenant_id)
+        .bind(bucket_tenant_id.as_ref())
         .bind(&window_start)
         .bind(window_size)
         .bind(default_max)
@@ -159,6 +194,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
 
         debug!(
             tenant_id = %tenant_id,
+            bucket_scope = %scope_label,
             max_requests = %default_max,
             "Created new rate limit bucket"
         );
@@ -278,7 +314,7 @@ mod tests {
         init_test_schema(&db).await;
 
         // First request should succeed
-        let result = check_rate_limit(&db, "tenant-a")
+        let result = check_rate_limit(&db, "tenant-a", None)
             .await
             .expect("Failed to check rate limit");
         assert!(result.allowed);
@@ -298,18 +334,18 @@ mod tests {
             .expect("Failed to update rate limit");
 
         // First two requests succeed
-        let r1 = check_rate_limit(&db, "tenant-b")
+        let r1 = check_rate_limit(&db, "tenant-b", None)
             .await
             .expect("Failed to check rate limit r1");
         assert!(r1.allowed);
 
-        let r2 = check_rate_limit(&db, "tenant-b")
+        let r2 = check_rate_limit(&db, "tenant-b", None)
             .await
             .expect("Failed to check rate limit r2");
         assert!(r2.allowed);
 
         // Third request should be denied
-        let r3 = check_rate_limit(&db, "tenant-b")
+        let r3 = check_rate_limit(&db, "tenant-b", None)
             .await
             .expect("Failed to check rate limit r3");
         assert!(!r3.allowed);
@@ -329,10 +365,10 @@ mod tests {
             .expect("Failed to update rate limit for tenant-c");
 
         // Make some requests
-        check_rate_limit(&db, "tenant-c")
+        check_rate_limit(&db, "tenant-c", None)
             .await
             .expect("Failed to check rate limit for tenant-c");
-        check_rate_limit(&db, "tenant-c")
+        check_rate_limit(&db, "tenant-c", None)
             .await
             .expect("Failed to check rate limit for tenant-c");
 
@@ -347,5 +383,42 @@ mod tests {
             .expect("Failed to get rate limit status")
             .expect("Rate limit status should exist");
         assert_eq!(status.current_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_rate_limit_scoped_buckets_do_not_interfere() {
+        let db = Db::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create test database");
+        init_test_schema(&db).await;
+
+        let protected = check_rate_limit_scoped(&db, "tenant-scope", Some(1), Some("protected"))
+            .await
+            .expect("protected scope request should succeed");
+        assert!(protected.allowed);
+        assert_eq!(protected.current_count, 1);
+        assert_eq!(protected.limit, 1);
+
+        let public = check_rate_limit_scoped(&db, "tenant-scope", Some(3), Some("public"))
+            .await
+            .expect("public scope request should succeed");
+        assert!(public.allowed);
+        assert_eq!(public.current_count, 1);
+        assert_eq!(public.limit, 3);
+
+        let protected_again =
+            check_rate_limit_scoped(&db, "tenant-scope", Some(1), Some("protected"))
+                .await
+                .expect("protected scope request should be tracked independently");
+        assert!(!protected_again.allowed);
+        assert_eq!(protected_again.current_count, 2);
+        assert_eq!(protected_again.limit, 1);
+
+        let public_again = check_rate_limit_scoped(&db, "tenant-scope", Some(3), Some("public"))
+            .await
+            .expect("public scope should remain independent");
+        assert!(public_again.allowed);
+        assert_eq!(public_again.current_count, 2);
+        assert_eq!(public_again.limit, 3);
     }
 }

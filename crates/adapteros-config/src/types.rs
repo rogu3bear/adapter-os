@@ -163,6 +163,9 @@ pub struct PathsConfig {
     /// Path to synthesis model for training data generation
     #[serde(default)]
     pub synthesis_model_path: Option<String>,
+    /// Path to training worker binary. If unset, resolves from sibling directory or target/.
+    #[serde(default)]
+    pub training_worker_bin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,6 +173,18 @@ pub struct RateLimitsConfig {
     pub requests_per_minute: u32,
     pub burst_size: u32,
     pub inference_per_minute: u32,
+    /// Per-tier RPM override for health routes (None = unlimited, health probes bypass middleware)
+    #[serde(default)]
+    pub health_rpm: Option<u32>,
+    /// Per-tier RPM override for public routes (/v1/auth/, /v1/status, /metrics)
+    #[serde(default)]
+    pub public_rpm: Option<u32>,
+    /// Per-tier RPM override for internal routes (/v1/workers/*)
+    #[serde(default)]
+    pub internal_rpm: Option<u32>,
+    /// Per-tier RPM override for protected routes (everything else, full middleware chain)
+    #[serde(default)]
+    pub protected_rpm: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
