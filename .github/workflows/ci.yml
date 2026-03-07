@@ -1131,7 +1131,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - name: Verify adapteros-api-types WASM compatibility
-        run: cargo check -p adapteros-api-types --target wasm32-unknown-unknown
+        run: cargo check -p adapteros-api-types --no-default-features --features wasm --target wasm32-unknown-unknown
       - name: Verify types are used consistently
         run: |
           # Check that UI uses the shared api-types crate
