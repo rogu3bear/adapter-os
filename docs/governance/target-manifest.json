@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "manifest_id": "governance-required-status-checks-v1.1.4-graduation",
+  "manifest_id": "governance-required-status-checks-v1.1.5-capable",
   "canonical_policy": {
     "name": "required_status_checks",
     "strict_required": true,
@@ -22,12 +22,7 @@
       "branch": "main",
       "owner": "governance",
       "probe_context": "FFI AddressSanitizer (push)",
-      "approved_exceptions": [
-        {
-          "type": "blocked_external",
-          "reason": "Private-repository plan/visibility currently blocks branch-protection required-check API operations (HTTP 403)."
-        }
-      ]
+      "approved_exceptions": []
     },
     {
       "id": "jkca-web-main",

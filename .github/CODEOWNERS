@@ -2,6 +2,14 @@
 * @rogu3bear
 
 # Governance and policy enforcement surfaces
+/.github/CODEOWNERS @rogu3bear
+/.github/pull_request_template.md @rogu3bear
+/.github/ISSUE_TEMPLATE/ @rogu3bear
+/.github/workflows/architectural-lint.yml @rogu3bear
+/.github/workflows/infrastructure-health.yml @rogu3bear
+/.github/workflows/security-regression-tests.yml @rogu3bear
+/.github/workflows/stability.yml @rogu3bear
+/.github/workflows/migration-testing.yml @rogu3bear
 /.github/workflows/governance.yml @rogu3bear
 /docs/governance/ @rogu3bear
 /scripts/ci/check_*policy*.sh @rogu3bear

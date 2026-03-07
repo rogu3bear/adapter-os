@@ -8,7 +8,7 @@ Policy and compliance.
 
 - Merge-gate governance for sanitizer safety depends on required status checks at the protected default branch.
 - AdapterOS tracks the context label `FFI AddressSanitizer (push)` as governance evidence, but required release gates are executed locally via `scripts/ci/local_required_checks.sh` and `scripts/ci/local_release_gate.sh` (no remote workflow requirement).
-- For private repositories, GitHub plan limitations can block branch-protection APIs. If branch-protection endpoints return `403` with an upgrade message, this is a release blocker unless that exact repo/branch is explicitly listed as an approved `blocked_external` exception in `docs/governance/target-manifest.json`.
+- Live GitHub verification on 2026-03-06 showed the canonical target `rogu3bear/adapter-os` is public and branch-protection APIs are capable. Historical `blocked_external` receipts for the canonical target are retained for audit history only and should not be treated as current governance truth.
 - Local release policy (effective 2026-03-03): `scripts/ci/local_release_gate.sh` defaults governance preflight to `LOCAL_RELEASE_GOVERNANCE_MODE=enforce`, failing closed by default while allowing manifest-approved `blocked_external` exceptions.
 - Optional governance overrides remain available:
   - `LOCAL_RELEASE_GOVERNANCE_MODE=warn` (non-blocking evidence lane)
@@ -51,13 +51,15 @@ gh api "repos/${REPO}/branches/${BRANCH}/protection/required_status_checks" \
 - `misconfigured`: correct target/required-context mapping, then rerun the full read/write/read sequence.
 - `error`: resolve execution failure first; do not update governance debt status until command evidence is reproducible.
 
-#### Latest Canonical Evidence Snapshot (2026-02-25)
+#### Latest Canonical Evidence Snapshot (2026-03-06)
 
-- `var/evidence/governance-retirement-20260225T201849Z/` -> `status=blocked_external`, no write path.
-- `var/evidence/governance-retirement-20260225T204000Z/` -> recheck remained `blocked_external`, no write path.
-- `var/evidence/governance-retirement-20260225T204555Z/` -> plan-level enforcement attempt remained `blocked_external`; verification matrix confirms deterministic no-write branch.
+- Live `gh api` reads against `repos/rogu3bear/adapter-os/branches/main/protection` and related subresources confirmed:
+  - repository visibility is public
+  - `required_status_checks` are readable and already match `docs/governance/target-manifest.json`
+  - no rulesets are present
+  - optional hardening delta remains: `enforce_admins=true`, `required_conversation_resolution=true`, `dismiss_stale_reviews=true`
 
-These runs preserve governance debt truth for the private canonical target until plan/visibility capability changes.
+Historical blocked receipts from 2026-02 remain useful as audit history, but they are superseded for the canonical target by the 2026-03-06 capable-state verification.
 
 ---
 
@@ -112,9 +114,9 @@ Latest parity evidence snapshot (2026-02-25):
 - `var/evidence/governance-parity-20260225T213006Z/parity-matrix.txt`
 - `var/evidence/governance-parity-20260225T213006Z/approved-exceptions.txt`
 
-Observed parity posture for this run:
-- 4/4 targets resolved as `approved_exception` from raw `blocked_external` (`HTTP 403`) outcomes.
-- No unapproved `drifted` outcomes were present under fail-on drifted policy.
+Observed parity posture for the latest canonical verification:
+- `rogu3bear/adapter-os` (`main`) is compliant on required-check parity.
+- The remaining approved exceptions, if any, are non-canonical targets and should not be projected onto AdapterOS main.
 
 ---
 
@@ -150,7 +152,12 @@ bash scripts/ci/execute_governance_required_checks.sh \
 | `blocked_external` | No branch-protection PATCH/write attempts; emit `blocked-write-attempts.txt` with `write_attempts=0`. |
 | `capable` | Proceed with canonical read/write/readback enforcement path and rollback-safe evidence capture. |
 
-Latest canonical capability snapshot (2026-02-26):
+Latest canonical capability snapshot (2026-03-06):
+- Live GitHub API verification confirms the canonical target is `capable`.
+- Current parity status is compliant on required status checks.
+- Optional hardening delta is limited to review/admin/conversation settings, not required-check parity.
+
+Historical capability snapshots (2026-02-26, superseded for canonical target):
 - `var/evidence/governance-capability-rerun-20260226T022425Z/gate-state.txt` -> `blocked_external`
 - `var/evidence/governance-capability-rerun-20260226T022425Z/capability-loop.log` -> 4 deterministic probes, all `blocked_external` (`exit 20`)
 - `var/evidence/governance-capability-rerun-20260226T022425Z/branch-decision.txt` -> `next_action=retain_blocker_branch`
@@ -158,7 +165,7 @@ Latest canonical capability snapshot (2026-02-26):
 - `var/evidence/governance-enforcement-rerun-20260226T022456Z/blocked-write-attempts.txt` -> `write_attempts=0`, `policy_mutations=0`, `rollback_attempts=0`
 - `var/evidence/governance-enforcement-rerun-20260226T022456Z/execution-branch.txt` -> `status=blocked_external`, `next_action=retain_blocker_debt`
 
-Latest prod-cut rehearsal snapshot (2026-03-02):
+Latest prod-cut rehearsal snapshot (2026-03-02, historical):
 - `.planning/prod-cut/evidence/governance/20260302T080306Z/preflight.log` -> `status=blocked_external`, `exit_code=20`
 - `.planning/prod-cut/evidence/governance/20260302T080306Z/capability-loop.log` -> deterministic retry loop remained blocked
 - `.planning/prod-cut/evidence/governance/20260302T080306Z/enforcement.log` -> enforcement flow stayed on blocked branch (no capable transition)
