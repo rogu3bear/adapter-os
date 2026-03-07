@@ -59,7 +59,7 @@ jobs:
 
           git fetch --no-tags origin "${{ github.base_ref }}" --depth=1
           base_sha="$(git merge-base "origin/${{ github.base_ref }}" HEAD)"
-          changed_handlers="$(git diff --name-only "$base_sha"...HEAD | grep -E '^crates/adapteros-server-api/src/handlers/.*\.rs$' || true)"
+          changed_handlers="$(git diff --name-only "$base_sha"...HEAD | grep -E '^(crates/adapteros-server-api/src/handlers/.*\.rs|crates/adapteros-server-api/src/security/.*\.rs|crates/adapteros-server-api/src/middleware_security\.rs|crates/adapteros-server/src/boot/background_tasks\.rs)$' || true)"
 
           if [[ -z "$changed_handlers" ]]; then
             echo "mode=skip" >> "$GITHUB_OUTPUT"

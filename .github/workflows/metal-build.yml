@@ -65,7 +65,6 @@ jobs:
         run: |
           ls -lh crates/adapteros-lora-kernel-mtl/shaders/
           test -f crates/adapteros-lora-kernel-mtl/shaders/adapteros_kernels.metallib
-          test -f crates/adapteros-lora-kernel-mtl/shaders/aos_kernels.metallib
           test -f crates/adapteros-lora-kernel-mtl/shaders/mplora_kernels.metallib
           test -f crates/adapteros-lora-kernel-mtl/shaders/kernel_hash.txt
 

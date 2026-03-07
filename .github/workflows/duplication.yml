@@ -157,7 +157,7 @@ jobs:
                   const bTotal = (baseline.statistics && baseline.statistics.total) || baseline || {};
                   const bClones = Number(bTotal.clones || 0);
                   const bDupLines = Number(bTotal.duplicatedLines || 0);
-                  body += `Baseline (\\`${baselinePath}\\`): clones=${bClones.toLocaleString()}, duplicatedLines=${bDupLines.toLocaleString()}\n\n`;
+                  body += 'Baseline (`' + baselinePath + '`): clones=' + bClones.toLocaleString() + ', duplicatedLines=' + bDupLines.toLocaleString() + '\n\n';
                   if (clones > bClones) {
                     regressions.push(`clones ${clones.toLocaleString()} > baseline ${bClones.toLocaleString()}`);
                   }
@@ -165,11 +165,11 @@ jobs:
                     regressions.push(`duplicated lines ${duplicatedLines.toLocaleString()} > baseline ${bDupLines.toLocaleString()}`);
                   }
                 } catch (_) {
-                  body += `Baseline (\\`${baselinePath}\\`): unreadable\n\n`;
+                  body += 'Baseline (`' + baselinePath + '`): unreadable\n\n';
                   shouldComment = true;
                 }
               } else {
-                body += `Baseline (\\`${baselinePath}\\`): missing\n\n`;
+                body += 'Baseline (`' + baselinePath + '`): missing\n\n';
                 shouldComment = true;
               }
 
@@ -215,9 +215,9 @@ jobs:
           node - <<'NODE' "$json" "$baseline" "${ENFORCE}"
           const fs = require('fs');
 
-          const reportPath = process.argv[1];
-          const baselinePath = process.argv[2];
-          const enforce = String(process.argv[3] || '').toLowerCase() === 'true';
+          const reportPath = process.argv[2];
+          const baselinePath = process.argv[3];
+          const enforce = String(process.argv[4] || '').toLowerCase() === 'true';
 
           const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
           const total = report.statistics?.total || {};
