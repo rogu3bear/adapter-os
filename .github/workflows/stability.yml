@@ -23,7 +23,7 @@ jobs:
           components: rustfmt, clippy, miri
 
       - name: Prepare Miri
-        run: cargo miri setup
+        run: cargo +nightly miri setup
 
       - name: Seed test env
         run: |

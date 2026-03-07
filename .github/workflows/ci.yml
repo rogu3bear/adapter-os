@@ -34,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Run ANCHOR contract guard
         run: ./scripts/ci/check_anchor_contract.sh
 
@@ -44,6 +46,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Run rectification contract suite
         run: ./scripts/contracts/check_all.sh
 
@@ -60,6 +64,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Check for test artifact pollution
         run: bash scripts/ci/check_test_artifacts.sh
       - name: Check runtime log path contract

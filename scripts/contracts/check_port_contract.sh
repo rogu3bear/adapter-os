@@ -16,12 +16,17 @@ if [[ -d ".github" ]]; then
   search_roots+=(".github")
 fi
 
-hits="$((rg -n --no-heading -S "$FORBIDDEN_PATTERN" \
-  "${search_roots[@]}" \
-  --glob '!**/target/**' \
-  --glob '!**/node_modules/**' \
-  --glob '!**/frontend/dist/**' \
-  --glob '!**/static/**' || true) | rg -v "$ALLOWLIST_REGEX" || true)"
+if command -v rg >/dev/null 2>&1; then
+  hits="$((rg -n --no-heading -S "$FORBIDDEN_PATTERN" \
+    "${search_roots[@]}" \
+    --glob '!**/target/**' \
+    --glob '!**/node_modules/**' \
+    --glob '!**/frontend/dist/**' \
+    --glob '!**/static/**' || true) | rg -v "$ALLOWLIST_REGEX" || true)"
+else
+  hits="$((grep -REn --exclude-dir=target --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=static \
+    "$FORBIDDEN_PATTERN" "${search_roots[@]}" || true) | grep -Ev "$ALLOWLIST_REGEX" || true)"
+fi
 
 if [[ -n "$hits" ]]; then
   echo "ERROR: found forbidden legacy localhost port literals outside allowlist:" >&2
@@ -49,9 +54,16 @@ required_checks=(
 for entry in "${required_checks[@]}"; do
   file="${entry%%:*}"
   pattern="${entry#*:}"
-  if ! rg -n -F --quiet "$pattern" "$file"; then
-    echo "ERROR: required canonical port contract pattern missing: $entry" >&2
-    exit 1
+  if command -v rg >/dev/null 2>&1; then
+    if ! rg -n -F --quiet "$pattern" "$file"; then
+      echo "ERROR: required canonical port contract pattern missing: $entry" >&2
+      exit 1
+    fi
+  else
+    if ! grep -Fq -- "$pattern" "$file"; then
+      echo "ERROR: required canonical port contract pattern missing: $entry" >&2
+      exit 1
+    fi
   fi
 done
 
