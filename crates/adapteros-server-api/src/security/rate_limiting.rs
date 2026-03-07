@@ -62,122 +62,153 @@ pub async fn check_rate_limit(
             .unwrap_or(100) // Safe default: 100 rpm (not 1000)
     });
 
-    // Get or create bucket
-    let bucket = sqlx::query_as::<_, RateLimitBucket>(
-        "SELECT tenant_id, requests_count, window_start, window_size_seconds, max_requests, last_updated
-         FROM rate_limit_buckets
-         WHERE tenant_id = ?"
-    )
-    .bind(tenant_id)
-    .fetch_optional(db.pool_result()?)
-    .await?;
+    // Serialize the select/update/insert flow so concurrent requests cannot
+    // fail closed on bucket creation or drop increments on read-modify-write.
+    let mut conn = db.pool_result()?.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to acquire rate limit write lock: {}", e))
+        })?;
 
-    if let Some(mut bucket) = bucket {
-        let window_start = DateTime::parse_from_rfc3339(&bucket.window_start)
-            .map_err(|e| AosError::Validation(format!("Invalid RFC3339 timestamp: {}", e)))?
-            .with_timezone(&Utc);
+    let result: Result<RateLimitResult> = async {
+        // Get or create bucket
+        let bucket = sqlx::query_as::<_, RateLimitBucket>(
+            "SELECT tenant_id, requests_count, window_start, window_size_seconds, max_requests, last_updated
+             FROM rate_limit_buckets
+             WHERE tenant_id = ?"
+        )
+        .bind(tenant_id)
+        .fetch_optional(&mut *conn)
+        .await?;
 
-        // Check if window has expired
-        let window_duration = chrono::Duration::seconds(bucket.window_size_seconds);
-        if now - window_start >= window_duration {
-            // Reset window
-            bucket.window_start = now.to_rfc3339();
-            bucket.requests_count = 1;
-            bucket.last_updated = now.to_rfc3339();
+        let result = if let Some(mut bucket) = bucket {
+            let window_start = DateTime::parse_from_rfc3339(&bucket.window_start)
+                .map_err(|e| AosError::Validation(format!("Invalid RFC3339 timestamp: {}", e)))?
+                .with_timezone(&Utc);
+
+            // Check if window has expired
+            let window_duration = chrono::Duration::seconds(bucket.window_size_seconds);
+            if now - window_start >= window_duration {
+                // Reset window
+                bucket.window_start = now.to_rfc3339();
+                bucket.requests_count = 1;
+                bucket.last_updated = now.to_rfc3339();
+
+                sqlx::query(
+                    "UPDATE rate_limit_buckets
+                     SET requests_count = ?, window_start = ?, last_updated = ?
+                     WHERE tenant_id = ?",
+                )
+                .bind(bucket.requests_count)
+                .bind(&bucket.window_start)
+                .bind(&bucket.last_updated)
+                .bind(tenant_id)
+                .execute(&mut *conn)
+                .await?;
+
+                debug!(
+                    tenant_id = %tenant_id,
+                    count = %bucket.requests_count,
+                    limit = %bucket.max_requests,
+                    "Rate limit window reset"
+                );
+
+                RateLimitResult {
+                    allowed: true,
+                    current_count: bucket.requests_count,
+                    limit: bucket.max_requests,
+                    reset_at: (window_start + window_duration).timestamp(),
+                }
+            } else {
+                // Increment count
+                bucket.requests_count += 1;
+                bucket.last_updated = now.to_rfc3339();
+
+                sqlx::query(
+                    "UPDATE rate_limit_buckets
+                     SET requests_count = ?, last_updated = ?
+                     WHERE tenant_id = ?",
+                )
+                .bind(bucket.requests_count)
+                .bind(&bucket.last_updated)
+                .bind(tenant_id)
+                .execute(&mut *conn)
+                .await?;
+
+                let allowed = bucket.requests_count <= bucket.max_requests;
+
+                if !allowed {
+                    RATE_LIMIT_VIOLATION_COUNTER.fetch_add(1, Ordering::Relaxed);
+                    warn!(
+                        target: "security.rate_limit",
+                        tenant_id = %tenant_id,
+                        count = %bucket.requests_count,
+                        limit = %bucket.max_requests,
+                        window_seconds = %bucket.window_size_seconds,
+                        metric = RATE_LIMIT_VIOLATION_METRIC,
+                        "Rate limit exceeded"
+                    );
+                }
+
+                RateLimitResult {
+                    allowed,
+                    current_count: bucket.requests_count,
+                    limit: bucket.max_requests,
+                    reset_at: (window_start + window_duration).timestamp(),
+                }
+            }
+        } else {
+            // Create new bucket
+            let window_start = now.to_rfc3339();
+            let last_updated = now.to_rfc3339();
 
             sqlx::query(
-                "UPDATE rate_limit_buckets
-                 SET requests_count = ?, window_start = ?, last_updated = ?
-                 WHERE tenant_id = ?",
+                "INSERT INTO rate_limit_buckets
+                 (tenant_id, requests_count, window_start, window_size_seconds, max_requests, last_updated)
+                 VALUES (?, 1, ?, ?, ?, ?)"
             )
-            .bind(bucket.requests_count)
-            .bind(&bucket.window_start)
-            .bind(&bucket.last_updated)
             .bind(tenant_id)
-            .execute(db.pool_result()?)
+            .bind(&window_start)
+            .bind(window_size)
+            .bind(default_max)
+            .bind(&last_updated)
+            .execute(&mut *conn)
             .await?;
 
             debug!(
                 tenant_id = %tenant_id,
-                count = %bucket.requests_count,
-                limit = %bucket.max_requests,
-                "Rate limit window reset"
+                max_requests = %default_max,
+                "Created new rate limit bucket"
             );
 
-            return Ok(RateLimitResult {
+            RateLimitResult {
                 allowed: true,
-                current_count: bucket.requests_count,
-                limit: bucket.max_requests,
-                reset_at: (window_start + window_duration).timestamp(),
-            });
+                current_count: 1,
+                limit: default_max,
+                reset_at: (now + chrono::Duration::seconds(window_size)).timestamp(),
+            }
+        };
+
+        Ok(result)
+    }
+    .await;
+
+    match result {
+        Ok(result) => {
+            sqlx::query("COMMIT")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to commit rate limit update: {}", e))
+                })?;
+            Ok(result)
         }
-
-        // Increment count
-        bucket.requests_count += 1;
-        bucket.last_updated = now.to_rfc3339();
-
-        sqlx::query(
-            "UPDATE rate_limit_buckets
-             SET requests_count = ?, last_updated = ?
-             WHERE tenant_id = ?",
-        )
-        .bind(bucket.requests_count)
-        .bind(&bucket.last_updated)
-        .bind(tenant_id)
-        .execute(db.pool_result()?)
-        .await?;
-
-        let allowed = bucket.requests_count <= bucket.max_requests;
-
-        if !allowed {
-            RATE_LIMIT_VIOLATION_COUNTER.fetch_add(1, Ordering::Relaxed);
-            warn!(
-                target: "security.rate_limit",
-                tenant_id = %tenant_id,
-                count = %bucket.requests_count,
-                limit = %bucket.max_requests,
-                window_seconds = %bucket.window_size_seconds,
-                metric = RATE_LIMIT_VIOLATION_METRIC,
-                "Rate limit exceeded"
-            );
+        Err(err) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            Err(err)
         }
-
-        Ok(RateLimitResult {
-            allowed,
-            current_count: bucket.requests_count,
-            limit: bucket.max_requests,
-            reset_at: (window_start + window_duration).timestamp(),
-        })
-    } else {
-        // Create new bucket
-        let window_start = now.to_rfc3339();
-        let last_updated = now.to_rfc3339();
-
-        sqlx::query(
-            "INSERT INTO rate_limit_buckets
-             (tenant_id, requests_count, window_start, window_size_seconds, max_requests, last_updated)
-             VALUES (?, 1, ?, ?, ?, ?)"
-        )
-        .bind(tenant_id)
-        .bind(&window_start)
-        .bind(window_size)
-        .bind(default_max)
-        .bind(&last_updated)
-        .execute(db.pool_result()?)
-        .await?;
-
-        debug!(
-            tenant_id = %tenant_id,
-            max_requests = %default_max,
-            "Created new rate limit bucket"
-        );
-
-        Ok(RateLimitResult {
-            allowed: true,
-            current_count: 1,
-            limit: default_max,
-            reset_at: (now + chrono::Duration::seconds(window_size)).timestamp(),
-        })
     }
 }
 
@@ -262,6 +293,8 @@ pub async fn reset_rate_limit(db: &Db, tenant_id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
 
     async fn init_test_schema(db: &Db) {
         sqlx::query(
@@ -356,5 +389,42 @@ mod tests {
             .expect("Failed to get rate limit status")
             .expect("Rate limit status should exist");
         assert_eq!(status.current_count, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_rate_limit_concurrent_requests_keep_all_increments() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let db_path = temp_dir.path().join("rate-limit.sqlite3");
+        let db = Db::connect(db_path.to_str().expect("utf-8 path"))
+            .await
+            .expect("Failed to create test database");
+        init_test_schema(&db).await;
+
+        let request_count = 12usize;
+        let barrier = Arc::new(Barrier::new(request_count));
+        let mut handles = Vec::with_capacity(request_count);
+
+        for _ in 0..request_count {
+            let db = db.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(tokio::spawn(async move {
+                barrier.wait().await;
+                check_rate_limit(&db, "tenant-concurrent", Some(1000)).await
+            }));
+        }
+
+        for handle in handles {
+            let result = handle
+                .await
+                .expect("task join")
+                .expect("concurrent rate limit check should succeed");
+            assert!(result.allowed);
+        }
+
+        let status = get_rate_limit_status(&db, "tenant-concurrent")
+            .await
+            .expect("Failed to get rate limit status")
+            .expect("Rate limit bucket should exist");
+        assert_eq!(status.current_count, request_count as i64);
     }
 }
