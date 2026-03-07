@@ -66,6 +66,7 @@ async fn build_test_state_with_general(
             datasets_root: "var/datasets".into(),
             documents_root: "var/documents".into(),
             synthesis_model_path: None,
+            training_worker_bin: None,
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,

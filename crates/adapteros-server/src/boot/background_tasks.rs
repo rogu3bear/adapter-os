@@ -53,7 +53,7 @@ use crate::shutdown::ShutdownCoordinator;
 use crate::status_writer;
 use adapteros_db::diagnostics::SqliteDiagPersister;
 use adapteros_db::kv_metrics;
-use adapteros_db::Db;
+use adapteros_db::{Db, ProtectedDb};
 use adapteros_deterministic_exec::run_global_executor;
 use adapteros_server_api::boot_state::{BootStateManager, FailureReason};
 use adapteros_server_api::local_log_service::{run_local_log_service, LocalLogServiceConfig};
@@ -94,6 +94,50 @@ struct TrainingWorkerEnv {
     artifacts_root: String,
 }
 
+/// Sliding-window circuit breaker for training worker crash detection.
+///
+/// Tracks crash timestamps and trips when `max_crashes` occur within `window`.
+/// Once tripped, the supervisor stops restart attempts and writes a degraded marker.
+struct WorkerCircuitBreaker {
+    crash_timestamps: std::collections::VecDeque<tokio::time::Instant>,
+    max_crashes: u32,
+    window: Duration,
+    tripped: bool,
+}
+
+impl WorkerCircuitBreaker {
+    fn new(max_crashes: u32, window: Duration) -> Self {
+        Self {
+            crash_timestamps: std::collections::VecDeque::new(),
+            max_crashes,
+            window,
+            tripped: false,
+        }
+    }
+
+    /// Record a crash and return whether the circuit breaker has tripped.
+    fn record_crash(&mut self) -> bool {
+        let now = tokio::time::Instant::now();
+        self.crash_timestamps.push_back(now);
+        // Evict crashes outside the sliding window
+        while let Some(&front) = self.crash_timestamps.front() {
+            if now.duration_since(front) > self.window {
+                self.crash_timestamps.pop_front();
+            } else {
+                break;
+            }
+        }
+        if self.crash_timestamps.len() >= self.max_crashes as usize {
+            self.tripped = true;
+        }
+        self.tripped
+    }
+
+    fn is_tripped(&self) -> bool {
+        self.tripped
+    }
+}
+
 fn resolve_training_worker_env(state: &AppState) -> Result<TrainingWorkerEnv> {
     let socket = adapteros_config::resolve_training_worker_socket_for_cp()?;
     let database_url = adapteros_config::resolve_database_url()?;
@@ -124,7 +168,58 @@ fn resolve_training_worker_env(state: &AppState) -> Result<TrainingWorkerEnv> {
 }
 
 fn is_training_worker_fallback_error(message: &str) -> bool {
-    message.contains("No such file or directory") || message.contains("os error 2")
+    message.contains("No such file or directory")
+        || message.contains("os error 2")
+        || message.contains("Training worker binary not found")
+        || message.contains("exists but is not a file")
+}
+
+#[derive(Debug)]
+enum TrainingWorkerBinaryMode {
+    Managed(String),
+    Fallback(String),
+}
+
+fn resolve_training_worker_binary_mode(
+    config: &adapteros_config::types::PathsConfig,
+    fallback_enabled: bool,
+) -> Result<TrainingWorkerBinaryMode> {
+    let worker_bin = match resolve_training_worker_bin(config) {
+        Ok(path) => path,
+        Err(error) => {
+            let message = error.to_string();
+            if fallback_enabled && is_training_worker_fallback_error(&message) {
+                return Ok(TrainingWorkerBinaryMode::Fallback(message));
+            }
+            return Err(error);
+        }
+    };
+
+    let bin_path = std::path::Path::new(&worker_bin);
+    if !bin_path.exists() {
+        let message = format!(
+            "Training worker binary not found at {}. Build it: cargo build -p adapteros-training-worker",
+            worker_bin
+        );
+        if fallback_enabled && is_training_worker_fallback_error(&message) {
+            return Ok(TrainingWorkerBinaryMode::Fallback(message));
+        }
+        anyhow::bail!(message);
+    }
+
+    if !bin_path.is_file() {
+        let message = format!(
+            "Training worker path {} exists but is not a file",
+            worker_bin
+        );
+        if fallback_enabled && is_training_worker_fallback_error(&message) {
+            return Ok(TrainingWorkerBinaryMode::Fallback(message));
+        }
+        anyhow::bail!(message);
+    }
+
+    info!(path = %worker_bin, "Training worker binary validated at preflight");
+    Ok(TrainingWorkerBinaryMode::Managed(worker_bin))
 }
 
 async fn probe_training_worker_health(socket_path: &std::path::Path) -> bool {
@@ -146,24 +241,42 @@ async fn probe_training_worker_health(socket_path: &std::path::Path) -> bool {
     }
 }
 
-fn resolve_training_worker_bin() -> String {
+fn resolve_training_worker_bin(config: &adapteros_config::types::PathsConfig) -> Result<String> {
+    // Priority 1: Environment variable override
     if let Ok(path) = std::env::var("AOS_TRAINING_WORKER_BIN") {
         if !path.trim().is_empty() {
-            return path;
+            debug!(path = %path, "Resolved training worker binary from AOS_TRAINING_WORKER_BIN");
+            return Ok(path);
         }
     }
 
+    // Priority 2: Config file setting
+    if let Some(ref config_path) = config.training_worker_bin {
+        let candidate = std::path::Path::new(config_path);
+        if candidate.exists() {
+            info!(path = %config_path, "Resolved training worker binary from config");
+            return Ok(config_path.clone());
+        }
+        warn!(
+            path = %config_path,
+            "Config training_worker_bin set but path does not exist; trying fallbacks"
+        );
+    }
+
+    // Priority 3: Sibling to current executable
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(dir) = current_exe.parent() {
             let candidate = dir.join("aos-training-worker");
+            debug!(candidate = %candidate.display(), "Checking sibling to current_exe");
             if candidate.exists() {
-                return candidate.to_string_lossy().to_string();
+                let resolved = candidate.to_string_lossy().to_string();
+                info!(path = %resolved, "Resolved training worker binary from sibling directory");
+                return Ok(resolved);
             }
         }
     }
 
-    // In local/dev environments, backend and training worker are often built in
-    // workspace `target/` but launched from different cwd/PATH contexts.
+    // Priority 4: Workspace target directories
     let mut roots = Vec::new();
 
     if let Ok(var_dir) = std::env::var("AOS_VAR_DIR") {
@@ -177,23 +290,29 @@ fn resolve_training_worker_bin() -> String {
         roots.push(cwd);
     }
 
-    for root in roots {
+    for root in &roots {
         for candidate in [
             root.join("target/debug/aos-training-worker"),
             root.join("target/release/aos-training-worker"),
         ] {
+            debug!(candidate = %candidate.display(), "Checking workspace target directory");
             if candidate.exists() {
-                return candidate.to_string_lossy().to_string();
+                let resolved = candidate.to_string_lossy().to_string();
+                info!(path = %resolved, "Resolved training worker binary from workspace target");
+                return Ok(resolved);
             }
         }
     }
 
-    "aos-training-worker".to_string()
+    // Priority 5: No binary found anywhere
+    Err(anyhow::anyhow!(
+        "Training worker binary not found at any search path. \
+         Build it: cargo build -p adapteros-training-worker"
+    ))
 }
 
-fn spawn_training_worker(env: &TrainingWorkerEnv) -> Result<Child> {
-    let worker_bin = resolve_training_worker_bin();
-    let mut cmd = Command::new(&worker_bin);
+fn spawn_training_worker(env: &TrainingWorkerEnv, bin_path: &str) -> Result<Child> {
+    let mut cmd = Command::new(bin_path);
     cmd.env(
         "AOS_TRAINING_WORKER_SOCKET",
         env.socket_path.to_string_lossy().to_string(),
@@ -208,7 +327,7 @@ fn spawn_training_worker(env: &TrainingWorkerEnv) -> Result<Child> {
     cmd.spawn().map_err(|e| {
         anyhow::anyhow!(
             "Failed to spawn aos-training-worker (bin={}, socket={}, db={}): {}",
-            worker_bin,
+            bin_path,
             env.socket_path.display(),
             env.database_url,
             e
@@ -224,6 +343,294 @@ async fn terminate_managed_training_worker(child: &mut Child) {
         Ok(Ok(status)) => info!(status = %status, "Managed training worker exited"),
         Ok(Err(e)) => warn!(error = %e, "Failed to await managed training worker exit"),
         Err(_) => warn!("Timed out waiting for managed training worker to exit"),
+    }
+}
+
+fn clear_training_worker_degraded_marker(path: &std::path::Path) {
+    if let Err(error) = std::fs::remove_file(path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            warn!(
+                error = %error,
+                path = %path.display(),
+                "Failed to clear training worker degraded marker"
+            );
+        }
+    }
+}
+
+fn write_training_worker_degraded_marker(path: &std::path::Path, contents: String) {
+    if let Err(error) = std::fs::write(path, contents) {
+        warn!(
+            error = %error,
+            path = %path.display(),
+            "Failed to write training worker degraded marker"
+        );
+    }
+}
+
+fn fallback_degraded_marker_contents(reason: &str, external_worker_unavailable: bool) -> String {
+    let mut contents = format!("managed training worker disabled: {reason}\n");
+    if external_worker_unavailable {
+        contents.push_str("external worker unavailable\n");
+    }
+    contents
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_training_worker_supervisor(
+    worker_env: TrainingWorkerEnv,
+    degraded_path: std::path::PathBuf,
+    metrics_registry: Arc<MetricsRegistry>,
+    training_worker_bin: Option<String>,
+    training_worker_fallback_reason: Option<String>,
+    db: ProtectedDb,
+    ready_tx: oneshot::Sender<std::result::Result<(), String>>,
+    mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+    probe_interval: Duration,
+) {
+    let mut managed_child: Option<Child> = None;
+    let mut restart_count: u64 = 0;
+    let mut next_spawn_at = tokio::time::Instant::now();
+    let mut circuit_breaker = WorkerCircuitBreaker::new(3, Duration::from_secs(300));
+    let mut spawn_disabled_due_to_fallback_error = false;
+    let mut fallback_worker_observed_healthy = false;
+    let mut ready_sender = Some(ready_tx);
+    let mut interval = tokio::time::interval(probe_interval);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    clear_training_worker_degraded_marker(&degraded_path);
+
+    if probe_training_worker_health(&worker_env.socket_path).await {
+        if training_worker_fallback_reason.is_some() {
+            spawn_disabled_due_to_fallback_error = true;
+            fallback_worker_observed_healthy = true;
+        }
+        info!(
+            socket_path = %worker_env.socket_path.display(),
+            "Adopting existing healthy training worker"
+        );
+        clear_training_worker_degraded_marker(&degraded_path);
+        if let Some(tx) = ready_sender.take() {
+            let _ = tx.send(Ok(()));
+        }
+    } else if let Some(reason) = training_worker_fallback_reason.as_ref() {
+        spawn_disabled_due_to_fallback_error = true;
+        write_training_worker_degraded_marker(
+            &degraded_path,
+            fallback_degraded_marker_contents(reason, false),
+        );
+        warn!(
+            error = %reason,
+            socket_path = %worker_env.socket_path.display(),
+            "Disabling managed training worker respawn attempts (fallback mode)"
+        );
+    }
+
+    loop {
+        tokio::select! {
+            biased;
+            _ = shutdown_rx.recv() => {
+                info!("Training worker supervisor received shutdown signal");
+                if let Some(mut child) = managed_child.take() {
+                    terminate_managed_training_worker(&mut child).await;
+                }
+                break;
+            }
+            _ = interval.tick() => {}
+        }
+
+        if let Some(child) = managed_child.as_mut() {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    restart_count += 1;
+                    let backoff_secs = ((restart_count + 1).min(6)) * 2;
+                    next_spawn_at = tokio::time::Instant::now() + Duration::from_secs(backoff_secs);
+
+                    match db.mark_running_jobs_failed_worker_crash().await {
+                        Ok(count) if count > 0 => {
+                            warn!(
+                                affected_jobs = count,
+                                "Marked in-flight training jobs as failed due to worker exit"
+                            );
+                        }
+                        Err(error) => {
+                            error!(
+                                error = %error,
+                                "Failed to mark in-flight training jobs as failed after worker exit"
+                            );
+                        }
+                        _ => {}
+                    }
+
+                    if !status.success() {
+                        warn!(
+                            status = %status,
+                            restart_count = restart_count,
+                            backoff_secs = backoff_secs,
+                            "Managed training worker crashed; scheduling restart"
+                        );
+                        if circuit_breaker.record_crash() {
+                            write_training_worker_degraded_marker(
+                                &degraded_path,
+                                format!(
+                                    "circuit breaker tripped: {} crashes in {} seconds\n",
+                                    circuit_breaker.max_crashes,
+                                    circuit_breaker.window.as_secs()
+                                ),
+                            );
+                            error!(
+                                max_crashes = circuit_breaker.max_crashes,
+                                window_secs = circuit_breaker.window.as_secs(),
+                                "Training worker circuit breaker tripped — stopping restart attempts, marking permanently degraded"
+                            );
+                        }
+                    } else {
+                        info!(
+                            status = %status,
+                            restart_count = restart_count,
+                            backoff_secs = backoff_secs,
+                            "Managed training worker exited gracefully; scheduling restart"
+                        );
+                    }
+
+                    metrics_registry
+                        .record_metric(
+                            "training_worker.restarts_total".to_string(),
+                            restart_count as f64,
+                        )
+                        .await;
+                    managed_child = None;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    restart_count += 1;
+                    let backoff_secs = ((restart_count + 1).min(6)) * 2;
+                    next_spawn_at = tokio::time::Instant::now() + Duration::from_secs(backoff_secs);
+
+                    match db.mark_running_jobs_failed_worker_crash().await {
+                        Ok(count) if count > 0 => {
+                            warn!(
+                                affected_jobs = count,
+                                "Marked in-flight training jobs as failed due to worker status error"
+                            );
+                        }
+                        Err(db_error) => {
+                            error!(
+                                error = %db_error,
+                                "Failed to mark in-flight training jobs as failed after worker status error"
+                            );
+                        }
+                        _ => {}
+                    }
+
+                    warn!(
+                        error = %error,
+                        restart_count = restart_count,
+                        backoff_secs = backoff_secs,
+                        "Failed to inspect managed training worker status"
+                    );
+                    if circuit_breaker.record_crash() {
+                        write_training_worker_degraded_marker(
+                            &degraded_path,
+                            format!(
+                                "circuit breaker tripped: {} crashes in {} seconds\n",
+                                circuit_breaker.max_crashes,
+                                circuit_breaker.window.as_secs()
+                            ),
+                        );
+                        error!(
+                            max_crashes = circuit_breaker.max_crashes,
+                            window_secs = circuit_breaker.window.as_secs(),
+                            "Training worker circuit breaker tripped — stopping restart attempts, marking permanently degraded"
+                        );
+                    }
+
+                    metrics_registry
+                        .record_metric(
+                            "training_worker.restarts_total".to_string(),
+                            restart_count as f64,
+                        )
+                        .await;
+                    managed_child = None;
+                }
+            }
+        }
+
+        if probe_training_worker_health(&worker_env.socket_path).await {
+            clear_training_worker_degraded_marker(&degraded_path);
+            if spawn_disabled_due_to_fallback_error {
+                if !fallback_worker_observed_healthy {
+                    info!(
+                        socket_path = %worker_env.socket_path.display(),
+                        "Fallback mode: healthy training worker detected; degraded marker cleared"
+                    );
+                }
+                fallback_worker_observed_healthy = true;
+            } else if circuit_breaker.is_tripped() {
+                info!(
+                    socket_path = %worker_env.socket_path.display(),
+                    "Circuit breaker was tripped but healthy training worker detected; degraded marker cleared"
+                );
+            }
+            if let Some(tx) = ready_sender.take() {
+                let _ = tx.send(Ok(()));
+            }
+            continue;
+        }
+
+        if spawn_disabled_due_to_fallback_error && fallback_worker_observed_healthy {
+            fallback_worker_observed_healthy = false;
+            let reason = training_worker_fallback_reason
+                .as_deref()
+                .unwrap_or("managed training worker unavailable");
+            write_training_worker_degraded_marker(
+                &degraded_path,
+                fallback_degraded_marker_contents(reason, true),
+            );
+            warn!(
+                socket_path = %worker_env.socket_path.display(),
+                "Fallback mode: external training worker became unavailable; degraded marker restored"
+            );
+        }
+
+        if !spawn_disabled_due_to_fallback_error
+            && !circuit_breaker.is_tripped()
+            && managed_child.is_none()
+            && tokio::time::Instant::now() >= next_spawn_at
+        {
+            let Some(bin_path) = training_worker_bin.as_deref() else {
+                continue;
+            };
+            match spawn_training_worker(&worker_env, bin_path) {
+                Ok(child) => {
+                    info!(
+                        socket_path = %worker_env.socket_path.display(),
+                        restart_count = restart_count,
+                        "Spawned managed training worker"
+                    );
+                    clear_training_worker_degraded_marker(&degraded_path);
+                    managed_child = Some(child);
+                }
+                Err(error) => {
+                    restart_count = restart_count.saturating_add(1);
+                    let backoff_secs = restart_count.min(12) * 5;
+                    next_spawn_at = tokio::time::Instant::now() + Duration::from_secs(backoff_secs);
+                    warn!(
+                        error = %error,
+                        socket_path = %worker_env.socket_path.display(),
+                        restart_count = restart_count,
+                        backoff_secs = backoff_secs,
+                        "Failed to spawn managed training worker"
+                    );
+                    metrics_registry
+                        .record_metric("training_worker.attach_failures_total".to_string(), 1.0)
+                        .await;
+                    if let Some(tx) = ready_sender.take() {
+                        let _ = tx.send(Err(error.to_string()));
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -346,209 +753,51 @@ pub async fn spawn_all_background_tasks(
             adapteros_core::rebase_var_path("var/run/training-worker.degraded");
         let worker_env = resolve_training_worker_env(state)
             .map_err(|e| anyhow::anyhow!("Failed to resolve training worker environment: {}", e))?;
+        let training_worker_fallback_enabled = adapteros_config::training_worker_fallback_enabled();
+
+        // Preflight: resolve and validate training worker binary before spawning supervisor
+        let paths_config = {
+            let cfg = state
+                .config
+                .read()
+                .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
+            cfg.paths.clone()
+        };
+        let (training_worker_bin, training_worker_fallback_reason) =
+            match resolve_training_worker_binary_mode(
+                &paths_config,
+                training_worker_fallback_enabled,
+            )? {
+                TrainingWorkerBinaryMode::Managed(path) => (Some(path), None),
+                TrainingWorkerBinaryMode::Fallback(reason) => (None, Some(reason)),
+            };
+
         let worker_env_for_supervisor = worker_env.clone();
         let degraded_path_for_supervisor = training_worker_degraded_path.clone();
         let metrics_registry_for_worker = Arc::clone(&metrics_registry);
-        let training_worker_fallback_enabled = adapteros_config::training_worker_fallback_enabled();
+        let training_worker_bin_for_supervisor = training_worker_bin.clone();
+        let training_worker_fallback_reason_for_supervisor =
+            training_worker_fallback_reason.clone();
+        let db_for_supervisor = state.db.clone();
         let (ready_tx, ready_rx) = oneshot::channel::<std::result::Result<(), String>>();
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
-        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+        let shutdown_rx = spawner.coordinator().subscribe_shutdown();
         if let Err(err) = spawner.spawn_with_details(
             "Training worker supervisor",
             async move {
-                let metrics_registry = metrics_registry_for_worker;
-                let mut managed_child: Option<Child> = None;
-                let mut restart_count: u64 = 0;
-                let mut next_spawn_at = tokio::time::Instant::now();
-                let mut spawn_disabled_due_to_fallback_error = false;
-                let mut ready_sender = Some(ready_tx);
-                let mut interval = tokio::time::interval(Duration::from_secs(2));
-                interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-                if let Err(e) = std::fs::remove_file(&degraded_path_for_supervisor) {
-                    if e.kind() != std::io::ErrorKind::NotFound {
-                        warn!(
-                            error = %e,
-                            path = %degraded_path_for_supervisor.display(),
-                            "Failed to clear training worker degraded marker"
-                        );
-                    }
-                }
-
-                if probe_training_worker_health(&worker_env_for_supervisor.socket_path).await {
-                    info!(
-                        socket_path = %worker_env_for_supervisor.socket_path.display(),
-                        "Adopting existing healthy training worker"
-                    );
-                    if let Err(e) = std::fs::remove_file(&degraded_path_for_supervisor) {
-                        if e.kind() != std::io::ErrorKind::NotFound {
-                            warn!(
-                                error = %e,
-                                path = %degraded_path_for_supervisor.display(),
-                                "Failed to clear training worker degraded marker"
-                            );
-                        }
-                    }
-                    if let Some(tx) = ready_sender.take() {
-                        let _ = tx.send(Ok(()));
-                    }
-                }
-
-                loop {
-                    tokio::select! {
-                        biased;
-                        _ = shutdown_rx.recv() => {
-                            info!("Training worker supervisor received shutdown signal");
-                            if let Some(mut child) = managed_child.take() {
-                                terminate_managed_training_worker(&mut child).await;
-                            }
-                            break;
-                        }
-                        _ = interval.tick() => {}
-                    }
-
-                    if let Some(child) = managed_child.as_mut() {
-                        match child.try_wait() {
-                            Ok(Some(status)) => {
-                                restart_count += 1;
-                                let backoff_secs = ((restart_count + 1).min(6)) * 2;
-                                next_spawn_at =
-                                    tokio::time::Instant::now() + Duration::from_secs(backoff_secs);
-                                warn!(
-                                    status = %status,
-                                    restart_count = restart_count,
-                                    backoff_secs = backoff_secs,
-                                    "Managed training worker exited; scheduling restart"
-                                );
-                                metrics_registry
-                                    .record_metric(
-                                        "training_worker.restarts_total".to_string(),
-                                        restart_count as f64,
-                                    )
-                                    .await;
-                                managed_child = None;
-                            }
-                            Ok(None) => {}
-                            Err(e) => {
-                                restart_count += 1;
-                                let backoff_secs = ((restart_count + 1).min(6)) * 2;
-                                next_spawn_at =
-                                    tokio::time::Instant::now() + Duration::from_secs(backoff_secs);
-                                warn!(
-                                    error = %e,
-                                    restart_count = restart_count,
-                                    backoff_secs = backoff_secs,
-                                    "Failed to inspect managed training worker status"
-                                );
-                                metrics_registry
-                                    .record_metric(
-                                        "training_worker.restarts_total".to_string(),
-                                        restart_count as f64,
-                                    )
-                                    .await;
-                                managed_child = None;
-                            }
-                        }
-                    }
-
-                    if probe_training_worker_health(&worker_env_for_supervisor.socket_path).await {
-                        if let Err(e) = std::fs::remove_file(&degraded_path_for_supervisor) {
-                            if e.kind() != std::io::ErrorKind::NotFound {
-                                warn!(
-                                    error = %e,
-                                    path = %degraded_path_for_supervisor.display(),
-                                    "Failed to clear training worker degraded marker"
-                                );
-                            }
-                        }
-                        if spawn_disabled_due_to_fallback_error {
-                            info!(
-                                socket_path = %worker_env_for_supervisor.socket_path.display(),
-                                "Fallback mode: healthy training worker detected; degraded marker cleared"
-                            );
-                        }
-                        if let Some(tx) = ready_sender.take() {
-                            let _ = tx.send(Ok(()));
-                        }
-                        continue;
-                    }
-
-                    if !spawn_disabled_due_to_fallback_error
-                        && managed_child.is_none()
-                        && tokio::time::Instant::now() >= next_spawn_at
-                    {
-                        match spawn_training_worker(&worker_env_for_supervisor) {
-                            Ok(child) => {
-                                info!(
-                                    socket_path = %worker_env_for_supervisor.socket_path.display(),
-                                    restart_count = restart_count,
-                                    "Spawned managed training worker"
-                                );
-                                if let Err(e) = std::fs::remove_file(&degraded_path_for_supervisor) {
-                                    if e.kind() != std::io::ErrorKind::NotFound {
-                                        warn!(
-                                            error = %e,
-                                            path = %degraded_path_for_supervisor.display(),
-                                            "Failed to clear training worker degraded marker"
-                                        );
-                                    }
-                                }
-                                managed_child = Some(child);
-                            }
-                            Err(e) => {
-                                restart_count = restart_count.saturating_add(1);
-                                let backoff_secs = restart_count.min(12) * 5;
-                                next_spawn_at =
-                                    tokio::time::Instant::now() + Duration::from_secs(backoff_secs);
-                                warn!(
-                                    error = %e,
-                                    socket_path = %worker_env_for_supervisor.socket_path.display(),
-                                    restart_count = restart_count,
-                                    backoff_secs = backoff_secs,
-                                    "Failed to spawn managed training worker"
-                                );
-                                metrics_registry
-                                    .record_metric(
-                                        "training_worker.attach_failures_total".to_string(),
-                                        1.0,
-                                    )
-                                    .await;
-                                let err_msg = e.to_string();
-                                if training_worker_fallback_enabled
-                                    && is_training_worker_fallback_error(&err_msg)
-                                {
-                                    spawn_disabled_due_to_fallback_error = true;
-                                    if let Err(write_err) = std::fs::write(
-                                        &degraded_path_for_supervisor,
-                                        format!(
-                                            "managed training worker disabled: {}\n",
-                                            err_msg
-                                        ),
-                                    ) {
-                                        warn!(
-                                            error = %write_err,
-                                            path = %degraded_path_for_supervisor.display(),
-                                            "Failed to write training worker degraded marker"
-                                        );
-                                    }
-                                    warn!(
-                                        error = %err_msg,
-                                        socket_path = %worker_env_for_supervisor.socket_path.display(),
-                                        "Disabling managed training worker respawn attempts (fallback mode)"
-                                    );
-                                    if let Some(tx) = ready_sender.take() {
-                                        let _ = tx.send(Ok(()));
-                                    }
-                                    continue;
-                                }
-                                if let Some(tx) = ready_sender.take() {
-                                    let _ = tx.send(Err(err_msg));
-                                }
-                            }
-                        }
-                    }
-                }
+                run_training_worker_supervisor(
+                    worker_env_for_supervisor,
+                    degraded_path_for_supervisor,
+                    metrics_registry_for_worker,
+                    training_worker_bin_for_supervisor,
+                    training_worker_fallback_reason_for_supervisor,
+                    db_for_supervisor,
+                    ready_tx,
+                    shutdown_rx,
+                    Duration::from_secs(2),
+                )
+                .await;
             },
             "worker-mode UDS supervision",
         ) {
@@ -2290,4 +2539,310 @@ pub async fn spawn_all_background_tasks(
     }
 
     Ok(shutdown_coordinator)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        fallback_degraded_marker_contents, resolve_training_worker_binary_mode,
+        run_training_worker_supervisor, TrainingWorkerBinaryMode, TrainingWorkerEnv,
+    };
+    use adapteros_config::types::PathsConfig;
+    use adapteros_db::{Db, ProtectedDb};
+    use adapteros_server_api::telemetry::MetricsRegistry;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::sync::oneshot;
+
+    struct FakeTrainingWorkerServer {
+        socket_path: PathBuf,
+        shutdown_tx: Option<oneshot::Sender<()>>,
+        handle: tokio::task::JoinHandle<()>,
+    }
+
+    impl FakeTrainingWorkerServer {
+        async fn start(socket_path: &Path) -> Self {
+            if let Some(parent) = socket_path.parent() {
+                std::fs::create_dir_all(parent).expect("create socket parent");
+            }
+            let _ = std::fs::remove_file(socket_path);
+
+            let listener =
+                tokio::net::UnixListener::bind(socket_path).expect("bind fake training worker");
+            let owned_socket_path = socket_path.to_path_buf();
+            let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+            let handle = tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = &mut shutdown_rx => break,
+                        accepted = listener.accept() => {
+                            let Ok((mut stream, _)) = accepted else {
+                                break;
+                            };
+                            tokio::spawn(async move {
+                                let mut buffer = [0u8; 1024];
+                                let _ = stream.read(&mut buffer).await;
+                                let _ = stream
+                                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK")
+                                    .await;
+                            });
+                        }
+                    }
+                }
+                let _ = std::fs::remove_file(&owned_socket_path);
+            });
+
+            Self {
+                socket_path: socket_path.to_path_buf(),
+                shutdown_tx: Some(shutdown_tx),
+                handle,
+            }
+        }
+
+        async fn shutdown(mut self) {
+            if let Some(tx) = self.shutdown_tx.take() {
+                let _ = tx.send(());
+            }
+            let _ = self.handle.await;
+            let _ = std::fs::remove_file(&self.socket_path);
+        }
+    }
+
+    fn test_paths_config(training_worker_bin: Option<String>) -> PathsConfig {
+        PathsConfig {
+            artifacts_root: "var/artifacts".to_string(),
+            bundles_root: "var/bundles".to_string(),
+            adapters_root: "var/adapters".to_string(),
+            plan_dir: ".planning".to_string(),
+            datasets_root: "var/datasets".to_string(),
+            documents_root: "var/documents".to_string(),
+            synthesis_model_path: None,
+            training_worker_bin,
+        }
+    }
+
+    fn test_worker_env(socket_path: &Path) -> TrainingWorkerEnv {
+        TrainingWorkerEnv {
+            socket_path: socket_path.to_path_buf(),
+            database_url: "sqlite://worker-test.db".to_string(),
+            datasets_root: "var/datasets".to_string(),
+            artifacts_root: "var/artifacts".to_string(),
+        }
+    }
+
+    async fn wait_for<F>(timeout: Duration, mut condition: F)
+    where
+        F: FnMut() -> bool,
+    {
+        tokio::time::timeout(timeout, async {
+            loop {
+                if condition() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("condition should become true before timeout");
+    }
+
+    #[test]
+    fn missing_worker_binary_enters_fallback_mode_when_enabled() {
+        let paths = test_paths_config(Some("/definitely/missing/aos-training-worker".to_string()));
+
+        let mode = resolve_training_worker_binary_mode(&paths, true)
+            .expect("missing worker should degrade when fallback is enabled");
+
+        match mode {
+            TrainingWorkerBinaryMode::Fallback(message) => {
+                assert!(
+                    message.contains("Training worker binary not found"),
+                    "unexpected fallback message: {message}"
+                );
+            }
+            TrainingWorkerBinaryMode::Managed(path) => {
+                panic!("expected fallback mode, got managed path {path}");
+            }
+        }
+    }
+
+    #[test]
+    fn missing_worker_binary_is_error_when_fallback_disabled() {
+        let paths = test_paths_config(Some("/definitely/missing/aos-training-worker".to_string()));
+
+        let error = resolve_training_worker_binary_mode(&paths, false)
+            .expect_err("missing worker should fail when fallback is disabled");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Training worker binary not found"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn existing_worker_binary_stays_managed() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let worker_path = temp_dir.path().join("aos-training-worker");
+        std::fs::write(&worker_path, "#!/bin/sh\nexit 0\n").expect("write worker stub");
+
+        let paths = test_paths_config(Some(worker_path.to_string_lossy().to_string()));
+        let mode = resolve_training_worker_binary_mode(&paths, true)
+            .expect("existing worker path should validate");
+
+        match mode {
+            TrainingWorkerBinaryMode::Managed(path) => {
+                assert_eq!(path, worker_path.to_string_lossy());
+            }
+            TrainingWorkerBinaryMode::Fallback(message) => {
+                panic!("expected managed worker path, got fallback: {message}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn fallback_supervisor_waits_for_external_worker_before_reporting_ready() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let socket_path = temp_dir.path().join("worker.sock");
+        let degraded_path = temp_dir.path().join("training-worker.degraded");
+        let db = ProtectedDb::new(Db::new_in_memory().await.expect("in-memory db"));
+        let metrics_registry = Arc::new(MetricsRegistry::new());
+        let worker_env = test_worker_env(&socket_path);
+        let fallback_reason = "Training worker binary not found at /missing/aos-training-worker";
+        let (ready_tx, mut ready_rx) = oneshot::channel();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
+
+        let supervisor = tokio::spawn(run_training_worker_supervisor(
+            worker_env,
+            degraded_path.clone(),
+            metrics_registry,
+            None,
+            Some(fallback_reason.to_string()),
+            db,
+            ready_tx,
+            shutdown_rx,
+            Duration::from_millis(50),
+        ));
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), &mut ready_rx)
+                .await
+                .is_err(),
+            "ready signal should wait for a healthy external worker"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&degraded_path).expect("initial degraded marker"),
+            fallback_degraded_marker_contents(fallback_reason, false),
+        );
+
+        let fake_worker = FakeTrainingWorkerServer::start(&socket_path).await;
+        let ready = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+            .await
+            .expect("ready signal should arrive after worker attach")
+            .expect("ready channel should not close")
+            .expect("external worker attach should report ready");
+        assert_eq!(ready, ());
+
+        wait_for(Duration::from_secs(2), || !degraded_path.exists()).await;
+
+        fake_worker.shutdown().await;
+        let _ = shutdown_tx.send(());
+        supervisor.await.expect("supervisor task should join");
+    }
+
+    #[tokio::test]
+    async fn fallback_supervisor_restores_degraded_marker_when_external_worker_disappears() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let socket_path = temp_dir.path().join("worker.sock");
+        let degraded_path = temp_dir.path().join("training-worker.degraded");
+        let db = ProtectedDb::new(Db::new_in_memory().await.expect("in-memory db"));
+        let metrics_registry = Arc::new(MetricsRegistry::new());
+        let worker_env = test_worker_env(&socket_path);
+        let fallback_reason = "Training worker binary not found at /missing/aos-training-worker";
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
+
+        let supervisor = tokio::spawn(run_training_worker_supervisor(
+            worker_env,
+            degraded_path.clone(),
+            metrics_registry,
+            None,
+            Some(fallback_reason.to_string()),
+            db,
+            ready_tx,
+            shutdown_rx,
+            Duration::from_millis(50),
+        ));
+
+        let fake_worker = FakeTrainingWorkerServer::start(&socket_path).await;
+        tokio::time::timeout(Duration::from_secs(2), ready_rx)
+            .await
+            .expect("ready signal should arrive after worker attach")
+            .expect("ready channel should not close")
+            .expect("external worker attach should report ready");
+        wait_for(Duration::from_secs(2), || !degraded_path.exists()).await;
+
+        fake_worker.shutdown().await;
+
+        wait_for(Duration::from_secs(2), || degraded_path.exists()).await;
+        let degraded_contents =
+            std::fs::read_to_string(&degraded_path).expect("restored degraded marker");
+        assert_eq!(
+            degraded_contents,
+            fallback_degraded_marker_contents(fallback_reason, true),
+        );
+
+        let _ = shutdown_tx.send(());
+        supervisor.await.expect("supervisor task should join");
+    }
+
+    #[tokio::test]
+    async fn fallback_supervisor_restores_degraded_marker_for_preexisting_external_worker() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let socket_path = temp_dir.path().join("worker.sock");
+        let degraded_path = temp_dir.path().join("training-worker.degraded");
+        let fake_worker = FakeTrainingWorkerServer::start(&socket_path).await;
+        let db = ProtectedDb::new(Db::new_in_memory().await.expect("in-memory db"));
+        let metrics_registry = Arc::new(MetricsRegistry::new());
+        let worker_env = test_worker_env(&socket_path);
+        let fallback_reason = "Training worker binary not found at /missing/aos-training-worker";
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
+
+        let supervisor = tokio::spawn(run_training_worker_supervisor(
+            worker_env,
+            degraded_path.clone(),
+            metrics_registry,
+            None,
+            Some(fallback_reason.to_string()),
+            db,
+            ready_tx,
+            shutdown_rx,
+            Duration::from_millis(50),
+        ));
+
+        tokio::time::timeout(Duration::from_secs(2), ready_rx)
+            .await
+            .expect("ready signal should arrive for preexisting worker")
+            .expect("ready channel should not close")
+            .expect("preexisting external worker should report ready");
+        assert!(
+            !degraded_path.exists(),
+            "healthy preexisting worker should not leave degraded marker behind"
+        );
+
+        fake_worker.shutdown().await;
+
+        wait_for(Duration::from_secs(2), || degraded_path.exists()).await;
+        assert_eq!(
+            std::fs::read_to_string(&degraded_path).expect("restored degraded marker"),
+            fallback_degraded_marker_contents(fallback_reason, true),
+        );
+
+        let _ = shutdown_tx.send(());
+        supervisor.await.expect("supervisor task should join");
+    }
 }

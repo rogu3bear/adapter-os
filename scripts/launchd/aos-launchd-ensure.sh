@@ -51,28 +51,63 @@ rotate_guardian_log_if_large() {
 
 rotate_guardian_log_if_large
 
-record_backend_restart_event() {
-    local cause="$1"
-    local ts
-    ts="$(date -Iseconds)"
-    local count=0
-    if [ -f "$BACKEND_METRICS_FILE" ]; then
-        local existing
-        existing="$(awk -F= '/^restart_count=/{print $2}' "$BACKEND_METRICS_FILE" 2>/dev/null | tail -1)"
-        if [[ "$existing" =~ ^[0-9]+$ ]]; then
-            count="$existing"
-        fi
-    fi
-    count=$((count + 1))
+if command -v jq >/dev/null 2>&1; then
+    record_backend_restart_event() {
+        local cause="$1"
+        local ts
+        ts="$(date -Iseconds)"
 
-    local tmp_file="${BACKEND_METRICS_FILE}.tmp"
-    {
-        echo "restart_count=$count"
-        echo "last_restart_cause=$cause"
-        echo "last_restart_ts=$ts"
-    } >"$tmp_file"
-    mv "$tmp_file" "$BACKEND_METRICS_FILE"
-}
+        local state="{}"
+        if [ -f "$BACKEND_METRICS_FILE" ]; then
+            # Try JSON first; fall back to legacy key=value migration
+            if jq -e . "$BACKEND_METRICS_FILE" >/dev/null 2>&1; then
+                state="$(cat "$BACKEND_METRICS_FILE")"
+            else
+                # Legacy migration: convert key=value to JSON
+                local legacy_count
+                legacy_count="$(awk -F= '/^restart_count=/{print $2}' "$BACKEND_METRICS_FILE" 2>/dev/null | tail -1)"
+                [[ "$legacy_count" =~ ^[0-9]+$ ]] || legacy_count=0
+                local legacy_cause
+                legacy_cause="$(awk -F= '/^last_restart_cause=/{print $2}' "$BACKEND_METRICS_FILE" 2>/dev/null | tail -1)"
+                local legacy_ts
+                legacy_ts="$(awk -F= '/^last_restart_ts=/{print $2}' "$BACKEND_METRICS_FILE" 2>/dev/null | tail -1)"
+                state=$(jq -n \
+                    --argjson total "$legacy_count" \
+                    --argjson crash 0 \
+                    --arg cause "${legacy_cause:-unknown}" \
+                    --arg ts "${legacy_ts:-}" \
+                    --arg boot_ts "" \
+                    --arg mtime "" \
+                    '{total_restart_count: $total, crash_restart_count: $crash, last_restart_cause: $cause, last_restart_ts: $ts, last_boot_ts: $boot_ts, binary_mtime: $mtime}')
+            fi
+        fi
+
+        local total_count crash_count
+        total_count=$(echo "$state" | jq -r '.total_restart_count // 0' 2>/dev/null || echo 0)
+        crash_count=$(echo "$state" | jq -r '.crash_restart_count // 0' 2>/dev/null || echo 0)
+        total_count=$((total_count + 1))
+
+        # Only increment crash count for non-rebuild causes
+        if [[ "$cause" != *"rebuild"* ]]; then
+            crash_count=$((crash_count + 1))
+        fi
+
+        local tmp_file="${BACKEND_METRICS_FILE}.tmp"
+        jq -n \
+            --argjson total "$total_count" \
+            --argjson crash "$crash_count" \
+            --arg cause "$cause" \
+            --arg ts "$ts" \
+            --arg boot_ts "$(echo "$state" | jq -r '.last_boot_ts // ""' 2>/dev/null || echo "")" \
+            --arg mtime "$(echo "$state" | jq -r '.binary_mtime // ""' 2>/dev/null || echo "")" \
+            '{total_restart_count: $total, crash_restart_count: $crash, last_restart_cause: $cause, last_restart_ts: $ts, last_boot_ts: $boot_ts, binary_mtime: $mtime}' \
+            > "$tmp_file"
+        mv "$tmp_file" "$BACKEND_METRICS_FILE"
+    }
+else
+    echo "[$TS] WARNING: jq not found; supervision state recording disabled" >> "$LOG_FILE"
+    record_backend_restart_event() { :; }
+fi
 
 # Prevent overlapping ticks (launchd StartInterval can fire while startup is in-flight).
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
