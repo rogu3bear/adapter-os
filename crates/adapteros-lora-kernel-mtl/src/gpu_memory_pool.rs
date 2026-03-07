@@ -825,7 +825,7 @@ pub struct GpuMemoryPool {
 
 #[cfg(not(target_os = "macos"))]
 impl GpuMemoryPool {
-    pub fn new(config: GpuMemoryPoolConfig) -> Self {
+    pub fn new<T>(_device: T, config: GpuMemoryPoolConfig) -> Self {
         Self {
             config,
             stats: parking_lot::RwLock::new(GpuMemoryStats::default()),
@@ -855,6 +855,10 @@ impl GpuMemoryPool {
 
     pub fn clear_pool(&self) {
         // No-op on non-macOS
+    }
+
+    pub fn pool_info(&self) -> Vec<(u64, usize, u64)> {
+        Vec::new()
     }
 }
 
