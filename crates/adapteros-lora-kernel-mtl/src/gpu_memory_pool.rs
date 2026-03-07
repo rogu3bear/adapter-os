@@ -14,7 +14,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, warn};
 
-use super::kv_cache::KvResidency;
 #[cfg(target_os = "macos")]
 use super::purgeable::{PurgeableBuffer, PurgeableState};
 
@@ -23,6 +22,28 @@ use adapteros_telemetry::CriticalComponentMetrics;
 
 #[cfg(target_os = "macos")]
 use metal::{Buffer, Device, MTLResourceOptions};
+
+/// KV cache residency classification for memory management.
+///
+/// HOT entries are actively in use or frequently accessed and should be protected
+/// from OS-level memory purgeing. COLD entries can be reclaimed under memory pressure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum KvResidency {
+    /// Active or frequently-used entry.
+    Hot,
+    /// Idle entry - can be evicted under memory pressure.
+    #[default]
+    Cold,
+}
+
+impl std::fmt::Display for KvResidency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Hot => write!(f, "HOT"),
+            Self::Cold => write!(f, "COLD"),
+        }
+    }
+}
 
 /// Eviction policy for memory pressure handling
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -825,7 +846,7 @@ pub struct GpuMemoryPool {
 
 #[cfg(not(target_os = "macos"))]
 impl GpuMemoryPool {
-    pub fn new(config: GpuMemoryPoolConfig) -> Self {
+    pub fn new<T>(_device: T, config: GpuMemoryPoolConfig) -> Self {
         Self {
             config,
             stats: parking_lot::RwLock::new(GpuMemoryStats::default()),
@@ -855,6 +876,10 @@ impl GpuMemoryPool {
 
     pub fn clear_pool(&self) {
         // No-op on non-macOS
+    }
+
+    pub fn pool_info(&self) -> Vec<(u64, usize, u64)> {
+        Vec::new()
     }
 }
 

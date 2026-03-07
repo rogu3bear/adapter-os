@@ -53,6 +53,7 @@ impl NoiseTracker {
         }
     }
 
+    #[cfg(target_os = "macos")]
     pub fn track_buffers(
         &mut self,
         layer_id: &str,
@@ -206,6 +207,7 @@ impl NoiseTracker {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub fn extract_buffer_data(buffer: &metal::Buffer, length: usize) -> Result<Vec<f32>> {
     if length == 0 {
         return Ok(Vec::new());
@@ -255,6 +257,13 @@ pub fn extract_buffer_data(buffer: &metal::Buffer, length: usize) -> Result<Vec<
             )))
         }
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn extract_buffer_data(_buffer: &(), _length: usize) -> Result<Vec<f32>> {
+    Err(AosError::Kernel(
+        "Metal buffer extraction requires macOS".to_string(),
+    ))
 }
 
 pub fn create_reference_data(quantized_data: &[f32]) -> Vec<f32> {
